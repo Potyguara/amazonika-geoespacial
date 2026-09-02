@@ -879,17 +879,22 @@ def create_source(payload:SourceCreate,db:Session=Depends(get_db)):
     source=Source(**payload.model_dump(mode="json")); db.add(source); db.commit(); db.refresh(source); return source
 
 CUSTOM_CATEGORIES={
+    "CAR_SICAR":"Cadastro Ambiental Rural (CAR / SICAR)",
+    "SPU":"Patrimônio da União (SPU)",
     "ASSENTAMENTO_ESTADUAL":"Assentamento estadual",
     "ASSENTAMENTO_MUNICIPAL":"Assentamento municipal",
     "UC_ESTADUAL":"Unidade de conservação estadual",
     "UC_MUNICIPAL":"Unidade de conservação municipal",
-    "OUTRO":"Outra camada regional",
+    "AMBIENTAL_ESTADUAL":"Outra base ambiental estadual",
+    "FUNDIARIO_ESTADUAL":"Outra base fundiária estadual",
+    "OUTRO":"Outro vetor territorial",
 }
 
 @router.post("/custom-vector",status_code=201,dependencies=[Depends(require_permission("sources.manage"))])
 def create_custom_vector(
     name:str=Form(...),category:str=Form(...),uf:str=Form(...),
     institution:str|None=Form(None),reference_date:date|None=Form(None),
+    source_url:str|None=Form(None),notes:str|None=Form(None),
     layer_name:str|None=Form(None),file:UploadFile=File(...),db:Session=Depends(get_db),
 ):
     clean_name=name.strip()
@@ -906,9 +911,18 @@ def create_custom_vector(
         slug=f"regional-{clean_uf}-{uuid4().hex[:12]}",name=clean_name,
         institution=(institution or "Fonte regional").strip() or "Fonte regional",
         kind=SourceKind.MANUAL,is_official=False,is_active=True,update_frequency="MANUAL",
-        metadata_json={"custom_layer":True,"scope_uf":clean_uf.upper(),
-            "custom_category":clean_category,"custom_category_label":CUSTOM_CATEGORIES[clean_category],
-            "default_visible":True,"crs":"EPSG:4674","service_role":"VECTOR_ANALYSIS"},
+        metadata_json={
+            "custom_layer":True,
+            "scope_uf":clean_uf.upper(),
+            "custom_category":clean_category,
+            "custom_category_label":CUSTOM_CATEGORIES[clean_category],
+            "default_visible":True,
+            "crs":"EPSG:4674",
+            "service_role":"VECTOR_ANALYSIS",
+            "local_vector_primary":clean_category in {"CAR_SICAR","SPU"},
+            "source_url":(source_url or "").strip() or None,
+            "notes":(notes or "").strip() or None,
+        },
     )
     db.add(source); db.commit(); db.refresh(source)
     root=get_settings().storage_dir; root.mkdir(parents=True,exist_ok=True)

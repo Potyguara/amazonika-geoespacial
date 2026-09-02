@@ -1621,9 +1621,14 @@ export function SourcesModule() {
       text: string;
     } | null>(null);
   const [customName, setCustomName] = useState(""),
-    [customCategory, setCustomCategory] = useState("ASSENTAMENTO_ESTADUAL"),
+    [customCategory, setCustomCategory] = useState("CAR_SICAR"),
     [customUf, setCustomUf] = useState("AP"),
     [customInstitution, setCustomInstitution] = useState(""),
+    [customReferenceDate, setCustomReferenceDate] = useState(
+      new Date().toISOString().slice(0, 10),
+    ),
+    [customSourceUrl, setCustomSourceUrl] = useState(""),
+    [customNotes, setCustomNotes] = useState(""),
     [customFile, setCustomFile] = useState<File | null>(null),
     [customUploading, setCustomUploading] = useState(false);
   const load = useCallback(async () => {
@@ -1779,13 +1784,21 @@ export function SourcesModule() {
     setCustomUploading(true); setMessage(null);
     const data=new FormData();
     data.append("name",customName.trim()); data.append("category",customCategory);
-    data.append("uf",customUf); data.append("file",customFile);
+    data.append("uf",customUf);
+    data.append("file",customFile);
+    data.append("reference_date",customReferenceDate);
     if(customInstitution.trim()) data.append("institution",customInstitution.trim());
+    if(customSourceUrl.trim()) data.append("source_url",customSourceUrl.trim());
+    if(customNotes.trim()) data.append("notes",customNotes.trim());
     try {
       const response=await fetch(`${API_URL}/sources/custom-vector`,{method:"POST",body:data});
       const body=await response.json().catch(()=>null);
       if(!response.ok) throw new Error(body?.detail ?? "Não foi possível adicionar a camada.");
-      setCustomName(""); setCustomInstitution(""); setCustomFile(null);
+      setCustomName("");
+      setCustomInstitution("");
+      setCustomSourceUrl("");
+      setCustomNotes("");
+      setCustomFile(null);
       await changed(`${body.source.name}: ${Number(body.version.feature_count).toLocaleString("pt-BR")} feições adicionadas para ${customUf}.`);
       window.dispatchEvent(new CustomEvent("amazonika:sources-changed"));
     } catch(reason) {
@@ -2070,17 +2083,76 @@ export function SourcesModule() {
       <section className="custom-sources-section">
         <div className="custom-sources-heading">
           <div><p className="eyebrow">CAMADAS COMPLEMENTARES</p><h2>Vetores adicionais por UF</h2></div>
-          <p>Cadastre assentamentos estaduais ou municipais, UCs estaduais ou municipais e outras feições regionais. Toda nova camada entra ligada por padrão no mapa e na análise da UF escolhida.</p>
+          <p>Cadastre CAR/SICAR, SPU, assentamentos, unidades de conservação e outras bases territoriais por UF. Toda nova camada entra ligada por padrão no mapa e poderá participar da análise enquanto permanecer ligada.</p>
         </div>
         <form className="custom-source-form" onSubmit={addCustomLayer}>
           <label><span>Nome da camada</span><input required minLength={3} value={customName} onChange={(e)=>setCustomName(e.target.value)} placeholder="Ex.: Assentamentos estaduais do Amapá" /></label>
-          <label><span>Categoria</span><select value={customCategory} onChange={(e)=>setCustomCategory(e.target.value)}><option value="ASSENTAMENTO_ESTADUAL">Assentamento estadual</option><option value="ASSENTAMENTO_MUNICIPAL">Assentamento municipal</option><option value="UC_ESTADUAL">UC estadual</option><option value="UC_MUNICIPAL">UC municipal</option><option value="OUTRO">Outra feição regional</option></select></label>
+          <label>
+            <span>Categoria</span>
+            <select value={customCategory} onChange={(e)=>setCustomCategory(e.target.value)}>
+              <option value="CAR_SICAR">CAR / SICAR</option>
+              <option value="SPU">SPU - Patrimônio da União</option>
+              <option value="ASSENTAMENTO_ESTADUAL">Assentamento estadual</option>
+              <option value="ASSENTAMENTO_MUNICIPAL">Assentamento municipal</option>
+              <option value="UC_ESTADUAL">UC estadual</option>
+              <option value="UC_MUNICIPAL">UC municipal</option>
+              <option value="AMBIENTAL_ESTADUAL">Outra base ambiental estadual</option>
+              <option value="FUNDIARIO_ESTADUAL">Outra base fundiária estadual</option>
+              <option value="OUTRO">Outro vetor territorial</option>
+            </select>
+          </label>
           <label><span>UF</span><select value={customUf} onChange={(e)=>setCustomUf(e.target.value)}>{["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map((uf)=><option key={uf}>{uf}</option>)}</select></label>
-          <label><span>Órgão responsável (opcional)</span><input value={customInstitution} onChange={(e)=>setCustomInstitution(e.target.value)} placeholder="Ex.: SEMA/AP" /></label>
-          <label className="custom-file-field"><span>Arquivo vetorial ou KML</span><input required type="file" accept=".gpkg,.kml,.geojson,.json,.zip" onChange={(e)=>setCustomFile(e.target.files?.[0]??null)} /><small>GeoPackage, KML, GeoJSON ou Shapefile ZIP · convertido para SIRGAS 2000</small></label>
+          <label>
+            <span>Órgão / origem</span>
+            <input
+              value={customInstitution}
+              onChange={(e)=>setCustomInstitution(e.target.value)}
+              placeholder={customCategory==="SPU" ? "Ex.: SPU" : customCategory==="CAR_SICAR" ? "Ex.: SEMA/AP ou SICAR" : "Ex.: SEMA/AP"}
+            />
+          </label>
+          <label>
+            <span>Data de referência</span>
+            <input
+              required
+              type="date"
+              value={customReferenceDate}
+              onChange={(e)=>setCustomReferenceDate(e.target.value)}
+            />
+          </label>
+          <label>
+            <span>Fonte / endereço oficial (opcional)</span>
+            <input
+              type="url"
+              value={customSourceUrl}
+              onChange={(e)=>setCustomSourceUrl(e.target.value)}
+              placeholder="https://..."
+            />
+          </label>
+          <label>
+            <span>Observação (opcional)</span>
+            <input
+              value={customNotes}
+              onChange={(e)=>setCustomNotes(e.target.value)}
+              placeholder="Ex.: Base vetorial oficial publicada em setembro/2026"
+            />
+          </label>
+          <label className="custom-file-field">
+            <span>Arquivo vetorial ou KML</span>
+            <input
+              required
+              type="file"
+              accept=".gpkg,.kml,.geojson,.json,.zip"
+              onChange={(e)=>setCustomFile(e.target.files?.[0]??null)}
+            />
+            <small>GeoPackage, KML, GeoJSON ou Shapefile ZIP · convertido para SIRGAS 2000</small>
+          </label>
           <Button disabled={customUploading||!customFile}>{customUploading?<RefreshCw size={15} className="spin"/>:<FileUp size={15}/>} {customUploading?"Importando…":"Adicionar camada ligada"}</Button>
         </form>
-        {custom.length>0&&<div className="custom-source-list">{custom.map((source)=>{const version=versions[source.id]; return <article key={source.id}><div><small>{String(source.metadata_json.custom_category_label??"Camada adicional")} · {String(source.metadata_json.scope_uf??"—")}</small><strong>{source.name}</strong><span>{source.institution} · {version?`${version.feature_count.toLocaleString("pt-BR")} feições`:"Sem versão"}</span></div><label><Switch className="source-config-switch" checked={source.is_active} onCheckedChange={(checked)=>void toggleCustomLayer(source,checked)} /><span>{source.is_active?"Ligada":"Desligada"}</span></label></article>})}</div>}
+        {custom.length>0&&<div className="custom-source-list">{custom.map((source)=>{const version=versions[source.id]; return <article key={source.id}><div><small>{String(source.metadata_json.custom_category_label??"Camada adicional")} · {String(source.metadata_json.scope_uf??"—")}</small><strong>{source.name}</strong><span>
+  {source.institution}
+  {version?.reference_date ? ` · ref. ${new Intl.DateTimeFormat("pt-BR").format(new Date(`${version.reference_date}T12:00:00`))}` : ""}
+  {version ? ` · ${version.feature_count.toLocaleString("pt-BR")} feições` : " · Sem versão"}
+</span></div><label><Switch className="source-config-switch" checked={source.is_active} onCheckedChange={(checked)=>void toggleCustomLayer(source,checked)} /><span>{source.is_active?"Ligada":"Desligada"}</span></label></article>})}</div>}
       </section>
       <PackageUploadDialog
         group={packageGroup}

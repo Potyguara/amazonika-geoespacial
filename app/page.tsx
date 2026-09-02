@@ -557,9 +557,8 @@ export default function Home() {
     setAnalysisError(null);
     setAnalysisProgress("Enviando geometria…");
     try {
-        // Os switches controlam somente a visualização do mapa.
-        // A análise territorial consulta todas as fontes disponíveis
-        // para a UF selecionada, independentemente da visibilidade.
+        // Somente as fontes ligadas pelo usuário e disponíveis para
+        // a UF selecionada participam desta execução territorial.
         const sourceIds = Array.from(
           new Set(
             catalog.flatMap((layer, index) =>
