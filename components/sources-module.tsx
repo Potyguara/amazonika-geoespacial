@@ -113,7 +113,11 @@ function SourceSettingsDialog({
     [testingWms, setTestingWms] = useState(false),
     [wmsTest, setWmsTest] = useState<"success" | "error" | null>(null),
     [error, setError] = useState<string | null>(null);
-  const isIncra = source?.institution.toUpperCase() === "INCRA";
+  const institution = source?.institution.toUpperCase() ?? "";
+  const isIncra = institution === "INCRA";
+  const isSicar = institution === "SICAR";
+  const isSpu = institution === "SPU";
+  const isWmsReference = isIncra || isSicar || isSpu;
   useEffect(() => {
     if (!source) return;
     setKind(source.kind);
@@ -123,7 +127,9 @@ function SourceSettingsDialog({
     setWmsUrl(String(source.metadata_json.wms_url ?? ""));
     setWmsLayer(String(source.metadata_json.wms_layer ?? ""));
     setWmsEnabled(Boolean(source.metadata_json.wms_enabled));
-    setAllowLegacy(Boolean(source.metadata_json.allow_insecure_tls));
+    setAllowLegacy(
+      isIncra && Boolean(source.metadata_json.allow_insecure_tls),
+    );
     setFile(null);
     setManualLayer("");
     setUploadProgress(0);
@@ -185,7 +191,7 @@ function SourceSettingsDialog({
     setSaving(true);
     setError(null);
     try {
-      const payload = isIncra
+      const payload = isWmsReference
         ? {
             kind: "DOWNLOAD",
             service_url: null,
@@ -194,11 +200,13 @@ function SourceSettingsDialog({
             wms_url: wmsUrl || null,
             wms_layer: wmsLayer || null,
             wms_enabled: wmsEnabled,
-            allow_insecure_tls: allowLegacy,
+            allow_insecure_tls: isIncra ? allowLegacy : false,
             stale_after_days: 15,
             requires_auth: false,
             access_mode: "PUBLIC_WMS",
-            service_role: "WMS_REFERENCE_WITH_VECTOR_SNAPSHOT",
+            service_role: isIncra
+              ? "WMS_REFERENCE_WITH_VECTOR_SNAPSHOT"
+              : "WMS_REFERENCE",
           }
         : {
             kind,
@@ -444,18 +452,18 @@ function SourceSettingsDialog({
             <Globe2 size={17} />
             <div>
               <strong>
-                {isIncra
+                {isWmsReference
                   ? "Visualização oficial WMS"
                   : "Conexão automática vetorial"}
               </strong>
               <small>
-                {isIncra
-                  ? "Serviço público do Acervo Fundiário, sem autenticação"
+                {isWmsReference
+                  ? "Serviço oficial usado somente como referência visual"
                   : "WFS ou ArcGIS FeatureServer"}
               </small>
             </div>
           </div>
-          {isIncra ? (
+          {isWmsReference ? (
             <>
               <div className="source-config-grid">
                 <label className="wide">
@@ -491,24 +499,37 @@ function SourceSettingsDialog({
                     onCheckedChange={setWmsEnabled}
                   />
                 </div>
-                <div className="source-switch-field wide">
-                  <span>
-                    Permitir conexão legada somente com o domínio oficial do
-                    INCRA
-                  </span>
-                  <Switch
-                    className="source-config-switch"
-                    checked={allowLegacy}
-                    onCheckedChange={setAllowLegacy}
-                  />
-                </div>
+                {isIncra && (
+                  <div className="source-switch-field wide">
+                    <span>
+                      Permitir conexão legada somente com o domínio oficial do
+                      INCRA
+                    </span>
+                    <Switch
+                      className="source-config-switch"
+                      checked={allowLegacy}
+                      onCheckedChange={setAllowLegacy}
+                    />
+                  </div>
+                )}
               </div>
               <div className="wms-reference-warning">
                 <Globe2 size={16} />
                 <span>
-                  O gov.br serve apenas para consultar/copiar URLs. O WMS
-                  funciona sem login. A exceção legada fica restrita a{" "}
-                  <strong>acervofundiario.incra.gov.br</strong>.
+                  {isIncra ? (
+                    <>
+                      O gov.br serve apenas para consultar/copiar URLs. O WMS
+                      funciona sem login. A exceção legada fica restrita a{" "}
+                      <strong>acervofundiario.incra.gov.br</strong>.
+                    </>
+                  ) : (
+                    <>
+                      O WMS é somente referência visual e pode permanecer
+                      desligado. Identificação, análise e relatório utilizam
+                      os vetores carregados no PostGIS pelo módulo{" "}
+                      <strong>Vetores adicionais por UF</strong>.
+                    </>
+                  )}
                 </span>
               </div>
               <button
@@ -524,11 +545,11 @@ function SourceSettingsDialog({
                   </>
                 ) : wmsTest === "success" ? (
                   <>
-                    <CheckCircle2 size={14} /> WMS oficial do Amapá conectado
+                    <CheckCircle2 size={14} /> WMS oficial conectado
                   </>
                 ) : (
                   <>
-                    <Server size={14} /> Testar conexão WMS do Amapá
+                    <Server size={14} /> Testar conexão WMS oficial
                   </>
                 )}
               </button>
@@ -594,17 +615,21 @@ function SourceSettingsDialog({
             </Button>
           </div>
         </form>
-        {["ASSENTAMENTOS", "SIGEF", "SNCI"].includes(
+        {isWmsReference || ["ASSENTAMENTOS", "SIGEF", "SNCI"].includes(
           String(source?.metadata_json.source_group ?? ""),
         ) ? (
           <div className="source-package-managed-note">
             <Database size={17} />
             <div>
-              <strong>Atualização controlada por pacote</strong>
+              <strong>
+                {isWmsReference
+                  ? "Vetor operacional separado do WMS"
+                  : "Atualização controlada por pacote"}
+              </strong>
               <small>
-                Esta fonte faz parte de um GeoPackage composto. Use o botão
-                de atualização no cabeçalho do grupo para manter todas as
-                camadas sincronizadas.
+                {isWmsReference
+                  ? "Use Vetores adicionais por UF para carregar a base PostGIS usada no mapa, Identificar, análise e relatório."
+                  : "Esta fonte faz parte de um GeoPackage composto. Use o botão de atualização no cabeçalho do grupo para manter todas as camadas sincronizadas."}
               </small>
             </div>
           </div>

@@ -92,6 +92,13 @@ def run_analysis(db:Session,name:str,geometry:dict,source_ids:list[UUID]|None=No
 
     for source in db.scalars(selected_sources).all():
         metadata=dict(source.metadata_json or {})
+
+        # Fonte oficial marcada como WMS_REFERENCE é apenas cartográfica.
+        # A análise usa exclusivamente as bases vetoriais PostGIS escolhidas
+        # pelo usuário (incluindo CAR/SPU carregados por UF).
+        if metadata.get("service_role") == "WMS_REFERENCE":
+            continue
+
         version=None
         access_mode="LOCAL_VECTOR"
         if (metadata.get("wfs_on_demand") and incra_uf) or metadata.get("arcgis_on_demand"):

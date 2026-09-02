@@ -1147,6 +1147,22 @@ def update_source(source_id:UUID,payload:SourceUpdate,db:Session=Depends(get_db)
     for field in ("portal_url","requires_auth","access_mode","service_role","wms_url","wms_layer","wms_urls","wms_available_ufs","wms_enabled","allow_insecure_tls","stale_after_days"):
         if field in changes: metadata[field]=changes.pop(field)
     for field,value in changes.items(): setattr(source,field,value)
+
+    # SICAR e SPU oficiais podem manter WMS como referência visual, mas
+    # nunca devem acionar WFS/ArcGIS sob demanda nem TLS legado para a
+    # operação territorial. O vetor operacional vem das cargas por UF.
+    if (
+        source.institution.upper() in {"SICAR", "SPU"}
+        and metadata.get("service_role") == "WMS_REFERENCE"
+    ):
+        metadata["wfs_on_demand"] = False
+        metadata["arcgis_on_demand"] = False
+        metadata["allow_insecure_tls"] = False
+        metadata["allow_legacy_tls"] = False
+        source.service_url = None
+        source.layer_name = None
+        source.kind = SourceKind.DOWNLOAD
+
     source.metadata_json=metadata
     db.commit(); db.refresh(source); return source
 
