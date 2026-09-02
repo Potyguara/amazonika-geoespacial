@@ -1,0 +1,27 @@
+ATUALIZAÇÃO V15 — WFS INCRA SOB DEMANDA, ANÁLISE E RELATÓRIO
+
+1. Encerre o Vite com Ctrl+C.
+2. No Terminal, execute os comandos abaixo sem copiar linhas iniciadas por #.
+
+cd ~/Documents/amazonika-geoespacial
+unzip -o ~/Downloads/atualizacao-analise-relatorio-v15.zip -d .
+docker compose up -d --build api
+docker compose exec api python -m app.configure_incra_wms
+until curl -f http://localhost:8000/health; do sleep 2; done
+npm run dev -- --host 0.0.0.0 --force
+
+COMO USAR
+
+1. Selecione a UF no painel de camadas.
+2. Ligue somente as camadas que participarão da consulta.
+3. Desenhe um ponto/polígono ou importe a geometria.
+4. Clique em Executar análise.
+5. O sistema consulta o vetor oficial INCRA por WFS apenas no recorte necessário.
+6. Clique em Criar relatório e use Salvar / imprimir PDF.
+
+OBSERVAÇÕES
+
+- A primeira consulta de uma área pode levar mais tempo; as seguintes reutilizam o cache.
+- Para camadas muito densas, analise áreas menores para evitar respostas oficiais excessivas.
+- UCs estaduais/municipais, assentamentos estaduais e vetores regionais continuam manuais.
+- Se alguma fonte oficial não responder, a análise continua com as demais e mostra um aviso.

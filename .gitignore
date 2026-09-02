@@ -1,0 +1,65 @@
+# Segredos / ambiente
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+dist/
+.next/
+.vinext/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Dados e uploads
+storage/
+uploads/
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.sqlite
+*.db
+
+# Logs / backups
+*.log
+*.bak
+*.bak-*
+*.bak*
+*.tmp
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Artefatos locais / históricos
+__MACOSX/
+backups/
+build/
+data/
+teste-relatorio/
+.sites-runtime/
+atualizacao-conexao-wms-switches/
+migracao-vps/
+
+# Arquivos temporários
+clear
+
+# Pacotes geoespaciais adicionais
+*.zip
+*.kml
+*.kmz
+*.geojson
+*.tif
+*.tiff
+*.vrt
+
+# Scripts/artefatos que podem conter configuração local
+deploy/inicializar-vps.sh
+*.bad-*

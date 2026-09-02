@@ -1,0 +1,17 @@
+CORREÇÃO V17 — ANÁLISE ASSÍNCRONA PARA USO LOCAL E VPS
+
+Encerre o Vite com Ctrl+C e execute:
+
+cd ~/Documents/amazonika-geoespacial
+unzip -o ~/Downloads/correcao-analise-assincrona-v17.zip -d .
+docker compose up -d --build api
+until curl -f http://localhost:8000/health; do sleep 2; done
+npm run dev -- --host 0.0.0.0 --force
+
+Depois desenhe ou importe a geometria e clique em Executar análise.
+
+O painel agora receberá a tarefa imediatamente e acompanhará o processamento
+em segundo plano. Essa arquitetura evita timeout do Safari, Nginx e proxies do VPS.
+
+O primeiro início da API adiciona automaticamente os campos de acompanhamento
+necessários na tabela analyses. Não é necessário apagar o banco de dados.

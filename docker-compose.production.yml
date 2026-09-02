@@ -1,0 +1,128 @@
+name: amazonika-geoespacial
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=2GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=30
+      - -c
+      - statement_timeout=30s
+      - -c
+      - idle_in_transaction_session_timeout=60s
+    shm_size: 256mb
+    mem_limit: 3g
+    cpus: 1.25
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    networks:
+      - geo_private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging: *default-logging
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      STORAGE_DIR: /data/uploads
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+    ports:
+      - "127.0.0.1:18000:8000"
+    mem_limit: 1536m
+    cpus: 1.0
+    volumes:
+      - uploads_data:/data/uploads
+    networks:
+      - geo_private
+      - geo_egress
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  package-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.package_worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      STORAGE_DIR: /data/uploads
+    mem_limit: 1536m
+    cpus: 1.0
+    volumes:
+      - uploads_data:/data/uploads
+    networks:
+      - geo_private
+      - geo_egress
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      disable: true
+    logging: *default-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web.production
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "127.0.0.1:13000:3000"
+    mem_limit: 1536m
+    cpus: 0.75
+    networks:
+      - geo_egress
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+networks:
+  geo_private:
+    internal: true
+  geo_egress:
+
+volumes:
+  postgis_data:
+  uploads_data:

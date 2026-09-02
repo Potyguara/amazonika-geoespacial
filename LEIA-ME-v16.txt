@@ -1,0 +1,21 @@
+CORREÇÃO V16 — IPHAN 3D E EXECUTAR ANÁLISE NA REDE LOCAL
+
+1. Encerre o Vite com Ctrl+C.
+2. Execute:
+
+cd ~/Documents/amazonika-geoespacial
+unzip -o ~/Downloads/correcao-iphan-analise-v16.zip -d .
+docker compose up -d --build api
+docker compose exec api python -m app.configure_incra_wms
+docker compose exec api python -m app.configure_official_sources
+until curl -f http://localhost:8000/health; do sleep 2; done
+npm run dev -- --host 0.0.0.0 --force
+
+Depois:
+
+1. Abra Fontes de dados.
+2. Em Áreas de sítios arqueológicos, clique novamente em Primeira carga.
+3. Volte ao mapa, desenhe ou importe uma geometria e clique em Executar análise.
+
+A versão corrige geometrias MultiPolygon Z do IPHAN convertendo-as para 2D antes do PostGIS.
+Também autoriza requisições POST feitas pelo painel aberto através do IP local 192.168.x.x.
