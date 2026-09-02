@@ -2,14 +2,36 @@ from pathlib import Path
 import runpy
 
 
-# Primeiro aplica o patch-base de feedback visual e cards de referência.
-# Em seguida remove as regras específicas por órgão e transforma a política
-# em comportamento genérico orientado por metadados/taxonomia.
-runpy.run_path("scripts/apply_layer_loading_and_reference_cards.py", run_name="__main__")
-
+# ============================================================
+# 1. PATCH-BASE — aplicar somente se ainda não estiver presente
+# ============================================================
+geo = Path("components/geo-map.tsx")
 sources = Path("components/sources-module.tsx")
+
+g = geo.read_text(encoding="utf-8")
 s = sources.read_text(encoding="utf-8")
 
+base_applied = (
+    "previousLayerStateRef" in g
+    and "layerTransition" in g
+    and "map-layer-transition" in g
+    and "source-reference-badge" in s
+)
+
+if base_applied:
+    print("OK [base-policy] - patch anterior já estava aplicado; não será repetido")
+else:
+    print("INFO [base-policy] - aplicando patch-base de feedback visual e cards")
+    runpy.run_path(
+        "scripts/apply_layer_loading_and_reference_cards.py",
+        run_name="__main__",
+    )
+    s = sources.read_text(encoding="utf-8")
+
+
+# ============================================================
+# 2. POLÍTICA UNIVERSAL — sem regras operacionais por órgão
+# ============================================================
 old = '''            referenceOnly =
               source.metadata_json.service_role === "WMS_REFERENCE" &&
               ["SICAR", "SPU"].includes(source.institution.toUpperCase()),
@@ -42,11 +64,13 @@ new = '''            referenceOnly = String(
                 .join(" ")
                 .toUpperCase();
 
-              // Normalização de taxonomia, não de órgão. A regra continua
-              // genérica: qualquer fonte pode declarar operational_categories
-              // explicitamente e qualquer vetor pode declarar reference_source_id.
+              // Compatibilidade para bases já existentes. Novas fontes devem
+              // preferencialmente declarar operational_categories ou seus
+              // vetores declarar reference_source_id, sem exigir mudança de código.
               if (/CAR|SICAR/.test(taxonomy)) return ["CAR_SICAR"];
-              if (/SPU|PATRIMÔNIO DA UNIÃO|PATRIMONIO DA UNIAO/.test(taxonomy)) return ["SPU"];
+              if (/SPU|PATRIMÔNIO DA UNIÃO|PATRIMONIO DA UNIAO/.test(taxonomy)) {
+                return ["SPU"];
+              }
 
               const group = String(
                 source.metadata_json.source_group ?? source.institution ?? "",
@@ -71,15 +95,19 @@ new = '''            referenceOnly = String(
               : [],
 '''
 
-if old not in s:
+universal_marker = 'referenceSourceId === source.id ||'
+
+if universal_marker in s:
+    print("OK [universal-policy] - política universal já estava aplicada")
+elif old in s:
+    s = s.replace(old, new, 1)
+    sources.write_text(s, encoding="utf-8")
+    print("OK [universal-policy] - referência operacional generalizada para qualquer fonte")
+else:
     raise SystemExit(
-        "ERRO [universal-reference]: bloco específico SICAR/SPU não localizado"
+        "ERRO [universal-reference]: não foi possível reconhecer o estado atual do bloco de referências"
     )
 
-s = s.replace(old, new, 1)
-sources.write_text(s, encoding="utf-8")
-
-print("OK [universal-policy] - referência operacional generalizada para qualquer fonte")
-print("OK [universal-policy] - loading por toggle já é aplicado a toda camada com id")
-print("OK [universal-policy] - vetores adicionais continuam independentes de tamanho e órgão")
+print("OK [universal-policy] - loading por toggle aplicado genericamente às camadas com id")
+print("OK [universal-policy] - vetores adicionais independentes de tamanho e órgão")
 print("POLÍTICA UNIVERSAL DE CAMADAS CONCLUÍDA")
