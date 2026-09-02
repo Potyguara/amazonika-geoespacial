@@ -1630,7 +1630,29 @@ export function SourcesModule() {
     [customSourceUrl, setCustomSourceUrl] = useState(""),
     [customNotes, setCustomNotes] = useState(""),
     [customFile, setCustomFile] = useState<File | null>(null),
-    [customUploading, setCustomUploading] = useState(false);
+    [customUploading, setCustomUploading] = useState(false),
+    [customProgress, setCustomProgress] = useState(0),
+    [customPhase, setCustomPhase] = useState(""),
+    [customUploadSession, setCustomUploadSession] = useState<{
+      source_id?: string;
+      upload_id?: string;
+      status?: string;
+      filename?: string;
+      file_size?: number;
+      received_bytes?: number;
+      progress_percent?: number;
+      processing_stage?: string | null;
+      error?: string | null;
+      error_title?: string | null;
+      error_detail?: string | null;
+      error_retryable?: boolean;
+      result?: {
+        source_id?: string;
+        source_name?: string;
+        version_id?: string;
+        feature_count?: number;
+      };
+    } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -1778,33 +1800,502 @@ export function SourcesModule() {
       setSyncing(null);
     }
   };
+  const pollCustomProcessing = async (
+    sourceId: string,
+    uploadId: string,
+    resumeKey: string,
+  ) => {
+    for (;;) {
+      const response = await fetch(
+        `${API_URL}/sources/${sourceId}/uploads/${uploadId}/status`,
+      );
+
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          body?.detail ?? "Não foi possível acompanhar o processamento.",
+        );
+      }
+
+      setCustomUploadSession(body);
+
+      const status = String(body?.status ?? "");
+
+      const progress = Math.max(
+        0,
+        Math.min(
+          100,
+          Number(
+            body?.progress_percent ??
+              (status === "UPLOADING"
+                ? Math.round(
+                    (Number(body.received_bytes || 0) /
+                      Math.max(Number(body.file_size || 1), 1)) *
+                      100,
+                  )
+                : 99),
+          ),
+        ),
+      );
+
+      setCustomProgress(progress);
+      setCustomPhase(
+        body?.processing_stage ??
+          (status === "QUEUED"
+            ? "Aguardando processamento vetorial…"
+            : status === "PROCESSING"
+              ? "Importando vetor para o PostGIS…"
+              : ""),
+      );
+
+      if (status === "READY") {
+        window.localStorage.removeItem(resumeKey);
+
+        const total = Number(body?.result?.feature_count || 0);
+        const sourceName =
+          body?.result?.source_name || customName.trim() || "Camada";
+
+        setCustomProgress(100);
+        setCustomPhase("Importação concluída.");
+
+        setCustomName("");
+        setCustomInstitution("");
+        setCustomSourceUrl("");
+        setCustomNotes("");
+        setCustomFile(null);
+        setCustomUploadSession(null);
+
+        await changed(
+          `${sourceName}: ${total.toLocaleString("pt-BR")} feições importadas e ativadas.`,
+        );
+
+        window.dispatchEvent(
+          new CustomEvent("amazonika:sources-changed"),
+        );
+
+        return;
+      }
+
+      if (status === "FAILED") {
+        setMessage({
+          kind: "error",
+          text:
+            body?.error_detail ??
+            body?.error ??
+            "O processamento vetorial falhou. O arquivo foi preservado.",
+        });
+
+        return;
+      }
+
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, 3000),
+      );
+    }
+  };
+
   const addCustomLayer = async (event: FormEvent) => {
     event.preventDefault();
+
     if (!customFile) return;
-    setCustomUploading(true); setMessage(null);
-    const data=new FormData();
-    data.append("name",customName.trim()); data.append("category",customCategory);
-    data.append("uf",customUf);
-    data.append("file",customFile);
-    data.append("reference_date",customReferenceDate);
-    if(customInstitution.trim()) data.append("institution",customInstitution.trim());
-    if(customSourceUrl.trim()) data.append("source_url",customSourceUrl.trim());
-    if(customNotes.trim()) data.append("notes",customNotes.trim());
+
+    const CHUNK_SIZE = 25 * 1024 * 1024;
+
+    const resumeKey =
+      `amazonika-custom-upload:` +
+      `${customUf}:${customCategory}:` +
+      `${customFile.name}:${customFile.size}:` +
+      `${customName.trim()}`;
+
+    setCustomUploading(true);
+    setCustomProgress(0);
+    setCustomPhase("Preparando upload…");
+    setMessage(null);
+
     try {
-      const response=await fetch(`${API_URL}/sources/custom-vector`,{method:"POST",body:data});
-      const body=await response.json().catch(()=>null);
-      if(!response.ok) throw new Error(body?.detail ?? "Não foi possível adicionar a camada.");
-      setCustomName("");
-      setCustomInstitution("");
-      setCustomSourceUrl("");
-      setCustomNotes("");
-      setCustomFile(null);
-      await changed(`${body.source.name}: ${Number(body.version.feature_count).toLocaleString("pt-BR")} feições adicionadas para ${customUf}.`);
-      window.dispatchEvent(new CustomEvent("amazonika:sources-changed"));
-    } catch(reason) {
-      setMessage({kind:"error",text:reason instanceof Error?reason.message:"Falha ao importar a camada adicional."});
-    } finally { setCustomUploading(false); }
+      let sourceId = "";
+      let uploadId = "";
+      let offset = 0;
+
+      const previous =
+        window.localStorage.getItem(resumeKey);
+
+      if (previous) {
+        try {
+          const saved = JSON.parse(previous);
+
+          sourceId = String(saved?.source_id || "");
+          uploadId = String(saved?.upload_id || "");
+
+          if (sourceId && uploadId) {
+            const statusResponse = await fetch(
+              `${API_URL}/sources/${sourceId}/uploads/${uploadId}/status`,
+            );
+
+            if (statusResponse.ok) {
+              const status = await statusResponse.json();
+
+              const sameFile =
+                Number(status.file_size) === customFile.size &&
+                status.filename === customFile.name;
+
+              if (!sameFile) {
+                sourceId = "";
+                uploadId = "";
+                window.localStorage.removeItem(resumeKey);
+              } else if (status.status === "UPLOADING") {
+                offset = Number(status.received_bytes || 0);
+
+                setCustomProgress(
+                  Math.min(
+                    99,
+                    Math.round(
+                      (offset / customFile.size) * 100,
+                    ),
+                  ),
+                );
+
+                setCustomPhase(
+                  `Retomando upload em ${Math.round(
+                    (offset / customFile.size) * 100,
+                  )}%…`,
+                );
+              } else if (
+                status.status === "QUEUED" ||
+                status.status === "PROCESSING"
+              ) {
+                setCustomUploadSession(status);
+
+                await pollCustomProcessing(
+                  sourceId,
+                  uploadId,
+                  resumeKey,
+                );
+
+                return;
+              } else if (status.status === "FAILED") {
+                setCustomUploadSession(status);
+                setCustomProgress(
+                  Number(status.progress_percent || 99),
+                );
+                setCustomPhase(
+                  status.processing_stage ||
+                    "Falha no processamento.",
+                );
+
+                setMessage({
+                  kind: "error",
+                  text:
+                    status.error_detail ||
+                    status.error ||
+                    "O processamento falhou. O arquivo permanece no servidor.",
+                });
+
+                return;
+              } else if (status.status === "READY") {
+                window.localStorage.removeItem(resumeKey);
+                await load();
+                return;
+              }
+            } else {
+              sourceId = "";
+              uploadId = "";
+              window.localStorage.removeItem(resumeKey);
+            }
+          }
+        } catch {
+          sourceId = "";
+          uploadId = "";
+          window.localStorage.removeItem(resumeKey);
+        }
+      }
+
+      // A fonte é criada apenas uma vez.
+      if (!sourceId) {
+        setCustomPhase("Criando camada territorial…");
+
+        const registerResponse = await fetch(
+          `${API_URL}/sources/custom-vector/register`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: customName.trim(),
+              category: customCategory,
+              uf: customUf,
+              institution:
+                customInstitution.trim() || null,
+              source_url:
+                customSourceUrl.trim() || null,
+              notes:
+                customNotes.trim() || null,
+            }),
+          },
+        );
+
+        const registered =
+          await registerResponse.json().catch(() => null);
+
+        if (!registerResponse.ok) {
+          throw new Error(
+            registered?.detail ??
+              "Não foi possível cadastrar a camada.",
+          );
+        }
+
+        sourceId = String(registered.source.id);
+
+        window.localStorage.setItem(
+          resumeKey,
+          JSON.stringify({
+            source_id: sourceId,
+          }),
+        );
+      }
+
+      // Cria a sessão de upload somente uma vez.
+      if (!uploadId) {
+        setCustomPhase("Criando sessão de upload…");
+
+        const startResponse = await fetch(
+          `${API_URL}/sources/${sourceId}/uploads/start`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              filename: customFile.name,
+              file_size: customFile.size,
+              reference_date: customReferenceDate,
+              layer_name: null,
+            }),
+          },
+        );
+
+        const started =
+          await startResponse.json().catch(() => null);
+
+        if (!startResponse.ok) {
+          throw new Error(
+            started?.detail ??
+              "Não foi possível iniciar o upload.",
+          );
+        }
+
+        uploadId = String(started.upload_id);
+        offset = Number(started.received_bytes || 0);
+
+        window.localStorage.setItem(
+          resumeKey,
+          JSON.stringify({
+            source_id: sourceId,
+            upload_id: uploadId,
+          }),
+        );
+
+        setCustomUploadSession(started);
+      }
+
+      setCustomPhase(
+        offset > 0
+          ? "Retomando envio do arquivo…"
+          : "Enviando arquivo…",
+      );
+
+      while (offset < customFile.size) {
+        const endOffset = Math.min(
+          offset + CHUNK_SIZE,
+          customFile.size,
+        );
+
+        const blob = customFile.slice(
+          offset,
+          endOffset,
+        );
+
+        const data = new FormData();
+
+        data.append("offset", String(offset));
+        data.append(
+          "chunk",
+          blob,
+          `${customFile.name}.part`,
+        );
+
+        const chunkResponse = await fetch(
+          `${API_URL}/sources/${sourceId}/uploads/${uploadId}/chunk`,
+          {
+            method: "POST",
+            body: data,
+          },
+        );
+
+        const chunkBody =
+          await chunkResponse.json().catch(() => null);
+
+        if (!chunkResponse.ok) {
+          // Se houve perda de conexão ou repetição de chunk,
+          // consulta o servidor e continua do byte efetivamente salvo.
+          if (chunkResponse.status === 409) {
+            const statusResponse = await fetch(
+              `${API_URL}/sources/${sourceId}/uploads/${uploadId}/status`,
+            );
+
+            if (statusResponse.ok) {
+              const status =
+                await statusResponse.json();
+
+              offset = Number(
+                status.received_bytes || offset,
+              );
+
+              setCustomProgress(
+                Math.min(
+                  99,
+                  Math.round(
+                    (offset / customFile.size) * 100,
+                  ),
+                ),
+              );
+
+              continue;
+            }
+          }
+
+          throw new Error(
+            chunkBody?.detail ??
+              "Falha durante o envio. Selecione novamente o mesmo arquivo para continuar.",
+          );
+        }
+
+        offset = Number(
+          chunkBody.received_bytes || 0,
+        );
+
+        setCustomProgress(
+          Math.min(
+            99,
+            Math.round(
+              (offset / customFile.size) * 100,
+            ),
+          ),
+        );
+      }
+
+      setCustomPhase(
+        "Upload concluído. Enviando para processamento…",
+      );
+
+      const completeResponse = await fetch(
+        `${API_URL}/sources/${sourceId}/uploads/${uploadId}/complete`,
+        {
+          method: "POST",
+        },
+      );
+
+      const completed =
+        await completeResponse.json().catch(() => null);
+
+      if (!completeResponse.ok) {
+        throw new Error(
+          completed?.detail ??
+            "Não foi possível finalizar o upload.",
+        );
+      }
+
+      setCustomUploadSession(completed);
+      setCustomProgress(
+        Number(completed.progress_percent || 99),
+      );
+      setCustomPhase(
+        completed.processing_stage ||
+          "Aguardando processamento vetorial…",
+      );
+
+      await pollCustomProcessing(
+        sourceId,
+        uploadId,
+        resumeKey,
+      );
+    } catch (reason) {
+      setMessage({
+        kind: "error",
+        text:
+          reason instanceof Error
+            ? reason.message
+            : "Falha durante o upload da camada adicional.",
+      });
+
+      setCustomPhase(
+        "Upload interrompido. O progresso salvo será reutilizado na próxima tentativa.",
+      );
+    } finally {
+      setCustomUploading(false);
+    }
   };
+
+  const retryCustomProcessing = async () => {
+    const sourceId =
+      customUploadSession?.source_id;
+    const uploadId =
+      customUploadSession?.upload_id;
+
+    if (!sourceId || !uploadId || !customFile) {
+      return;
+    }
+
+    const resumeKey =
+      `amazonika-custom-upload:` +
+      `${customUf}:${customCategory}:` +
+      `${customFile.name}:${customFile.size}:` +
+      `${customName.trim()}`;
+
+    setCustomUploading(true);
+    setMessage(null);
+    setCustomPhase("Solicitando reprocessamento…");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/sources/${sourceId}/uploads/${uploadId}/retry`,
+        {
+          method: "POST",
+        },
+      );
+
+      const body =
+        await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          body?.detail ??
+            "Não foi possível reiniciar o processamento.",
+        );
+      }
+
+      setCustomUploadSession(body);
+
+      await pollCustomProcessing(
+        sourceId,
+        uploadId,
+        resumeKey,
+      );
+    } catch (reason) {
+      setMessage({
+        kind: "error",
+        text:
+          reason instanceof Error
+            ? reason.message
+            : "Falha ao reprocessar a camada.",
+      });
+    } finally {
+      setCustomUploading(false);
+    }
+  };
+
   const toggleCustomLayer=async(source:Source,checked:boolean)=>{
     try {
       const response=await fetch(`${API_URL}/sources/${source.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({is_active:checked})});
@@ -2142,11 +2633,94 @@ export function SourcesModule() {
               required
               type="file"
               accept=".gpkg,.kml,.geojson,.json,.zip"
-              onChange={(e)=>setCustomFile(e.target.files?.[0]??null)}
+              onChange={(e)=>{
+                setCustomFile(e.target.files?.[0]??null);
+                setCustomProgress(0);
+                setCustomPhase("");
+                setCustomUploadSession(null);
+                setMessage(null);
+              }}
             />
             <small>GeoPackage, KML, GeoJSON ou Shapefile ZIP · convertido para SIRGAS 2000</small>
           </label>
-          <Button disabled={customUploading||!customFile}>{customUploading?<RefreshCw size={15} className="spin"/>:<FileUp size={15}/>} {customUploading?"Importando…":"Adicionar camada ligada"}</Button>
+          {(customUploading || customPhase || customProgress > 0) && (
+            <div
+              style={{
+                gridColumn: "1 / -1",
+                display: "grid",
+                gap: 6,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  fontSize: 12,
+                }}
+              >
+                <span>
+                  {customUploadSession?.processing_stage ||
+                    customPhase ||
+                    "Processando…"}
+                </span>
+                <strong>{customProgress}%</strong>
+              </div>
+
+              <progress
+                max={100}
+                value={customProgress}
+                style={{
+                  width: "100%",
+                  height: 10,
+                }}
+              />
+            </div>
+          )}
+
+          {customUploadSession?.status === "FAILED" &&
+          customUploadSession.error_retryable ? (
+            <Button
+              type="button"
+              disabled={customUploading}
+              onClick={() =>
+                void retryCustomProcessing()
+              }
+            >
+              {customUploading ? (
+                <RefreshCw
+                  size={15}
+                  className="spin"
+                />
+              ) : (
+                <RefreshCw size={15} />
+              )}
+              Tentar processar novamente
+            </Button>
+          ) : (
+            <Button
+              disabled={
+                customUploading || !customFile
+              }
+            >
+              {customUploading ? (
+                <RefreshCw
+                  size={15}
+                  className="spin"
+                />
+              ) : (
+                <FileUp size={15} />
+              )}
+              {customUploading
+                ? customProgress < 99
+                  ? `Enviando ${customProgress}%`
+                  : "Processando…"
+                : customProgress > 0 &&
+                    customProgress < 100
+                  ? `Continuar de ${customProgress}%`
+                  : "Adicionar camada ligada"}
+            </Button>
+          )}
         </form>
         {custom.length>0&&<div className="custom-source-list">{custom.map((source)=>{const version=versions[source.id]; return <article key={source.id}><div><small>{String(source.metadata_json.custom_category_label??"Camada adicional")} · {String(source.metadata_json.scope_uf??"—")}</small><strong>{source.name}</strong><span>
   {source.institution}

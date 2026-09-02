@@ -859,6 +859,141 @@ def source_features(source_id:UUID,bbox:str|None=None,uf:str|None=None,zoom:floa
         features.append({"type":"Feature","id":str(feature_id),"geometry":json.loads(geometry_json),"properties":attributes})
     return {"type":"FeatureCollection","features":features,"source_id":str(source_id),"source_name":source.name,"version":str(version.id),"truncated":len(rows)>=limit}
 
+
+@router.post("/identify")
+async def identify_local_features(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    payload = await request.json()
+
+    coordinate = payload.get("coordinate") or []
+    raw_source_ids = payload.get("source_ids") or []
+    tolerance_m = float(payload.get("tolerance_m") or 3.0)
+
+    if (
+        not isinstance(coordinate, list)
+        or len(coordinate) != 2
+    ):
+        raise HTTPException(
+            422,
+            "Informe a coordenada [longitude, latitude].",
+        )
+
+    try:
+        longitude = float(coordinate[0])
+        latitude = float(coordinate[1])
+    except (TypeError, ValueError):
+        raise HTTPException(422, "Coordenada inválida.")
+
+    source_ids = []
+    for value in raw_source_ids:
+        try:
+            source_ids.append(UUID(str(value)))
+        except (TypeError, ValueError):
+            continue
+
+    if not source_ids:
+        return {"features": []}
+
+    # No máximo 100 resultados por clique para impedir respostas
+    # descontroladas em locais com muitas sobreposições.
+    output = []
+
+    for source_id in source_ids:
+        source = db.get(Source, source_id)
+
+        if not source or not source.is_active:
+            continue
+
+        version = db.scalar(
+            select(SourceVersion).where(
+                SourceVersion.source_id == source_id,
+                SourceVersion.is_current.is_(True),
+                SourceVersion.status == "READY",
+            )
+        )
+
+        if not version:
+            continue
+
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    g.id,
+                    g.external_id,
+                    g.name,
+                    g.properties,
+                    ST_AsGeoJSON(ST_Force2D(g.geom)) AS geometry_json
+                FROM geo_features g
+                WHERE g.version_id = :version_id
+                  AND ST_DWithin(
+                      ST_Force2D(g.geom)::geography,
+                      ST_SetSRID(
+                          ST_MakePoint(:longitude, :latitude),
+                          4674
+                      )::geography,
+                      :tolerance_m
+                  )
+                ORDER BY
+                    ST_Distance(
+                        ST_Force2D(g.geom)::geography,
+                        ST_SetSRID(
+                            ST_MakePoint(:longitude, :latitude),
+                            4674
+                        )::geography
+                    )
+                LIMIT 10
+                """
+            ),
+            {
+                "version_id": version.id,
+                "longitude": longitude,
+                "latitude": latitude,
+                "tolerance_m": tolerance_m,
+            },
+        ).all()
+
+        for (
+            feature_id,
+            external_id,
+            name,
+            properties,
+            geometry_json,
+        ) in rows:
+            attrs = dict(properties or {})
+            attrs.update(
+                {
+                    "feature_id": str(feature_id),
+                    "external_id": external_id,
+                    "name": name,
+                    "source_id": str(source_id),
+                    "source_name": source.name,
+                }
+            )
+
+            output.append(
+                {
+                    "type": "Feature",
+                    "id": str(feature_id),
+                    "geometry": json.loads(geometry_json),
+                    "properties": attrs,
+                    "source_id": str(source_id),
+                    "source_name": source.name,
+                    "institution": source.institution,
+                }
+            )
+
+            if len(output) >= 100:
+                return {"features": output, "truncated": True}
+
+    return {
+        "features": output,
+        "truncated": False,
+    }
+
+
 @router.get("/{source_id}/features/{feature_id}")
 def source_feature_detail(source_id:UUID,feature_id:UUID,db:Session=Depends(get_db)):
     source=db.get(Source,source_id)
@@ -889,6 +1024,71 @@ CUSTOM_CATEGORIES={
     "FUNDIARIO_ESTADUAL":"Outra base fundiária estadual",
     "OUTRO":"Outro vetor territorial",
 }
+
+
+@router.post(
+    "/custom-vector/register",
+    status_code=201,
+    dependencies=[Depends(require_permission("sources.manage"))],
+)
+async def register_custom_vector(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    payload = await request.json()
+
+    clean_name = str(payload.get("name") or "").strip()
+    clean_category = str(payload.get("category") or "").strip().upper()
+    clean_uf = str(payload.get("uf") or "").strip().lower()
+    institution = str(payload.get("institution") or "").strip()
+    source_url = str(payload.get("source_url") or "").strip()
+    notes = str(payload.get("notes") or "").strip()
+
+    if len(clean_name) < 3:
+        raise HTTPException(
+            422,
+            "Informe um nome com pelo menos 3 caracteres.",
+        )
+
+    if clean_category not in CUSTOM_CATEGORIES:
+        raise HTTPException(
+            422,
+            "Categoria de camada adicional inválida.",
+        )
+
+    if clean_uf not in INCRA_UFS:
+        raise HTTPException(422, "UF inválida.")
+
+    source = Source(
+        slug=f"regional-{clean_uf}-{uuid4().hex[:12]}",
+        name=clean_name,
+        institution=institution or "Fonte regional",
+        kind=SourceKind.MANUAL,
+        is_official=False,
+        is_active=True,
+        update_frequency="MANUAL",
+        metadata_json={
+            "custom_layer": True,
+            "scope_uf": clean_uf.upper(),
+            "custom_category": clean_category,
+            "custom_category_label": CUSTOM_CATEGORIES[clean_category],
+            "default_visible": True,
+            "crs": "EPSG:4674",
+            "service_role": "VECTOR_ANALYSIS",
+            "local_vector_primary": clean_category in {"CAR_SICAR", "SPU"},
+            "source_url": source_url or None,
+            "notes": notes or None,
+        },
+    )
+
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+
+    return {
+        "source": SourceRead.model_validate(source),
+    }
+
 
 @router.post("/custom-vector",status_code=201,dependencies=[Depends(require_permission("sources.manage"))])
 def create_custom_vector(
@@ -1116,8 +1316,17 @@ def complete_large_upload(source_id:UUID,upload_id:str):
 
     part.replace(destination)
 
-    meta["status"]="UPLOADED"
+    meta["status"]="QUEUED"
     meta["stored_path"]=str(destination)
+    meta["queued_at"]=datetime.now(timezone.utc).isoformat()
+    meta["processing_stage"]="Aguardando processamento vetorial"
+    meta["processing_code"]="QUEUED"
+    meta["progress_percent"]=99
+    meta["error"]=None
+    meta["error_code"]=None
+    meta["error_title"]=None
+    meta["error_detail"]=None
+    meta["error_retryable"]=False
     _write_large_upload(upload_id,meta)
 
     return {
@@ -1125,8 +1334,60 @@ def complete_large_upload(source_id:UUID,upload_id:str):
         "filename":meta["filename"],
         "file_size":expected,
         "received_bytes":received,
-        "status":"UPLOADED",
+        "status":"QUEUED",
+        "progress_percent":99,
+        "processing_stage":"Aguardando processamento vetorial",
     }
+
+
+@router.post(
+    "/{source_id}/uploads/{upload_id}/retry",
+    dependencies=[Depends(require_permission("sources.import"))],
+)
+def retry_large_upload_processing(
+    source_id: UUID,
+    upload_id: str,
+):
+    meta = _read_large_upload(upload_id)
+
+    if meta.get("source_id") != str(source_id):
+        raise HTTPException(
+            404,
+            "Sessão de upload não encontrada para esta fonte.",
+        )
+
+    stored = Path(str(meta.get("stored_path") or ""))
+
+    if meta.get("status") != "FAILED":
+        raise HTTPException(
+            409,
+            "Somente processamentos com falha podem ser reenviados.",
+        )
+
+    if not stored.exists():
+        raise HTTPException(
+            409,
+            "O arquivo original não está mais disponível no servidor.",
+        )
+
+    meta.update(
+        {
+            "status": "QUEUED",
+            "queued_at": datetime.now(timezone.utc).isoformat(),
+            "processing_stage": "Reprocessamento aguardando worker",
+            "processing_code": "QUEUED",
+            "progress_percent": 99,
+            "error": None,
+            "error_code": None,
+            "error_title": None,
+            "error_detail": None,
+            "error_retryable": False,
+        }
+    )
+
+    _write_large_upload(upload_id, meta)
+    return meta
+
 
 @router.post("/{source_id}/imports/geopackage",response_model=VersionRead,status_code=201,dependencies=[Depends(require_permission("sources.import"))])
 def upload_geopackage(source_id:UUID,file:UploadFile=File(...),reference_date:date|None=Form(None),layer_name:str|None=Form(None),db:Session=Depends(get_db)):

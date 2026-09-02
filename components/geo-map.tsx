@@ -13,7 +13,7 @@ import ImageLayer from "ol/layer/Image";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorTileLayer from "ol/layer/VectorTile";
-import { fromLonLat } from "ol/proj";
+import { fromLonLat, toLonLat } from "ol/proj";
 import OSM from "ol/source/OSM";
 import ImageWMS from "ol/source/ImageWMS";
 import VectorSource from "ol/source/Vector";
@@ -22,6 +22,7 @@ import { Fill, Stroke, Style, Circle as CircleStyle } from "ol/style";
 import View from "ol/View";
 import { getApiUrl } from "@/lib/api";
 import {
+  ArrowLeft,
   Crosshair,
   Eraser,
   FileUp,
@@ -172,6 +173,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
   const officialSourceRef = useRef(new VectorSource());
+
+  // Overlay exclusivo da ferramenta Identificar.
+  // Toda feição selecionada, independentemente da base de origem,
+  // será materializada aqui para garantir destaque visual uniforme.
+  const identifySelectionSourceRef = useRef(
+    new VectorSource(),
+  );
   const wmsLayersRef = useRef(
     new globalThis.Map<string, ImageLayer<ImageWMS>>(),
   );
@@ -186,6 +194,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const modifyRef = useRef<Modify | null>(null);
   const identifyActiveRef = useRef(false);
   const selectedFeatureRef = useRef<Feature | null>(null);
+  const identifyCandidateHistoryRef = useRef<IdentifyCandidate[]>([]);
   const selectFeatureRef = useRef<(feature: Feature) => void>(() => undefined);
   const [drawKind, setDrawKind] = useState<DrawKind>(null);
   const [modifyActive, setModifyActive] = useState(false);
@@ -248,16 +257,65 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       selectedFeatureRef.current.changed();
       selectedFeatureRef.current = null;
     }
-    officialSourceRef.current.clear();
+    identifySelectionSourceRef.current.clear();
+
     setIdentifiedFeature(null);
     setIdentifyCandidates([]);
+    identifyCandidateHistoryRef.current = [];
   };
 
   selectFeatureRef.current = (feature: Feature) => {
+    const preservedCandidates = [
+      ...identifyCandidateHistoryRef.current,
+    ];
+
     clearIdentifiedFeature();
+
+    identifyCandidateHistoryRef.current =
+      preservedCandidates;
+
     selectedFeatureRef.current = feature;
+
     feature.set("isSelected", true);
     feature.changed();
+
+    /*
+     * DESTAQUE UNIVERSAL
+     *
+     * Não dependemos do estilo da camada original.
+     * Criamos uma cópia gráfica da geometria selecionada
+     * e a colocamos no overlay superior do mapa.
+     *
+     * Isso funciona para qualquer GeoFeature armazenada
+     * no PostGIS, independentemente da fonte.
+     */
+    const selectedGeometry = feature.getGeometry();
+
+    if (selectedGeometry) {
+      const highlightFeature = new Feature({
+        geometry: selectedGeometry.clone(),
+      });
+
+      highlightFeature.set(
+        "isIdentifyHighlight",
+        true,
+      );
+
+      highlightFeature.set(
+        "source_id",
+        feature.get("source_id"),
+      );
+
+      highlightFeature.set(
+        "feature_id",
+        feature.get("feature_id"),
+      );
+
+      identifySelectionSourceRef.current.clear();
+      identifySelectionSourceRef.current.addFeature(
+        highlightFeature,
+      );
+    }
     const { raw, layer, title } = featureIdentity(feature);
     const sourceId = String(raw.source_id ?? "");
     const featureId = String(raw.feature_id ?? feature.getId() ?? "");
@@ -345,6 +403,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           zIndex: 3,
           style: subjectStyle,
         }),
+
+        // Camada universal de seleção.
+        // Fica acima das bases territoriais e da geometria consultada.
+        new VectorLayer({
+          source: identifySelectionSourceRef.current,
+          zIndex: 1000,
+          style: selectedOfficialStyle,
+        }),
       ],
       view: new View({
         center: fromLonLat((UF_VIEW[incraUf] ?? UF_VIEW.ALL).center),
@@ -352,43 +418,291 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       }),
     });
     mapRef.current = map;
-    const identifyAtPixel = (event: MapBrowserEvent<PointerEvent>) => {
+    const identifyAtPixel = async (
+      event: MapBrowserEvent<PointerEvent>,
+    ) => {
       if (!identifyActiveRef.current) return;
-      const candidates = map
-        .getFeaturesAtPixel(event.pixel, { hitTolerance: 7 })
+
+      clearIdentifiedFeature();
+
+      const enabledLayers = layersRef.current.filter(
+        (layer) => layer.enabled && layer.id,
+      );
+
+      const enabledSourceIds = enabledLayers
+        .map((layer) => layer.id)
+        .filter((id): id is string => Boolean(id));
+
+      const [longitude, latitude] = toLonLat(
+        event.coordinate,
+        map.getView().getProjection(),
+      );
+
+      /*
+       * A identificação principal ocorre diretamente no PostGIS.
+       *
+       * Isso elimina a dependência da feição estar carregada no tile
+       * visível e permite identificar igualmente:
+       * - CAR/SICAR vetorial local;
+       * - SPU vetorial local;
+       * - SIGEF;
+       * - SNCI;
+       * - ANM;
+       * - assentamentos;
+       * - UC;
+       * - bases estaduais/municipais;
+       * - qualquer vetor adicional cadastrado por UF.
+       */
+      if (enabledSourceIds.length > 0) {
+        identifyAbortRef.current?.abort();
+
+        const controller = new AbortController();
+        identifyAbortRef.current = controller;
+
+        try {
+          const response = await fetch(
+            `${getApiUrl()}/sources/identify`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              signal: controller.signal,
+              body: JSON.stringify({
+                coordinate: [longitude, latitude],
+                source_ids: enabledSourceIds,
+                tolerance_m: Math.max(
+                  2,
+                  Math.min(
+                    25,
+                    Number(
+                      map.getView().getResolution() ?? 1,
+                    ) * 1.5,
+                  ),
+                ),
+              }),
+            },
+          );
+
+          const body = await response
+            .json()
+            .catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(
+              body?.detail ??
+                "Não foi possível identificar as feições.",
+            );
+          }
+
+          if (controller.signal.aborted) return;
+
+          const returnedFeatures = Array.isArray(
+            body?.features,
+          )
+            ? body.features
+            : [];
+
+          if (returnedFeatures.length > 0) {
+            const format = new GeoJSON();
+
+            const candidates: IdentifyCandidate[] = [];
+
+            for (const item of returnedFeatures) {
+              try {
+                const feature = format.readFeature(
+                  item,
+                  {
+                    dataProjection: "EPSG:4674",
+                    featureProjection: "EPSG:3857",
+                  },
+                );
+
+                const properties =
+                  item?.properties ?? {};
+
+                const sourceId = String(
+                  item?.source_id ??
+                    properties.source_id ??
+                    "",
+                );
+
+                const layer = enabledLayers.find(
+                  (candidate) =>
+                    candidate.id === sourceId,
+                );
+
+                feature.set(
+                  "source_id",
+                  sourceId,
+                );
+
+                feature.set(
+                  "source_name",
+                  String(
+                    item?.source_name ??
+                      properties.source_name ??
+                      layer?.name ??
+                      "Camada territorial",
+                  ),
+                );
+
+                feature.set(
+                  "catalogName",
+                  layer?.name ??
+                    String(
+                      item?.source_name ??
+                        properties.source_name ??
+                        "Camada territorial",
+                    ),
+                );
+
+                feature.set(
+                  "displayColor",
+                  layer?.color ?? "#e08a24",
+                );
+
+                feature.set(
+                  "identifyOverlay",
+                  true,
+                );
+
+                feature.set(
+                  "feature_id",
+                  String(
+                    properties.feature_id ??
+                      item?.id ??
+                      "",
+                  ),
+                );
+
+                if (item?.id) {
+                  feature.setId(String(item.id));
+                }
+
+                const identity =
+                  featureIdentity(feature);
+
+                candidates.push({
+                  feature,
+                  title: identity.title,
+                  layer: identity.layer,
+                });
+              } catch (error) {
+                console.warn(
+                  "Não foi possível materializar uma feição identificada.",
+                  error,
+                );
+              }
+            }
+
+            if (candidates.length === 1) {
+              selectFeatureRef.current(
+                candidates[0].feature,
+              );
+              return;
+            }
+
+            if (candidates.length > 1) {
+              identifyCandidateHistoryRef.current =
+                candidates;
+              setIdentifyCandidates(candidates);
+              return;
+            }
+          }
+        } catch (error) {
+          if (
+            error instanceof DOMException &&
+            error.name === "AbortError"
+          ) {
+            return;
+          }
+
+          console.warn(
+            "Identificação vetorial local indisponível; tentando fallback visual/WMS.",
+            error,
+          );
+        }
+      }
+
+      /*
+       * Fallback 1:
+       * feature já renderizada no MVT/OpenLayers.
+       */
+      const renderedCandidates = map
+        .getFeaturesAtPixel(
+          event.pixel,
+          { hitTolerance: 7 },
+        )
         .filter(
           (candidate): candidate is Feature =>
             candidate instanceof Feature &&
             Boolean(candidate.get("catalogName")),
         );
-      clearIdentifiedFeature();
-      if (!candidates.length) {
-        const sicar =
-          layersRef.current.find(
-            (layer) =>
-              layer.enabled &&
-              layer.id &&
-              layer.source === "SPU",
-          ) ??
-          layersRef.current.find(
-            (layer) =>
-              layer.enabled &&
-              layer.id &&
-              layer.source === "SICAR",
-          );
 
-        if (!sicar?.id) return;
+      if (renderedCandidates.length === 1) {
+        selectFeatureRef.current(
+          renderedCandidates[0],
+        );
+        return;
+      }
 
-        const wmsSource = wmsLayersRef.current
-          .get(sicar.id)
+      if (renderedCandidates.length > 1) {
+        const candidates =
+          renderedCandidates.map((feature) => ({
+            feature,
+            ...featureIdentity(feature),
+          }));
+
+        identifyCandidateHistoryRef.current =
+          candidates;
+
+        setIdentifyCandidates(candidates);
+        return;
+      }
+
+      /*
+       * Fallback 2:
+       * fontes que existam somente como WMS no local clicado.
+       *
+       * Priorizamos SPU e depois SICAR.
+       */
+      const wmsCandidate =
+        layersRef.current.find(
+          (layer) =>
+            layer.enabled &&
+            layer.id &&
+            layer.source === "SPU" &&
+            wmsLayersRef.current.has(layer.id),
+        ) ??
+        layersRef.current.find(
+          (layer) =>
+            layer.enabled &&
+            layer.id &&
+            layer.source === "SICAR" &&
+            wmsLayersRef.current.has(layer.id),
+        );
+
+      if (!wmsCandidate?.id) {
+        setIdentifiedFeature(null);
+        return;
+      }
+
+      const wmsSource =
+        wmsLayersRef.current
+          .get(wmsCandidate.id)
           ?.getSource();
 
-        const resolution = map.getView().getResolution();
-        const projection = map.getView().getProjection();
+      const resolution =
+        map.getView().getResolution();
 
-        if (!wmsSource || !resolution) return;
+      const projection =
+        map.getView().getProjection();
 
-        const infoUrl = wmsSource.getFeatureInfoUrl(
+      if (!wmsSource || !resolution) return;
+
+      const infoUrl =
+        wmsSource.getFeatureInfoUrl(
           event.coordinate,
           resolution,
           projection,
@@ -398,95 +712,179 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           },
         );
 
-        if (!infoUrl) return;
+      if (!infoUrl) return;
 
-        identifyAbortRef.current?.abort();
-        const controller = new AbortController();
-        identifyAbortRef.current = controller;
+      identifyAbortRef.current?.abort();
 
-        setIdentifiedFeature({
-          title: `Consultando ${sicar.name}…`,
-          layer: sicar.name,
-          attributes: [],
-          loading: true,
-        });
+      const controller =
+        new AbortController();
 
-        void fetch(infoUrl, { signal: controller.signal })
-          .then(async (response) => {
-            if (!response.ok)
-              throw new Error(`HTTP ${response.status}`);
+      identifyAbortRef.current = controller;
 
-            return response.json();
-          })
-          .then((result) => {
-            if (controller.signal.aborted) return;
+      try {
+        const response = await fetch(
+          infoUrl,
+          {
+            signal: controller.signal,
+          },
+        );
 
-            const feature = result?.features?.[0];
+        if (!response.ok) {
+          throw new Error(
+            `GetFeatureInfo retornou HTTP ${response.status}.`,
+          );
+        }
 
-            if (!feature) {
-              setIdentifiedFeature(null);
-              return;
-            }
+        const result = await response.json();
 
-            const properties = feature.properties ?? {};
+        if (controller.signal.aborted) return;
 
-            if (feature.geometry) {
-              try {
-                const highlightFeature = new GeoJSON().readFeature(feature, {
-                  dataProjection: "EPSG:3857",
-                  featureProjection: "EPSG:3857",
-                });
+        const features = Array.isArray(
+          result?.features,
+        )
+          ? result.features
+          : [];
 
-                highlightFeature.set("isSelected", true);
-                selectedFeatureRef.current = highlightFeature;
+        if (!features.length) {
+          setIdentifiedFeature(null);
+          return;
+        }
 
-                officialSourceRef.current.clear();
-                officialSourceRef.current.addFeature(highlightFeature);
-              } catch (error) {
-                console.warn(`Falha ao destacar ${sicar.source}`, error);
-              }
-            }
+        const candidates: IdentifyCandidate[] = [];
 
-            setIdentifiedFeature({
-              title: String(
+        for (const rawFeature of features) {
+          const properties =
+            rawFeature?.properties ?? {};
+
+          try {
+            if (rawFeature.geometry) {
+              /*
+               * GetFeatureInfo normalmente devolve a geometria no
+               * SRC da requisição do OpenLayers.
+               */
+              const feature =
+                new GeoJSON().readFeature(
+                  rawFeature,
+                  {
+                    dataProjection:
+                      projection.getCode(),
+                    featureProjection:
+                      projection.getCode(),
+                  },
+                );
+
+              feature.setProperties({
+                ...properties,
+                catalogName:
+                  wmsCandidate.name,
+                source_name:
+                  wmsCandidate.name,
+                source_id:
+                  wmsCandidate.id,
+                displayColor:
+                  wmsCandidate.color,
+              });
+
+              candidates.push({
+                feature,
+                ...featureIdentity(feature),
+              });
+            } else {
+              const title = String(
                 properties.cod_imovel ??
                   properties.RIP ??
                   properties.rip ??
                   properties.nome_imovel ??
                   properties.nome ??
                   properties.denominacao ??
-                  sicar.name
-              ),
-              layer: sicar.name,
-              attributes: Object.entries(properties),
-            });
-          })
-          .catch((error) => {
-            if (
-              error instanceof DOMException &&
-              error.name === "AbortError"
-            ) return;
+                  wmsCandidate.name,
+              );
 
-            setIdentifiedFeature({
-              title: sicar.name,
-              layer: sicar.name,
-              attributes: [
-                ["consulta_atributos", String(error)],
-              ],
-            });
+              setIdentifiedFeature({
+                title,
+                layer: wmsCandidate.name,
+                attributes:
+                  Object.entries(properties),
+              });
+
+              return;
+            }
+          } catch (error) {
+            console.warn(
+              `Falha ao destacar ${wmsCandidate.name}`,
+              error,
+            );
+          }
+        }
+
+        if (candidates.length === 1) {
+          /*
+           * Neste caso não consultamos /features/{id},
+           * porque a feição veio diretamente do WMS.
+           */
+          clearIdentifiedFeature();
+
+          const feature =
+            candidates[0].feature;
+
+          feature.set(
+            "isSelected",
+            true,
+          );
+
+          selectedFeatureRef.current =
+            feature;
+
+          officialSourceRef.current
+            .addFeature(feature);
+
+          const {
+            raw,
+            layer,
+            title,
+          } = featureIdentity(feature);
+
+          setIdentifiedFeature({
+            title,
+            layer,
+            attributes: Object.entries(raw).filter(
+              ([key]) =>
+                ![
+                  "geometry",
+                  "displayColor",
+                  "isSelected",
+                  "catalogName",
+                ].includes(key),
+            ),
           });
 
-        return;
+          return;
+        }
+
+        if (candidates.length > 1) {
+          identifyCandidateHistoryRef.current =
+            candidates;
+          setIdentifyCandidates(candidates);
+        }
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        setIdentifiedFeature({
+          title: wmsCandidate.name,
+          layer: wmsCandidate.name,
+          attributes: [
+            [
+              "consulta_atributos",
+              String(error),
+            ],
+          ],
+        });
       }
-      if (candidates.length === 1) {
-        selectFeatureRef.current(candidates[0]);
-        return;
-      }
-      setIdentifyCandidates(
-        candidates
-          .map((feature) => ({ feature, ...featureIdentity(feature) }))
-          .map(({ feature, title, layer }) => ({ feature, title, layer })),
-      );
     };
     map.on("singleclick", identifyAtPixel);
     return () => {
@@ -727,6 +1125,27 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     };
   }, [modifyActive]);
 
+  const returnToIdentifyCandidates = () => {
+    identifyAbortRef.current?.abort();
+    identifyAbortRef.current = null;
+
+    if (selectedFeatureRef.current) {
+      selectedFeatureRef.current.set(
+        "isSelected",
+        false,
+      );
+      selectedFeatureRef.current.changed();
+      selectedFeatureRef.current = null;
+    }
+
+    identifySelectionSourceRef.current.clear();
+    setIdentifiedFeature(null);
+
+    setIdentifyCandidates([
+      ...identifyCandidateHistoryRef.current,
+    ]);
+  };
+
   const clear = () => {
     sourceRef.current.clear();
     setDrawKind(null);
@@ -903,12 +1322,31 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
               <strong>{identifiedFeature.title}</strong>
               <span>{identifiedFeature.layer}</span>
             </div>
-            <button
-              onClick={clearIdentifiedFeature}
-              aria-label="Fechar informações"
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
             >
-              <X size={18} />
-            </button>
+              {identifyCandidateHistoryRef.current.length > 1 && (
+                <button
+                  onClick={returnToIdentifyCandidates}
+                  aria-label="Voltar às feições encontradas"
+                  title="Voltar às feições encontradas"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+              )}
+
+              <button
+                onClick={clearIdentifiedFeature}
+                aria-label="Fechar informações"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </header>
           {identifiedFeature.loading ? (
             <div className="feature-info-loading">
