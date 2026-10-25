@@ -11,7 +11,7 @@ from pypdf import PdfReader
 
 from app.services.geospatial_export import export_polygon
 from app.services.plant_memorial_v2 import prepare_parcels, build_joint_memorial
-from app.services.plant_memorial_pro import make_joint_pdf
+from app.services.plant_memorial_v3 import make_joint_pdf
 from app.services.memorial_docx import build_memorial_docx
 
 
