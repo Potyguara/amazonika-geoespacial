@@ -366,3 +366,43 @@ def set_authorized_areas(
     db.commit()
 
     return _user_payload(db, user)
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("users.manage")),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "Usuário não encontrado.")
+    if user.id == current_user.id:
+        raise HTTPException(409, "Você não pode excluir a própria conta em uso.")
+
+    _ensure_not_last_admin(
+        db,
+        user,
+        new_role="ANALISTA",
+        new_active=False,
+    )
+
+    write_audit(
+        db,
+        action="USER_DELETED",
+        user_id=current_user.id,
+        entity_type="user",
+        entity_id=str(user.id),
+        details={
+            "email": user.email,
+            "full_name": user.full_name,
+            "roles": [role.code for role in user.roles],
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    db.delete(user)
+    db.commit()
+    return None
