@@ -450,7 +450,6 @@ def make_joint_pdf(
     pdf.drawString(right_x, 37, f"Emissão: {issued}")
     if qr_url:
         import qrcode
-        from reportlab.lib.utils import ImageReader
         qrcode_png = io.BytesIO()
         qrcode.make(qr_url, box_size=4, border=1).save(qrcode_png, format="PNG")
         qrcode_png.seek(0)
