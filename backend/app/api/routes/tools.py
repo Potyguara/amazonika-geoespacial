@@ -283,7 +283,10 @@ def convert_vector(file: UploadFile = File(...)):
 
 
 @router.post("/memorial-draft")
-def memorial_draft(payload: MemorialRequest):
+def memorial_draft(
+    payload: MemorialRequest,
+    user: User = Depends(get_current_user),
+):
     if payload.parcels:
         try:
             prepared = prepare_parcels([item.model_dump() for item in payload.parcels])
@@ -298,6 +301,7 @@ def memorial_draft(payload: MemorialRequest):
                 prepared, title=payload.title, owner=payload.owner_name,
                 responsible=payload.responsible_name,
                 croqui=payload.include_croqui_warning,
+                professional={"full_name": user.full_name, **(user.professional_profile_json or {})},
                 owner_rg=payload.owner_rg,
                 owner_cpf=payload.owner_cpf,
                 property_address=payload.property_address,
