@@ -287,6 +287,8 @@ def make_joint_pdf(
     pdf.setFont("Helvetica", 7)
     pdf.drawString(42, 62, f"SIRGAS 2000 / UTM {zone}{hemisphere} - Escala 1:{scale:,} - {page_format}")
     pdf.drawString(42, 49, "Área e perímetro: calculados com elipsóide GRS80; conferir precisão da origem.")
+    pdf.setFont("Helvetica", 6.5)
+    pdf.drawString(42, 34, str(config.get("document_footer") or "Documento técnico gerado pelo Amazônika Geoespacial.")[:100])
 
     if len(parcels) > 1:
         pdf.setFont("Helvetica-Bold", 9)
@@ -435,7 +437,7 @@ def make_joint_pdf(
 
     if croqui:
         pdf.saveState()
-        pdf.translate(w - 14, 35)
+        pdf.translate(w - 31, 35)
         pdf.rotate(90)
         pdf.setFillColorRGB(.55, .15, .12)
         pdf.setFont("Helvetica-Bold", 6)
