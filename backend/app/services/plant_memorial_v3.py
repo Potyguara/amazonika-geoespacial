@@ -121,7 +121,8 @@ def _cell(pdf, x, y_top, width, heading, value, max_height=40):
                        leading=9.5, textColor=DARK),
     )
     _, height = paragraph.wrap(max(35, width-15), 500)
-    height = min(max_height - 18, height)
+    if height > max_height - 17:
+        raise ValueError(f"O campo '{heading}' excede a área de identificação.")
     pdf.setFillColor(PALE)
     pdf.rect(x, y_top-max_height, width, max_height, fill=1, stroke=0)
     pdf.setStrokeColor(RULE)
@@ -308,10 +309,20 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
              if professional.get(k)) or "Não informado"),
     ]
     available=(top-32)-(limit+138)
-    cell_h=min(39,max(25,available/len(fields)))
-    if cell_h<24.5:
-        raise ValueError("Quadro de identificação não cabe neste formato de folha.")
+    heights=[]
     for heading,value in fields:
+        measure=Paragraph(
+            escape(str(value or "Não informado")),
+            ParagraphStyle("cellMeasure",fontName="Helvetica",fontSize=7.6,leading=9.5),
+        )
+        _,text_height=measure.wrap(max(35,width-15),500)
+        heights.append(max(27,text_height+19))
+    if sum(heights)>available:
+        raise ValueError(
+            "Os dados cadastrais não cabem na coluna de identificação. "
+            "Use papel maior ou reduza o texto dos campos."
+        )
+    for (heading,value),cell_h in zip(fields,heights):
         y=_cell(pdf,x,y,width,heading,value,cell_h)
     # Raster dentro de moldura, sem título 'raster do mapa'.
     raster_bottom=limit+29
