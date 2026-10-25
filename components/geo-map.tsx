@@ -941,43 +941,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    if (snapSubjectRef.current) map.removeInteraction(snapSubjectRef.current);
-    if (snapLayersRef.current) map.removeInteraction(snapLayersRef.current);
-    snapSubjectRef.current = null;
-    snapLayersRef.current = null;
-
-    if (snapSubjectEnabled) {
-      const snap = new Snap({
-        source: sourceRef.current,
-        vertex: true,
-        edge: true,
-        pixelTolerance: 14,
-      });
-      map.addInteraction(snap);
-      snapSubjectRef.current = snap;
-    }
-
-    if (snapLayersEnabled) {
-      const snap = new Snap({
-        source: officialSourceRef.current,
-        vertex: true,
-        edge: true,
-        pixelTolerance: 14,
-      });
-      map.addInteraction(snap);
-      snapLayersRef.current = snap;
-    }
-
-    return () => {
-      if (snapSubjectRef.current) map.removeInteraction(snapSubjectRef.current);
-      if (snapLayersRef.current) map.removeInteraction(snapLayersRef.current);
-    };
-  }, [snapSubjectEnabled, snapLayersEnabled]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
     if (drawRef.current) map.removeInteraction(drawRef.current);
     drawRef.current = null;
     if (!drawKind) return;
@@ -1017,6 +980,57 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       modifyRef.current = null;
     };
   }, [modifyActive]);
+
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (snapSubjectRef.current) {
+      map.removeInteraction(snapSubjectRef.current);
+      snapSubjectRef.current = null;
+    }
+    if (snapLayersRef.current) {
+      map.removeInteraction(snapLayersRef.current);
+      snapLayersRef.current = null;
+    }
+
+    const subjectSnap = snapSubjectEnabled
+      ? new Snap({
+          source: sourceRef.current,
+          vertex: true,
+          edge: true,
+          pixelTolerance: 14,
+        })
+      : null;
+
+    const layerSnap = snapLayersEnabled
+      ? new Snap({
+          source: officialSourceRef.current,
+          vertex: true,
+          edge: true,
+          pixelTolerance: 14,
+        })
+      : null;
+
+    // Snap é adicionado por último para processar o pointer event
+    // antes de Draw/Modify, conforme a ordem de interações do OpenLayers.
+    if (subjectSnap) {
+      map.addInteraction(subjectSnap);
+      snapSubjectRef.current = subjectSnap;
+    }
+    if (layerSnap) {
+      map.addInteraction(layerSnap);
+      snapLayersRef.current = layerSnap;
+    }
+
+    return () => {
+      if (subjectSnap) map.removeInteraction(subjectSnap);
+      if (layerSnap) map.removeInteraction(layerSnap);
+      if (snapSubjectRef.current === subjectSnap) snapSubjectRef.current = null;
+      if (snapLayersRef.current === layerSnap) snapLayersRef.current = null;
+    };
+  }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive]);
 
   const returnToIdentifyCandidates = () => {
     identifyAbortRef.current?.abort();
@@ -1215,6 +1229,46 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     }
   };
 
+  const downloadPlantMemorialPdf = async () => {
+    const geometry = currentGeometryGeoJson();
+    if (!geometry) return;
+    setMemorialLoading(true);
+    try {
+      const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          geometry,
+          title: memorialTitle,
+          owner_name: memorialOwner || null,
+          responsible_name: memorialResponsible || null,
+          vertex_prefix: "V",
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? "Não foi possível gerar o PDF.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${memorialTitle.trim().replace(/[^a-zA-Z0-9_-]+/g, "-") || "planta-memorial"}-planta-memorial.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMemorialText(
+        `ERRO: ${error instanceof Error ? error.message : "Falha ao gerar PDF."}`,
+      );
+    } finally {
+      setMemorialLoading(false);
+    }
+  };
+
+
   const activateDraw = (kind: Exclude<DrawKind, null>) => {
     setIdentifyActive(false);
     setModifyActive(false);
@@ -1375,11 +1429,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           <label><span>Nome da área</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
           <label><span>Detentor / interessado</span><input value={memorialOwner} onChange={(event) => setMemorialOwner(event.target.value)} /></label>
           <label><span>Responsável técnico</span><input value={memorialResponsible} onChange={(event) => setMemorialResponsible(event.target.value)} /></label>
-          <button className="geo-tool-primary" disabled={memorialLoading} onClick={() => void generateMemorial()}>
-            {memorialLoading ? "Gerando…" : "Gerar memorial"}
-          </button>
+          <div className="memorial-actions">
+            <button className="geo-tool-primary" disabled={memorialLoading} onClick={() => void generateMemorial()}>
+              {memorialLoading ? "Gerando…" : "Gerar texto do memorial"}
+            </button>
+            <button className="geo-tool-secondary" disabled={memorialLoading} onClick={() => void downloadPlantMemorialPdf()}>
+              Gerar Planta + Memorial PDF
+            </button>
+          </div>
           {memorialText && <textarea className="memorial-output" readOnly value={memorialText} rows={12} />}
-          <small>A planta georreferenciada em PDF e o modelo institucional serão vinculados a esta mesma configuração documental.</small>
+          <small>O PDF usa o modelo institucional salvo em Configurações, com logomarca, responsável, vértices, escala, área e perímetro.</small>
         </aside>
       )}
 
