@@ -15,6 +15,7 @@ import { GeoMap } from "@/components/geo-map";
 import { SigefModule, SourceVersion } from "@/components/sigef-module";
 import { SourcesModule } from "@/components/sources-module";
 import { UsersModule } from "@/components/users-module";
+import { SettingsModule } from "@/components/settings-module";
 import { AnalysesModule } from "@/components/analyses-module";
 import { getApiUrl } from "@/lib/api";
 import {
@@ -202,7 +203,7 @@ export default function Home() {
   const [analysisHolderDocument, setAnalysisHolderDocument] = useState("");
   const [analysisResetNonce, setAnalysisResetNonce] = useState(0);
   const [activeView, setActiveView] = useState<
-    "map" | "sigef" | "analyses" | "sources" | "users"
+    "map" | "sigef" | "analyses" | "sources" | "users" | "settings"
   >("map");
   const [sigefCurrent, setSigefCurrent] = useState<SourceVersion | null>(null);
   const [layerManagerOpen, setLayerManagerOpen] = useState(false);
@@ -936,9 +937,12 @@ export default function Home() {
           )}
         </nav>
         <div className="sidebar-bottom">
-          <a href="#">
+          <button
+            className={activeView === "settings" ? "nav-active" : ""}
+            onClick={() => { setActiveView("settings"); setMobileSidebarOpen(false); }}
+          >
             <Settings size={18} /> Configurações
-          </a>
+          </button>
           <div className="user-card authenticated-user-card">
             <div className="avatar">
               {authUser.full_name
@@ -996,7 +1000,9 @@ export default function Home() {
                     ? "Análises"
                     : activeView === "sources"
                       ? "Gestão das fontes"
-                      : "Usuários e acessos"}
+                      : activeView === "users"
+                        ? "Usuários e acessos"
+                        : "Configurações"}
             </h1>
           </div>
           {activeView === "map" && (
@@ -1369,6 +1375,11 @@ export default function Home() {
         {activeView === "users" &&
           authUser.permissions.includes("users.manage") && (
             <UsersModule />
+          )}
+
+        {activeView === "settings" &&
+          authUser.permissions.includes("users.manage") && (
+            <SettingsModule />
           )}
       </section>
       <Sheet open={layerManagerOpen} onOpenChange={setLayerManagerOpen}>
