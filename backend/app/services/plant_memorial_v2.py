@@ -175,6 +175,9 @@ def build_joint_memorial(
         "", "________________________________________",
         professional_name,
         str(professional.get("profession") or "").strip(),
+        str(professional.get("specialization") or "").strip(),
+        f"RG: {professional['rg']}" if professional.get("rg") else "",
+        f"CPF: {professional['cpf']}" if professional.get("cpf") else "",
         credential,
     ]
     if professional.get("incra_code"): lines.append(f"Credenciamento INCRA: {professional['incra_code']}")
@@ -389,6 +392,9 @@ def make_joint_pdf(
         f"Endereço do imóvel: {property_address or 'Não informado'}",
         f"Técnico: {responsible_name or professional.get('full_name') or 'Não informado'}",
         f"Profissão: {professional.get('profession') or '—'}",
+        f"Especialização: {professional.get('specialization') or '—'}",
+        f"RG técnico: {professional.get('rg') or '—'}",
+        f"CPF técnico: {professional.get('cpf') or '—'}",
         f"CREA: {professional.get('crea') or '—'}",
         f"Visto: {professional.get('visto') or '—'}",
         f"INCRA: {professional.get('incra_code') or '—'}",
