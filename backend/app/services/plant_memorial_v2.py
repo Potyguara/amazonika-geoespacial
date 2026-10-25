@@ -5,7 +5,10 @@ import io
 import math
 import textwrap
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+from reportlab.lib import colors
+from reportlab.pdfbase.pdfmetrics import stringWidth
 
 from PIL import Image
 from pyproj import CRS, Geod, Transformer
@@ -35,6 +38,8 @@ class Parcel:
     area_ha: float
     perimeter: float
     segments: list[dict]
+    confrontants: list[str]
+    altitudes: list[float | None]
 
 
 def prepare_parcels(raw: list[dict]) -> list[Parcel]:
@@ -63,6 +68,10 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
         if any(not n or len(n) > 64 for n in names) or len(set(names)) != len(names):
             raise ValueError(f"Área {index + 1}: nomes de vértices inválidos ou repetidos.")
         area, perimeter = geod.geometry_area_perimeter(polygon)
+        confrontants = data.get("confrontants") or [""] * len(points)
+        altitudes = data.get("altitudes_m") or [None] * len(points)
+        if len(confrontants) != len(points) or len(altitudes) != len(points):
+            raise ValueError(f"Área {index + 1}: confrontantes/altitudes não correspondem aos vértices.")
         segments = []
         for i, (lon, lat) in enumerate(points):
             next_lon, next_lat = points[(i + 1) % len(points)]
@@ -81,40 +90,96 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
             name=str(data.get("name") or f"Polígono {index + 1}").strip()[:120],
             points=points, names=names, area_ha=abs(area) / 10000,
             perimeter=perimeter, segments=segments,
+            confrontants=[str(item or "").strip()[:250] for item in confrontants],
+            altitudes=[float(item) if item is not None else None for item in altitudes],
         ))
     return output
 
 
-def build_joint_memorial(parcels: list[Parcel], *, title: str, owner: str | None,
-                         responsible: str | None, croqui: bool) -> str:
+def _dms(value: float, axis: str) -> str:
+    absolute = abs(value)
+    degree = int(absolute)
+    minute_float = (absolute - degree) * 60
+    minute = int(minute_float)
+    second = (minute_float - minute) * 60
+    hemi = ("S" if value < 0 else "N") if axis == "lat" else ("W" if value < 0 else "E")
+    return f"{degree:02d}°{minute:02d}'{second:06.3f}\" {hemi}"
+
+
+def build_joint_memorial(
+    parcels: list[Parcel], *, title: str, owner: str | None,
+    responsible: str | None, croqui: bool,
+    owner_rg: str | None = None, owner_cpf: str | None = None,
+    property_address: str | None = None, memorial_heading: str = "MEMORIAL DESCRITIVO",
+    professional: dict | None = None,
+) -> str:
+    professional = professional or {}
     total_area = sum(p.area_ha for p in parcels)
     total_perimeter = sum(p.perimeter for p in parcels)
     lines = [
-        f"MEMORIAL DESCRITIVO - {title}", "",
-        f"Interessado: {owner or 'Não informado'}",
-        f"Responsável técnico: {responsible or 'Não informado'}",
-        f"Polígonos: {len(parcels)}",
+        memorial_heading.upper(), "",
+        f"Imóvel: {title}",
+        f"Detentor/Posseiro: {owner or 'Não informado'}",
+    ]
+    if owner_rg: lines.append(f"RG: {owner_rg}")
+    if owner_cpf: lines.append(f"CPF: {owner_cpf}")
+    if property_address: lines.append(f"Localização: {property_address}")
+    lines += [
         f"Área total das parcelas: {total_area:.4f} ha",
-        f"Soma dos perímetros: {total_perimeter:.3f} m",
-        "Referência: SIRGAS 2000 (GRS80). Distâncias e azimutes geodésicos calculados.",
-        "",
+        f"Perímetro total (soma dos perímetros): {total_perimeter:.3f} m",
+        f"Polígonos descritos: {len(parcels)}", "",
     ]
     for parcel in parcels:
         lines += [
-            f"ÁREA: {parcel.name}",
-            f"Área: {parcel.area_ha:.4f} ha / Perímetro: {parcel.perimeter:.3f} m",
+            f"DESCRIÇÃO DO PERÍMETRO - {parcel.name}",
+            f"Área: {parcel.area_ha:.4f} ha. Perímetro: {parcel.perimeter:.3f} m.",
         ]
-        for row in parcel.segments:
-            lines.append(
-                f"Do vértice {row['start']} (longitude {row['lon']:.9f}, latitude "
-                f"{row['lat']:.9f}) segue-se até {row['end']}, com azimute "
-                f"{row['azimuth']:.6f} graus e distância de {row['distance']:.3f} m."
+        initial = parcel.segments[0]
+        altitude = parcel.altitudes[0]
+        altitude_phrase = f"; altitude: {altitude:.2f} m" if altitude is not None else ""
+        lines.append(
+            f"Inicia-se a descrição deste perímetro no vértice {initial['start']}, "
+            f"de coordenadas (Longitude: {_dms(initial['lon'], 'lon')}; "
+            f"Latitude: {_dms(initial['lat'], 'lat')}{altitude_phrase})."
+        )
+        last_name = None
+        for i, row in enumerate(parcel.segments):
+            confrontant = parcel.confrontants[i] or "confrontante não informado"
+            if confrontant != last_name:
+                lines.append(f"Deste, segue confrontando com {confrontant},")
+                last_name = confrontant
+            next_altitude = parcel.altitudes[(i + 1) % len(parcel.altitudes)]
+            next_altitude_phrase = (
+                f"; altitude: {next_altitude:.2f} m" if next_altitude is not None else ""
             )
+            lines.append(
+                f"com azimute geodésico de {row['azimuth']:.6f}° e distância de "
+                f"{row['distance']:.3f} m até o vértice {row['end']}, "
+                f"de coordenadas (Longitude: {_dms(row['next_lon'], 'lon')}; "
+                f"Latitude: {_dms(row['next_lat'], 'lat')}{next_altitude_phrase});"
+            )
+        lines.append(
+            f"retornando ao vértice inicial {initial['start']}, encerrando este perímetro."
+        )
         lines.append("")
-    if croqui:
-        lines += ["OBSERVAÇÃO:", DISCLAIMER, ""]
-    lines += ["Documento gerado a partir das geometrias fornecidas. "
-              "Exige conferência e validação pelo profissional habilitado."]
+    lines += [
+        "As coordenadas foram tratadas em SIRGAS 2000; área, distâncias e azimutes "
+        "calculados pelo elipsóide GRS80 por problema geodésico inverso. "
+        "Não correspondem automaticamente à área SGL/SIGEF ou a levantamento certificado.",
+        "A planta anexa integra este memorial descritivo.",
+    ]
+    if croqui: lines += ["", "OBSERVAÇÃO:", DISCLAIMER]
+    professional_name = responsible or professional.get("full_name") or "Não informado"
+    credential = " / ".join(str(professional.get(key) or "").strip() for key in ("crea", "visto") if professional.get(key))
+    lines += [
+        "", "________________________________________",
+        professional_name,
+        str(professional.get("profession") or "").strip(),
+        credential,
+    ]
+    if professional.get("incra_code"): lines.append(f"Credenciamento INCRA: {professional['incra_code']}")
+    if professional.get("art"): lines.append(f"ART informada: {professional['art']}")
+    lines.append("Documento gerado a partir dos dados fornecidos, sujeito à conferência e assinatura técnica.")
     return "\n".join(lines)
 
 
