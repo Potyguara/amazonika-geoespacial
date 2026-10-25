@@ -6137,3 +6137,46 @@ input {
     padding: 16px;
   }
 }
+
+
+/* Enquadramento de fontes e visualização SIGEF */
+.layer-row {
+  grid-template-columns: 10px minmax(0, 1fr) 28px auto;
+  gap: 7px;
+}
+.layer-extent-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #cadbd2;
+  border-radius: 7px;
+  color: #155a41;
+  background: #edf6f0;
+  cursor: pointer;
+}
+.layer-extent-button:hover:not(:disabled) {
+  background: #d9eee2;
+}
+.layer-extent-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.sigef-view-on-map {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 9px 13px;
+  border: 1px solid #b8d3c1;
+  border-radius: 9px;
+  background: #e7f4eb;
+  color: #124d36;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sigef-view-on-map:hover {
+  background: #d6ecdf;
+}
