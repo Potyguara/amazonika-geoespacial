@@ -537,9 +537,15 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         image=raster,image_source=raster_source,stamp=stamp,
     )
     if croqui:
-        pdf.setFillColor(colors.HexColor("#8A3125"))
-        pdf.setFont("Helvetica",6.3)
-        pdf.drawString(38,30,DISCLAIMER[:95])
+        warning=Paragraph(
+            escape(DISCLAIMER),
+            ParagraphStyle("plant_warning",fontName="Helvetica",fontSize=5.8,
+                           leading=6.5,textColor=colors.HexColor("#8A3125")),
+        )
+        _,warning_height=warning.wrap(side-54,30)
+        if warning_height>16:
+            raise ValueError("A observação de croqui não cabe no rodapé deste formato.")
+        warning.drawOn(pdf,38,40-warning_height)
     pdf.showPage()
     _memorial_pdf(
         pdf,parcels,title,owner_name,owner_rg,owner_cpf,property_address,
