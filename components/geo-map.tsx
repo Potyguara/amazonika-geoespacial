@@ -24,7 +24,7 @@ import XYZ from "ol/source/XYZ";
 import ImageWMS from "ol/source/ImageWMS";
 import VectorSource from "ol/source/Vector";
 import VectorTileSource from "ol/source/VectorTile";
-import { Fill, Stroke, Style, Circle as CircleStyle } from "ol/style";
+import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "ol/style";
 import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
@@ -188,6 +188,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const snapSubjectRef = useRef<Snap | null>(null);
   const snapLayersRef = useRef<Snap | null>(null);
   const officialSourceRef = useRef(new VectorSource());
+  const vertexLabelSourceRef = useRef(new VectorSource());
 
   // Overlay exclusivo da ferramenta Identificar.
   // Toda feição selecionada, independentemente da base de origem,
@@ -268,6 +269,32 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     );
   }, [incraUf]);
 
+  const refreshVertexLabels = () => {
+    vertexLabelSourceRef.current.clear();
+    const geometry = sourceRef.current.getFeatures()[0]?.getGeometry();
+    if (!geometry) return;
+
+    let index = 0;
+    const addRing = (ring: number[][]) => {
+      for (const coordinate of ring.slice(0, -1)) {
+        const feature = new Feature({
+          geometry: new Point(coordinate),
+          vertexName: `V${String(index + 1).padStart(2, "0")}`,
+        });
+        vertexLabelSourceRef.current.addFeature(feature);
+        index += 1;
+      }
+    };
+
+    if (geometry instanceof Polygon) {
+      addRing(geometry.getCoordinates()[0] ?? []);
+    } else if (geometry instanceof MultiPolygon) {
+      for (const polygon of geometry.getCoordinates()) {
+        addRing(polygon[0] ?? []);
+      }
+    }
+  };
+
   const updateGeometryMetrics = () => {
     const geometry = sourceRef.current.getFeatures()[0]?.getGeometry();
     if (!geometry) {
@@ -339,6 +366,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     });
     onGeometryChange(output as Record<string, unknown>);
     updateGeometryMetrics();
+    refreshVertexLabels();
   };
 
   const clearIdentifiedFeature = () => {
@@ -496,6 +524,25 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           source: sourceRef.current,
           zIndex: 3,
           style: subjectStyle,
+        }),
+        new VectorLayer({
+          source: vertexLabelSourceRef.current,
+          zIndex: 4,
+          style: (feature) =>
+            new Style({
+              image: new CircleStyle({
+                radius: 4.5,
+                fill: new Fill({ color: "#ffffff" }),
+                stroke: new Stroke({ color: "#0d6847", width: 2 }),
+              }),
+              text: new TextStyle({
+                text: String(feature.get("vertexName") ?? ""),
+                offsetY: -13,
+                font: "700 11px Inter, sans-serif",
+                fill: new Fill({ color: "#0d3f2d" }),
+                stroke: new Stroke({ color: "#ffffff", width: 3 }),
+              }),
+            }),
         }),
 
         // Camada universal de seleção.
@@ -1055,6 +1102,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
 
   const clear = () => {
     sourceRef.current.clear();
+    vertexLabelSourceRef.current.clear();
     setGeometryMetrics({ areaHectares: null, perimeterMeters: null, vertices: 0 });
     setDrawKind(null);
     setModifyActive(false);
