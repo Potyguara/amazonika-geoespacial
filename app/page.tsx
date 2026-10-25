@@ -428,7 +428,7 @@ export default function Home() {
     const loadCatalog = () => {
       controller.abort();
       controller = new AbortController();
-      fetch(`${API_URL}/sources`, { signal: controller.signal })
+      fetch(`${API_URL}/sources`, { signal: controller.signal, credentials: "include" })
       .then((response) => {
         if (!response.ok) throw new Error("API indisponível");
         return response.json();
@@ -491,7 +491,7 @@ export default function Home() {
             (source) => source.slug === "sigef-interno",
           );
           if (sigef)
-            fetch(`${API_URL}/sources/${sigef.id}/versions`)
+            fetch(`${API_URL}/sources/${sigef.id}/versions`, { credentials: "include" })
               .then((response) => (response.ok ? response.json() : []))
               .then((versions: SourceVersion[]) =>
                 setSigefCurrent(
@@ -521,7 +521,7 @@ export default function Home() {
     }
 
     let cancelled = false;
-    const loadHealth = () => fetch(`${API_URL}/sources/health-status`)
+    const loadHealth = () => fetch(`${API_URL}/sources/health-status`, { credentials: "include" })
       .then((response) => response.ok ? response.json() : null)
       .then((payload: SourceHealth | null) => { if (!cancelled && payload) setSourceHealth(payload); })
       .catch(() => undefined);
@@ -652,6 +652,7 @@ export default function Home() {
         );
       const response = await fetch(`${API_URL}/analyses`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: analysisAreaName.trim() || `Consulta ${new Date().toLocaleString("pt-BR")}`,
@@ -676,6 +677,7 @@ export default function Home() {
         await new Promise((resolve) => window.setTimeout(resolve, 2000));
         const statusResponse = await fetch(
           `${API_URL}/analyses/${accepted.analysis_id}`,
+          { credentials: "include" },
         );
         if (!statusResponse.ok)
           throw new Error("Não foi possível acompanhar o processamento.");
