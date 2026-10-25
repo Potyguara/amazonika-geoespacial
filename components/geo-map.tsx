@@ -1061,11 +1061,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       const existingVectorTile = vectorTileLayersRef.current.get(layer.id);
 
       if (existingVectorTile) {
+        const nextUrl = `${getApiUrl()}/sources/${layer.id}/tiles/${tileUf}/{z}/{x}/{y}.pbf`;
+        const source = existingVectorTile.getSource();
         existingVectorTile.setMinZoom(minimumVectorZoom(layer));
-        existingVectorTile.getSource()?.setUrl(
-          `${getApiUrl()}/sources/${layer.id}/tiles/${tileUf}/{z}/{x}/{y}.pbf`,
-        );
-        existingVectorTile.getSource()?.refresh();
+        // Evita recarregar os mesmos tiles a cada render da interface.
+        if (source?.getUrls()?.[0] !== nextUrl) {
+          source?.setUrl(nextUrl);
+        }
         continue;
       }
 
