@@ -54,7 +54,7 @@ class MemorialRequest(BaseModel):
     title: str = Field(default="Área analisada", max_length=180)
     plant_heading: str = Field(default="PLANTA GEORREFERENCIADA", max_length=150)
     memorial_heading: str = Field(default="MEMORIAL DESCRITIVO", max_length=150)
-    paper_format: str = Field(default="A3", pattern="^(A4|A3|A2|A1|A0)$")
+    paper_format: str = Field(default="A4", pattern="^(A4|A3|A2|A1|A0)$")
     scale_denominator: int | None = Field(default=None, ge=50, le=1000000)
     owner_rg: str | None = Field(default=None, max_length=60)
     owner_cpf: str | None = Field(default=None, max_length=25)
