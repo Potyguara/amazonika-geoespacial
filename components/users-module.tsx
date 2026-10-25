@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
   UserPlus,
   Users,
   X,
@@ -361,6 +362,50 @@ export function UsersModule() {
     }
   };
 
+  const deleteUser = async (user: AdminUser) => {
+    if (!window.confirm(`Excluir definitivamente o usuário "${user.full_name}"? Esta ação não pode ser desfeita.`)) return;
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/users/${user.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const body = response.status === 204 ? null : await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof body?.detail === "string" ? body.detail : "Não foi possível excluir o usuário.",
+        );
+      }
+      setMessage("Usuário excluído com sucesso.");
+      await loadData();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao excluir usuário.");
+    }
+  };
+
+  const deleteArea = async (area: AuthorizedArea) => {
+    if (!window.confirm(`Excluir definitivamente a área autorizada "${area.name}"? Os vínculos com usuários também serão removidos.`)) return;
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/security/authorized-areas/${area.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const body = response.status === 204 ? null : await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof body?.detail === "string" ? body.detail : "Não foi possível excluir a área.",
+        );
+      }
+      setMessage("Área autorizada excluída com sucesso.");
+      await loadData();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao excluir área.");
+    }
+  };
+
   return (
     <section className="users-module">
       <header className="users-hero">
@@ -514,14 +559,25 @@ export function UsersModule() {
                       }`}
                 </span>
 
-                <button
-                  type="button"
-                  className="users-edit-button"
-                  onClick={() => openEditUser(user)}
-                >
-                  <Pencil size={16} />
-                  Editar
-                </button>
+                <div className="users-row-actions">
+                  <button
+                    type="button"
+                    className="users-edit-button"
+                    onClick={() => openEditUser(user)}
+                  >
+                    <Pencil size={16} />
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="users-delete-button"
+                    onClick={() => void deleteUser(user)}
+                    title="Excluir usuário"
+                  >
+                    <Trash2 size={16} />
+                    Excluir
+                  </button>
+                </div>
               </div>
             );
           })
@@ -825,17 +881,28 @@ export function UsersModule() {
                     </small>
                   </div>
 
-                  <label>
-                    <Switch
-                      checked={area.is_active}
-                      onCheckedChange={(checked) =>
-                        void setAreaActive(area, checked)
-                      }
-                    />
-                    <span>
-                      {area.is_active ? "Ativa" : "Inativa"}
-                    </span>
-                  </label>
+                  <div className="users-area-actions">
+                    <label>
+                      <Switch
+                        checked={area.is_active}
+                        onCheckedChange={(checked) =>
+                          void setAreaActive(area, checked)
+                        }
+                      />
+                      <span>
+                        {area.is_active ? "Ativa" : "Inativa"}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="users-delete-button"
+                      onClick={() => void deleteArea(area)}
+                      title="Excluir área autorizada"
+                    >
+                      <Trash2 size={16} />
+                      Excluir
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
