@@ -82,6 +82,7 @@ class GeospatialDocumentsTests(unittest.TestCase):
             owner_name="Interessado de teste", responsible_name="Técnico de teste",
             croqui=True, raster_b64=base64.b64encode(raster.getvalue()).decode("ascii"),
             raster_source="Raster teste (sintético)",
+            qr_url="https://geo.amazonikaengenharia.com.br/documentos/00000000-0000-4000-8000-000000000001",
         )
         self.assertTrue(pdf.startswith(b"%PDF-"))
         self.assertIn(paper, {"A4", "A3", "A2", "A1", "A0"})
