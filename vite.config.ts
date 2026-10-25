@@ -10,6 +10,14 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: ["localhost", "127.0.0.1", "terminal.local"],
+    // Na homologação, API e tiles MVT ficam na mesma origem do navegador.
+    // Dessa forma os cookies HttpOnly acompanham os requests do OpenLayers.
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
+    },
     ...(isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : {}),
