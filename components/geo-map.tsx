@@ -262,7 +262,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [snapSubjectEnabled, setSnapSubjectEnabled] = useState(true);
   const [snapLayersEnabled, setSnapLayersEnabled] = useState(false);
   const [advancedPanel, setAdvancedPanel] = useState<"coordinates" | "snap" | "basemap" | "memorial" | "polygons" | null>(null);
-  const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; areaHa: number }>>([]);
+  const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; areaHa: number; perimeterM: number }>>([]);
   const [selectedPolygonIds, setSelectedPolygonIds] = useState<string[]>([]);
   const polygonSequenceRef = useRef(0);
   const [exportBusy, setExportBusy] = useState(false);
@@ -409,6 +409,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         name: String(feature.get("workPolygonName") ?? id),
         vertices: names,
         areaHa: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
+        perimeterM: getLength(new LineString(geometry.getCoordinates()[0] ?? []), {
+          projection: "EPSG:3857",
+        }),
       };
     });
     setPolygons(registry);
@@ -1882,7 +1885,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                   <Trash2 size={16} />
                 </button>
               </div>
-              <small>{polygon.areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha · {polygon.vertices.length} vértices</small>
+              <small>{polygon.areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha · {polygon.perimeterM.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m de perímetro · {polygon.vertices.length} vértices</small>
               <details className="work-vertex-details">
                 <summary>Renomear vértices antes da emissão</summary>
                 <button
