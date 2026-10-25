@@ -4718,3 +4718,28 @@ input {
     justify-content: center;
   }
 }
+
+
+.users-row-actions,
+.users-area-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.users-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #e8caca;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #a13c3c;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.users-delete-button:hover {
+  background: #fdeaea;
+}
