@@ -6217,3 +6217,26 @@ input {
 @media (max-width: 760px) {
   .polygons-panel { width: auto; }
 }
+
+
+/* Homologação: ações de usuários sempre visíveis, sem clipping */
+.users-table-card { width: 100%; overflow-x: auto; }
+.users-table-head,
+.users-table-row {
+  grid-template-columns: minmax(190px, 2fr) minmax(112px, .8fr) minmax(70px, .55fr) minmax(90px, .7fr) minmax(168px, 1.05fr);
+  gap: 10px;
+  min-width: 730px;
+}
+.users-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 160px; }
+.users-row-actions button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; min-height: 35px; }
+.users-delete-button { display: inline-flex; gap: 5px; align-items: center; justify-content: center; border: 1px solid #ebc3c3; border-radius: 8px; padding: 8px 10px; color: #a72f32; background: #fff5f4; font-size: 11px; }
+.users-delete-button:hover { background: #ffe6e4; }
+.analysis-title { display: flex; align-items: center; gap: 9px; }
+.analysis-close-button { margin-left: auto; padding: 7px; flex-shrink: 0; border: 1px solid #d2e1d8; border-radius: 8px; background: #fff; color: #214f3a; cursor: pointer; }
+.analysis-close-button:hover { background: #e9f2eb; }
+@media (max-width: 900px) {
+  .users-table-card { overflow-x: visible; }
+  .users-table-row { min-width: 0; grid-template-columns: 1fr 1fr; }
+  .users-row-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .users-table-head { display: none; }
+}
