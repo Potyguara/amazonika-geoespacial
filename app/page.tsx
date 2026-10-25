@@ -34,6 +34,7 @@ import {
   PanelLeftOpen,
   Plus,
   Search,
+  ScanSearch,
   Settings,
   ShieldCheck,
   UploadCloud,
@@ -206,6 +207,10 @@ export default function Home() {
     "map" | "sigef" | "analyses" | "sources" | "users" | "settings"
   >("map");
   const [sigefCurrent, setSigefCurrent] = useState<SourceVersion | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ sourceId: string; nonce: number } | null>(null);
+  const focusSourceOnMap = (sourceId: string) => {
+    setFocusRequest((current) => ({ sourceId, nonce: (current?.nonce ?? 0) + 1 }));
+  };
   const [layerManagerOpen, setLayerManagerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [layerPanelCollapsed, setLayerPanelCollapsed] = useState(false);
@@ -1138,6 +1143,16 @@ export default function Home() {
                         <strong>{layer.name}</strong>
                         <small>{layer.source}</small>
                       </div>
+                      <button
+                        type="button"
+                        className="layer-extent-button"
+                        disabled={!layer.id || !enabled[index]}
+                        onClick={() => layer.id && focusSourceOnMap(layer.id)}
+                        title={`Enquadrar feições de ${layer.name}`}
+                        aria-label={`Enquadrar camada ${layer.name}`}
+                      >
+                        <ScanSearch size={16} />
+                      </button>
                       <label className="layer-toggle-control">
                         <Switch
                           className="layer-visibility-switch"
@@ -1219,6 +1234,7 @@ export default function Home() {
                   incraUf={incraUf}
                   resetNonce={analysisResetNonce}
                   hideAdvancedTools={layerManagerOpen}
+                  focusRequest={focusRequest}
                   onGeometryChange={geometryChanged}
                   layers={catalog.map((layer, index) => ({
                     id: layer.id,
@@ -1226,7 +1242,8 @@ export default function Home() {
                     name: layer.name,
                     color: layer.color,
                     enabled: (enabled[index] ?? false) && layerAvailableForUf(layer, incraUf),
-                      source: layer.source,
+                    featureCount: layer.slug === "sigef-interno" ? (sigefCurrent?.feature_count ?? undefined) : undefined,
+                    source: layer.source,
                     wmsEnabled: layer.wmsEnabled,
                     wmsTheme: layer.wmsTheme,
                     wmsFixedLayer: layer.wmsFixedLayer,
@@ -1369,6 +1386,10 @@ export default function Home() {
         {activeView === "sigef" && (
           <SigefModule
             onVersionChanged={(version) => setSigefCurrent(version)}
+            onShowOnMap={(sourceId) => {
+              focusSourceOnMap(sourceId);
+              setActiveView("map");
+            }}
           />
         )}
         {activeView === "analyses" && <AnalysesModule />}
