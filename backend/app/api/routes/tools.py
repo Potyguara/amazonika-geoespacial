@@ -18,6 +18,7 @@ from shapely.geometry import shape
 from app.core.config import get_settings
 from app.services.geospatial_export import export_polygon
 from app.services.plant_memorial_v2 import prepare_parcels, make_joint_pdf, build_joint_memorial
+from app.services.memorial_docx import build_memorial_docx
 from app.services.auth import require_permission, get_current_user
 from app.models.auth import User
 from app.services.plant_memorial import (
@@ -366,6 +367,36 @@ def upload_document_logo(file: UploadFile = File(...)):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return {"logo_path": path, "template": load_document_template()}
+
+
+@router.post("/memorial/docx")
+def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_user)):
+    raw = ([item.model_dump() for item in payload.parcels] if payload.parcels
+           else ([{"name": payload.title, "geometry": payload.geometry}] if payload.geometry else []))
+    if not raw:
+        raise HTTPException(422, "Selecione pelo menos uma área para o memorial.")
+    try:
+        parcels = prepare_parcels(raw)
+        profile = {"full_name": user.full_name, **(user.professional_profile_json or {})}
+        contents = build_memorial_docx(
+            parcels=parcels,
+            title=payload.title,
+            memorial_heading=payload.memorial_heading,
+            owner_name=payload.owner_name,
+            owner_rg=payload.owner_rg,
+            owner_cpf=payload.owner_cpf,
+            property_address=payload.property_address,
+            professional=profile,
+            include_warning=payload.include_croqui_warning,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=contents,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="amazonika-memorial.docx"',
+                 "Cache-Control": "private, no-store"},
+    )
 
 
 def _generated_documents_dir() -> Path:
