@@ -115,3 +115,65 @@ export function utmToLonLat(input: UTMInput): LonLat {
 export function coordinateLabel(index: number, prefix = "V"): string {
   return `${prefix}${String(index + 1).padStart(2, "0")}`;
 }
+
+
+export type ManualCoordinateMode = "DD" | "DMS" | "UTM";
+
+export function parseManualCoordinates(
+  text: string,
+  mode: ManualCoordinateMode,
+): LonLat[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) throw new Error("Informe ao menos uma coordenada.");
+
+  return lines.map((line, index) => {
+    try {
+      if (mode === "DD") {
+        const values = line.split(/[;,\s]+/).filter(Boolean).map(Number);
+        if (values.length < 2 || values.some((value) => !Number.isFinite(value))) {
+          throw new Error("use longitude, latitude");
+        }
+        const [longitude, latitude] = values;
+        if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) {
+          throw new Error("longitude/latitude fora do intervalo válido");
+        }
+        return [longitude, latitude];
+      }
+
+      if (mode === "UTM") {
+        const parts = line.split(/[;,\s]+/).filter(Boolean);
+        if (parts.length < 4) throw new Error("use E, N, fuso, hemisfério");
+        return utmToLonLat({
+          easting: Number(parts[0]),
+          northing: Number(parts[1]),
+          zone: Number(parts[2]),
+          hemisphere: String(parts[3]).toUpperCase() === "N" ? "N" : "S",
+        });
+      }
+
+      const halves = line.split(";").map((part) => part.trim());
+      if (halves.length !== 2) {
+        throw new Error("use longitude DMS ; latitude DMS");
+      }
+      const parseDms = (value: string, axis: "lon" | "lat") => {
+        const parts = value.replace(/[°'"]/g, " ").split(/\s+/).filter(Boolean);
+        if (parts.length < 4) throw new Error("DMS incompleto");
+        const hemisphere = parts[3].toUpperCase() as "N" | "S" | "E" | "W";
+        const allowed = axis === "lon" ? ["E", "W"] : ["N", "S"];
+        if (!allowed.includes(hemisphere)) throw new Error("hemisfério inválido");
+        return dmsToDecimal(Number(parts[0]), Number(parts[1]), Number(parts[2]), hemisphere);
+      };
+      const longitude = parseDms(halves[0], "lon");
+      const latitude = parseDms(halves[1], "lat");
+      return [longitude, latitude] as LonLat;
+    } catch (error) {
+      throw new Error(
+        `Linha ${index + 1}: ${error instanceof Error ? error.message : "coordenada inválida"}.`,
+      );
+    }
+  });
+}
