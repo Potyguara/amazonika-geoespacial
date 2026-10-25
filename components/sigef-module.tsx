@@ -46,13 +46,13 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const sourceResponse = await fetch(`${API_URL}/sources`);
+      const sourceResponse = await fetch(`${API_URL}/sources`, { credentials: "include" });
       if (!sourceResponse.ok) throw new Error("Não foi possível consultar as fontes cadastradas.");
       const loadedSources: Source[] = await sourceResponse.json();
       setSources(loadedSources);
       const sigef = loadedSources.find((source) => source.slug === "sigef-interno");
       if (!sigef) throw new Error("A fonte SIGEF interno não está cadastrada. Execute a carga inicial do catálogo.");
-      const versionResponse = await fetch(`${API_URL}/sources/${sigef.id}/versions`);
+      const versionResponse = await fetch(`${API_URL}/sources/${sigef.id}/versions`, { credentials: "include" });
       if (!versionResponse.ok) throw new Error("Não foi possível consultar o histórico do SIGEF.");
       setVersions(await versionResponse.json());
     } catch (error) {
@@ -73,7 +73,7 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
     data.append("reference_date",referenceDate);
     if (layerName.trim()) data.append("layer_name",layerName.trim());
     try {
-      const response = await fetch(`${API_URL}/sources/${sigefSource.id}/imports/geopackage`,{method:"POST",body:data});
+      const response = await fetch(`${API_URL}/sources/${sigefSource.id}/imports/geopackage`,{method:"POST",body:data,credentials:"include"});
       const body = await response.json().catch(()=>null);
       if (!response.ok) throw new Error(body?.detail??"Falha ao importar o GeoPackage.");
       setMessage({kind:"success",text:`Carga concluída: ${formatNumber(body.feature_count)} parcelas importadas e ativadas.`});
@@ -91,7 +91,7 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
     if (!sigefSource || version.is_current) return;
     setActivating(version.id); setMessage(null);
     try {
-      const response=await fetch(`${API_URL}/sources/${sigefSource.id}/versions/${version.id}/activate`,{method:"POST"});
+      const response=await fetch(`${API_URL}/sources/${sigefSource.id}/versions/${version.id}/activate`,{method:"POST",credentials:"include"});
       const body=await response.json().catch(()=>null);
       if (!response.ok) throw new Error(body?.detail??"Não foi possível ativar esta versão.");
       setMessage({kind:"success",text:`A carga de ${formatDate(version.reference_date)} voltou a ser a versão ativa.`});
