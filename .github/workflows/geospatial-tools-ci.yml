@@ -39,6 +39,7 @@ jobs:
             backend/app/api/routes/security.py \
             backend/app/services/plant_memorial.py \
             backend/app/services/plant_memorial_v2.py \
+            backend/app/services/plant_memorial_pro.py \
             backend/app/services/memorial_docx.py \
             backend/app/services/geospatial_export.py \
             backend/app/models/security.py \
