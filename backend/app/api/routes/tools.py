@@ -18,7 +18,7 @@ from shapely.geometry import shape
 from app.core.config import get_settings
 from app.services.geospatial_export import export_polygon
 from app.services.plant_memorial_v2 import prepare_parcels, build_joint_memorial
-from app.services.plant_memorial_pro import make_joint_pdf
+from app.services.plant_memorial_v3 import make_joint_pdf
 from app.services.memorial_docx import build_memorial_docx
 from app.services.auth import require_permission, get_current_user
 from app.models.auth import User
@@ -55,6 +55,7 @@ class MemorialRequest(BaseModel):
     plant_heading: str = Field(default="PLANTA GEORREFERENCIADA", max_length=150)
     memorial_heading: str = Field(default="MEMORIAL DESCRITIVO", max_length=150)
     paper_format: str = Field(default="A4", pattern="^(A4|A3|A2|A1|A0)$")
+    orientation: str = Field(default="paisagem", pattern="^(paisagem|retrato)$")
     scale_denominator: int | None = Field(default=None, ge=50, le=1000000)
     owner_rg: str | None = Field(default=None, max_length=60)
     owner_cpf: str | None = Field(default=None, max_length=25)
@@ -472,6 +473,7 @@ def plant_memorial_pdf(
             qr_url=download_url,
             paper_format=payload.paper_format,
             scale_denominator=payload.scale_denominator,
+            orientation=payload.orientation,
         )
         folder = _generated_documents_dir()
         stem = document_id.hex
