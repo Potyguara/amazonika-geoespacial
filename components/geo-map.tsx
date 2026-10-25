@@ -467,7 +467,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const removeVertex = (id: string, index: number) => {
     setDocumentError(null);
     const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
-    const geometry = feature?.getGeometry();
+    if (!feature) return;
+    const geometry = feature.getGeometry();
     if (!(geometry instanceof Polygon)) return;
     const rings = geometry.getCoordinates();
     const points = (rings[0] ?? []).slice(0, -1);
