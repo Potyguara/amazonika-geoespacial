@@ -16,6 +16,7 @@ import { SigefModule, SourceVersion } from "@/components/sigef-module";
 import { SourcesModule } from "@/components/sources-module";
 import { UsersModule } from "@/components/users-module";
 import { SettingsModule } from "@/components/settings-module";
+import { ProfessionalProfile } from "@/components/professional-profile";
 import { AnalysesModule } from "@/components/analyses-module";
 import { getApiUrl } from "@/lib/api";
 import {
@@ -1408,10 +1409,12 @@ export default function Home() {
             <UsersModule />
           )}
 
-        {activeView === "settings" &&
-          authUser.permissions.includes("users.manage") && (
-            <SettingsModule />
-          )}
+        {activeView === "settings" && (
+          <>
+            <ProfessionalProfile />
+            {authUser.permissions.includes("users.manage") && <SettingsModule />}
+          </>
+        )}
       </section>
       <Sheet open={layerManagerOpen} onOpenChange={setLayerManagerOpen}>
         <SheetContent className="layer-manager-sheet">
