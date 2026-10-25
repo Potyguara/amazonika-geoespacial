@@ -539,7 +539,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 dataProjection: "EPSG:4674",
                 featureProjection: "EPSG:3857",
               },
-            );
+            ) as Feature;
 
             const detailGeometry = detailFeature.getGeometry();
 
@@ -769,7 +769,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                     dataProjection: "EPSG:4674",
                     featureProjection: "EPSG:3857",
                   },
-                );
+                ) as Feature;
 
                 const properties =
                   item?.properties ?? {};
@@ -925,9 +925,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setIdentifyLoading(false);
       setIdentifiedFeature(null);
     };
-    map.on("singleclick", identifyAtPixel);
+    const identifyListener = (event: Parameters<typeof identifyAtPixel>[0]) => {
+      void identifyAtPixel(event);
+    };
+    map.on("singleclick", identifyListener as never);
     return () => {
-      map.un("singleclick", identifyAtPixel);
+      map.un("singleclick", identifyListener as never);
       identifyAbortRef.current?.abort();
       map.setTarget(undefined);
       mapRef.current = null;
@@ -1117,7 +1120,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     draw.on("drawend", () => window.setTimeout(emitGeometry, 0));
     map.addInteraction(draw);
     drawRef.current = draw;
-    return () => map.removeInteraction(draw);
+    return () => {
+      map.removeInteraction(draw);
+    };
   }, [drawKind]);
 
   useEffect(() => {
