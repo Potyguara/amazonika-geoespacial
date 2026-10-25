@@ -188,6 +188,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const snapSubjectRef = useRef<Snap | null>(null);
   const snapLayersRef = useRef<Snap | null>(null);
   const officialSourceRef = useRef(new VectorSource());
+  const snapLayerSourceRef = useRef(new VectorSource());
   const vertexLabelSourceRef = useRef(new VectorSource());
 
   // Overlay exclusivo da ferramenta Identificar.
@@ -1039,6 +1040,45 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     const map = mapRef.current;
     if (!map) return;
 
+    const refreshLayerSnapSource = () => {
+      snapLayerSourceRef.current.clear();
+
+      if (!snapLayersEnabled) return;
+
+      const extent = map.getView().calculateExtent(map.getSize());
+      let imported = 0;
+      const MAX_VISIBLE_SNAP_FEATURES = 25000;
+
+      // Fontes vetoriais tradicionais, quando existirem.
+      for (const feature of officialSourceRef.current.getFeaturesInExtent(extent)) {
+        if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+        const geometry = feature.getGeometry();
+        if (!geometry) continue;
+        snapLayerSourceRef.current.addFeature(
+          new Feature({ geometry: geometry.clone() }),
+        );
+        imported += 1;
+      }
+
+      // Todas as camadas MVT/PostGIS atualmente renderizadas.
+      // A origem/órgão e o tamanho nacional da base não alteram a regra:
+      // somente as feições visíveis no viewport são materializadas para Snap.
+      for (const vectorTileLayer of vectorTileLayersRef.current.values()) {
+        if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+        const visibleFeatures = vectorTileLayer.getFeaturesInExtent(extent);
+        for (const candidate of visibleFeatures) {
+          if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+          const feature = candidate as unknown as Feature;
+          const geometry = feature.getGeometry?.();
+          if (!geometry) continue;
+          snapLayerSourceRef.current.addFeature(
+            new Feature({ geometry: geometry.clone() }),
+          );
+          imported += 1;
+        }
+      }
+    };
+
     if (snapSubjectRef.current) {
       map.removeInteraction(snapSubjectRef.current);
       snapSubjectRef.current = null;
@@ -1048,20 +1088,24 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       snapLayersRef.current = null;
     }
 
+    refreshLayerSnapSource();
+
     const subjectSnap = snapSubjectEnabled
       ? new Snap({
           source: sourceRef.current,
           vertex: true,
           edge: true,
+          intersection: true,
           pixelTolerance: 14,
         })
       : null;
 
     const layerSnap = snapLayersEnabled
       ? new Snap({
-          source: officialSourceRef.current,
+          source: snapLayerSourceRef.current,
           vertex: true,
           edge: true,
+          intersection: true,
           pixelTolerance: 14,
         })
       : null;
@@ -1077,13 +1121,23 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       snapLayersRef.current = layerSnap;
     }
 
+    if (snapLayersEnabled) {
+      map.on("moveend", refreshLayerSnapSource);
+      map.on("rendercomplete", refreshLayerSnapSource);
+    }
+
     return () => {
+      if (snapLayersEnabled) {
+        map.un("moveend", refreshLayerSnapSource);
+        map.un("rendercomplete", refreshLayerSnapSource);
+      }
       if (subjectSnap) map.removeInteraction(subjectSnap);
       if (layerSnap) map.removeInteraction(layerSnap);
       if (snapSubjectRef.current === subjectSnap) snapSubjectRef.current = null;
       if (snapLayersRef.current === layerSnap) snapLayersRef.current = null;
+      snapLayerSourceRef.current.clear();
     };
-  }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive]);
+  }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive, layers, incraUf]);
 
   const returnToIdentifyCandidates = () => {
     identifyAbortRef.current?.abort();
