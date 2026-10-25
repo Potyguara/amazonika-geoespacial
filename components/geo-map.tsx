@@ -1825,6 +1825,45 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     }
   };
 
+  const downloadMemorialDocx = async () => {
+    setMemorialLoading(true);
+    try {
+      const parcels = documentParcels();
+      const response = await fetch(`${getApiUrl()}/tools/memorial/docx`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parcels,
+          title: memorialTitle,
+          memorial_heading: memorialHeading,
+          owner_name: memorialOwner || null,
+          owner_rg: ownerRg || null,
+          owner_cpf: ownerCpf || null,
+          property_address: propertyAddress || null,
+          include_croqui_warning: croquiNote,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(typeof payload?.detail === "string" ? payload.detail : "Falha no DOCX.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "amazonika-memorial.docx";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (error) {
+      setMemorialText(`ERRO: ${error instanceof Error ? error.message : "Falha no Word."}`);
+    } finally {
+      setMemorialLoading(false);
+    }
+  };
+
   const downloadPlantMemorialPdf = async () => {
     const geometry = currentGeometryGeoJson();
     if (!geometry) return;
@@ -2113,6 +2152,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <div className="memorial-actions">
             <button className="geo-tool-primary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
             <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadPlantMemorialPdf()}>Gerar Planta + Memorial PDF</button>
+            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadMemorialDocx()}>Baixar memorial em Word (.docx)</button>
           </div>
           {memorialText && <textarea className="memorial-output" readOnly value={memorialText} rows={12} />}
           <small>O PDF usa o modelo institucional salvo em Configurações, com logomarca, responsável, vértices, escala, área e perímetro.</small>
