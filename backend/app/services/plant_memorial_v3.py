@@ -448,7 +448,9 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         raise ValueError("A Planta de Situação exige imagem raster capturada do mapa.")
     if not parcels:
         raise ValueError("Selecione ao menos um polígono.")
-    professional=professional or {}
+    professional=dict(professional or {})
+    if responsible_name and not professional.get("full_name"):
+        professional["full_name"]=responsible_name
     raster=_raster_reader(raster_b64)
     stamp=datetime.now(ZoneInfo("America/Belem")).strftime(
         "%d/%m/%Y %H:%M:%S - Horário de Belém"
