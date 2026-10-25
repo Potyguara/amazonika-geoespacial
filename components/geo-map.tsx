@@ -38,6 +38,7 @@ type DrawKind = "Point" | "Polygon" | null;
 interface GeoMapProps {
   onGeometryChange: (geometry: Record<string, unknown> | null) => void;
   incraUf: string;
+  resetNonce?: number;
   layers: Array<{
     id?: string;
     slug?: string;
@@ -72,6 +73,31 @@ const selectedOfficialStyle = new Style({
     stroke: new Stroke({ color: "#ffffff", width: 2 }),
   }),
 });
+
+// Destaque universal da ferramenta Identificar.
+// Duas passadas de estilo garantem contraste sobre qualquer camada/base.
+const identifyHighlightStyles = [
+  // halo branco: separa a seleção de qualquer simbologia existente
+  new Style({
+    fill: new Fill({ color: "rgba(255, 159, 28, 0.10)" }),
+    stroke: new Stroke({ color: "rgba(255,255,255,0.98)", width: 10 }),
+    image: new CircleStyle({
+      radius: 12,
+      fill: new Fill({ color: "rgba(255,255,255,0.98)" }),
+      stroke: new Stroke({ color: "rgba(23,63,50,0.35)", width: 2 }),
+    }),
+  }),
+  // corpo laranja: seleção propriamente dita
+  new Style({
+    fill: new Fill({ color: "rgba(255, 159, 28, 0.42)" }),
+    stroke: new Stroke({ color: "#ff7a00", width: 5 }),
+    image: new CircleStyle({
+      radius: 8,
+      fill: new Fill({ color: "#ff7a00" }),
+      stroke: new Stroke({ color: "#ffffff", width: 2 }),
+    }),
+  }),
+];
 
 type IdentifiedFeature = {
   title: string;
@@ -168,7 +194,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0 }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -201,6 +227,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const [identifyActive, setIdentifyActive] = useState(false);
   const [identifiedFeature, setIdentifiedFeature] =
     useState<IdentifiedFeature | null>(null);
+  const [identifyLoading, setIdentifyLoading] = useState(false);
+  const [identifyLoadingMessage, setIdentifyLoadingMessage] = useState(
+    "Aguardando informações…",
+  );
   const [identifyCandidates, setIdentifyCandidates] = useState<
     IdentifyCandidate[]
   >([]);
@@ -210,6 +240,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const [officialStatus, setOfficialStatus] = useState(
     "Preparando camadas oficiais…",
   );
+
+  useEffect(() => {
+    if (!resetNonce) return;
+    sourceRef.current.clear();
+    identifySelectionSourceRef.current.clear();
+    setDrawKind(null);
+    setModifyActive(false);
+    setIdentifyActive(false);
+    clearIdentifiedFeature();
+  }, [resetNonce]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -252,6 +292,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const clearIdentifiedFeature = () => {
     identifyAbortRef.current?.abort();
     identifyAbortRef.current = null;
+    setIdentifyLoading(false);
     if (selectedFeatureRef.current) {
       selectedFeatureRef.current.set("isSelected", false);
       selectedFeatureRef.current.changed();
@@ -311,10 +352,19 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         feature.get("feature_id"),
       );
 
+      // O estilo é fixado também na própria feição para que o destaque
+      // não dependa da função de estilo da camada ou da origem do vetor.
+      highlightFeature.setStyle(identifyHighlightStyles);
+
       identifySelectionSourceRef.current.clear();
       identifySelectionSourceRef.current.addFeature(
         highlightFeature,
       );
+      identifySelectionSourceRef.current.changed();
+
+      // Render imediato: o usuário deve enxergar a seleção no mesmo clique,
+      // antes mesmo de os atributos detalhados terminarem de carregar.
+      mapRef.current?.renderSync();
     }
     const { raw, layer, title } = featureIdentity(feature);
     const sourceId = String(raw.source_id ?? "");
@@ -350,6 +400,61 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         if (controller.signal.aborted || selectedFeatureRef.current !== feature)
           return;
         const properties = detail.properties ?? {};
+
+        // Segundo passe determinístico:
+        // substitui qualquer geometria MVT recortada/simplificada
+        // pela geometria integral devolvida pelo PostGIS.
+        if (detail?.geometry) {
+          try {
+            const detailFeature = new GeoJSON().readFeature(
+              {
+                type: "Feature",
+                geometry: detail.geometry,
+                properties: {},
+              },
+              {
+                dataProjection: "EPSG:4674",
+                featureProjection: "EPSG:3857",
+              },
+            );
+
+            const detailGeometry = detailFeature.getGeometry();
+
+            if (detailGeometry) {
+              const persistentHighlight = new Feature({
+                geometry: detailGeometry.clone(),
+              });
+
+              persistentHighlight.setStyle(identifyHighlightStyles);
+              persistentHighlight.set(
+                "isIdentifyHighlight",
+                true,
+              );
+              persistentHighlight.set(
+                "source_id",
+                sourceId,
+              );
+              persistentHighlight.set(
+                "feature_id",
+                featureId,
+              );
+
+              identifySelectionSourceRef.current.clear();
+              identifySelectionSourceRef.current.addFeature(
+                persistentHighlight,
+              );
+              identifySelectionSourceRef.current.changed();
+
+              mapRef.current?.renderSync();
+            }
+          } catch (highlightError) {
+            console.warn(
+              "Não foi possível reforçar o destaque com a geometria completa.",
+              highlightError,
+            );
+          }
+        }
+
         const detailTitle = String(
           properties.name ??
             properties.nome ??
@@ -408,8 +513,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         // Fica acima das bases territoriais e da geometria consultada.
         new VectorLayer({
           source: identifySelectionSourceRef.current,
-          zIndex: 1000,
-          style: selectedOfficialStyle,
+          updateWhileAnimating: true,
+          updateWhileInteracting: true,
+          zIndex: 100000,
+          style: identifyHighlightStyles,
         }),
       ],
       view: new View({
@@ -424,6 +531,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       if (!identifyActiveRef.current) return;
 
       clearIdentifiedFeature();
+      setIdentifyLoading(true);
+      setIdentifyLoadingMessage("Consultando feições nas camadas ativas…");
 
       const enabledLayers = layersRef.current.filter(
         (layer) => layer.enabled && layer.id,
@@ -597,6 +706,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             }
 
             if (candidates.length === 1) {
+              setIdentifyLoading(false);
               selectFeatureRef.current(
                 candidates[0].feature,
               );
@@ -604,6 +714,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             }
 
             if (candidates.length > 1) {
+              setIdentifyLoading(false);
               identifyCandidateHistoryRef.current =
                 candidates;
               setIdentifyCandidates(candidates);
@@ -615,6 +726,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             error instanceof DOMException &&
             error.name === "AbortError"
           ) {
+            setIdentifyLoading(false);
             return;
           }
 
@@ -622,6 +734,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             "Identificação vetorial local indisponível; tentando fallback visual/WMS.",
             error,
           );
+          setIdentifyLoadingMessage("Verificando feições visíveis no mapa…");
         }
       }
 
@@ -641,6 +754,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         );
 
       if (renderedCandidates.length === 1) {
+        setIdentifyLoading(false);
         selectFeatureRef.current(
           renderedCandidates[0],
         );
@@ -648,6 +762,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       }
 
       if (renderedCandidates.length > 1) {
+        setIdentifyLoading(false);
         const candidates =
           renderedCandidates.map((feature) => ({
             feature,
@@ -663,6 +778,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
 
       // WMS é somente referência visual. A ferramenta Identificar
       // trabalha exclusivamente com geometrias vetoriais presentes no PostGIS.
+      setIdentifyLoading(false);
       setIdentifiedFeature(null);
     };
     map.on("singleclick", identifyAtPixel);
@@ -1039,11 +1155,21 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       >
         {loadingOfficial ? "Carregando camadas visíveis…" : officialStatus}
       </div>
+      {identifyLoading && (
+        <div className="identify-request-loading" role="status" aria-live="polite">
+          <span className="identify-request-spinner" aria-hidden="true" />
+          <div>
+            <strong>Aguardando informações</strong>
+            <small>{identifyLoadingMessage}</small>
+          </div>
+        </div>
+      )}
       {identifyActive &&
+        !identifyLoading &&
         !identifiedFeature &&
         identifyCandidates.length === 0 && (
           <div className="identify-hint">
-            Clique sobre uma feição oficial para consultar seus dados
+            Clique sobre uma feição territorial para consultar seus dados
           </div>
         )}
       {identifyCandidates.length > 1 && (
@@ -1112,7 +1238,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           </header>
           {identifiedFeature.loading ? (
             <div className="feature-info-loading">
-              Consultando atributos completos…
+              <span className="identify-request-spinner" aria-hidden="true" />
+              <div>
+                <strong>Carregando informações</strong>
+                <small>Consultando atributos completos da feição…</small>
+              </div>
             </div>
           ) : (
             <dl>

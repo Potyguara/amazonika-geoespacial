@@ -8,7 +8,7 @@ from xml.etree import ElementTree as ET
 
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.wkb import loads as load_wkb
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.analysis import Analysis
@@ -223,6 +223,83 @@ def _extract_polygon(
     return polygon
 
 
+
+def _decimal_to_dms(value: float, axis: str) -> str:
+    """Converte grau decimal para o texto geográfico aceito pelo SIGEF.
+
+    Exemplo do modelo validado:
+        longitude: 51 13 27,694 W
+        latitude:  01 04 59,070 N
+    """
+    absolute = abs(float(value))
+    degrees = int(absolute)
+    minutes_float = (absolute - degrees) * 60.0
+    minutes = int(minutes_float)
+    seconds = round((minutes_float - minutes) * 60.0, 3)
+
+    # Corrige eventual transporte de arredondamento.
+    if seconds >= 60.0:
+        seconds = 0.0
+        minutes += 1
+    if minutes >= 60:
+        minutes = 0
+        degrees += 1
+
+    axis = axis.lower()
+    if axis == "lon":
+        hemisphere = "W" if value < 0 else "E"
+    elif axis == "lat":
+        hemisphere = "S" if value < 0 else "N"
+    else:
+        raise ValueError("Eixo inválido para conversão GMS.")
+
+    degree_text = f"{degrees:02d}"
+    second_text = f"{seconds:06.3f}".replace(".", ",")
+    return f"{degree_text} {minutes:02d} {second_text} {hemisphere}"
+
+
+def _municipalities_for_analysis(db: Session, analysis: Analysis) -> list[str]:
+    """Retorna os municípios efetivamente interceptados pelo imóvel.
+
+    A tabela ibge_municipios_2025 é uma referência estrutural do sistema,
+    independente das camadas que o usuário liga/desliga para a análise.
+    Interseções meramente lineares/de fronteira (<= 1 m²) são descartadas.
+    """
+    exists = db.scalar(text("SELECT to_regclass('public.ibge_municipios_2025')"))
+    if not exists:
+        return []
+
+    rows = db.execute(
+        text(
+            """
+            SELECT
+                m.nm_mun,
+                m.sigla_uf,
+                ST_Area(
+                    ST_Intersection(m.geom, a.input_geom)::geography
+                ) AS intersection_area_m2
+            FROM ibge_municipios_2025 AS m
+            JOIN analyses AS a
+              ON a.id = :analysis_id
+            WHERE ST_Intersects(m.geom, a.input_geom)
+              AND ST_Area(
+                    ST_Intersection(m.geom, a.input_geom)::geography
+                  ) > 1.0
+            ORDER BY intersection_area_m2 DESC, m.nm_mun
+            """
+        ),
+        {"analysis_id": str(analysis.id)},
+    ).all()
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for name, uf, _area in rows:
+        label = f"{str(name).strip()}-{str(uf).strip().upper()}"
+        if label and label not in seen:
+            seen.add(label)
+            result.append(label)
+    return result
+
 def _write_perimeter(
     sheet: ET.Element,
     polygon: Polygon,
@@ -233,6 +310,14 @@ def _write_perimeter(
         raise ValueError(
             "O modelo SIGEF não possui a linha base de vértices."
         )
+
+    # O modelo SIGEF validado usa coordenadas geográficas em GMS.
+    _set_identification_value(
+        sheet,
+        9,
+        2,
+        "Geográfica",
+    )
 
     # Cabeçalho do perímetro.
     _set_identification_value(
@@ -295,9 +380,9 @@ def _write_perimeter(
             cells[0],
             f"SIMU-P-{index:07d}",
         )
-        _set_number(cells[1], longitude)
+        _set_string(cells[1], _decimal_to_dms(longitude, "lon"))
         _set_number(cells[2], 0.0)
-        _set_number(cells[3], latitude)
+        _set_string(cells[3], _decimal_to_dms(latitude, "lat"))
         _set_number(cells[4], 0.0)
         _set_number(cells[5], 0.0)
         _set_number(cells[6], 0.0)
@@ -341,6 +426,15 @@ def build_sigef_simulation_ods(
         identification = _sheet(root, "identificacao")
         perimeter = _sheet(root, "perimetro_1")
 
+        subject = dict(analysis.subject_json or {})
+        holder_name = str(subject.get("holder_name") or "SIMULAÇÃO").strip() or "SIMULAÇÃO"
+        holder_document = "".join(
+            character
+            for character in str(subject.get("holder_document") or "")
+            if character.isdigit()
+        )
+        holder_kind = "Jurídica" if len(holder_document) == 14 else "Física"
+
         # Preenchimento mínimo para SIMULAÇÃO.
         _set_identification_value(
             identification,
@@ -352,19 +446,19 @@ def build_sigef_simulation_ods(
             identification,
             5,
             2,
-            "Física",
+            holder_kind,
         )
         _set_identification_value(
             identification,
             6,
             2,
-            "SIMULAÇÃO",
+            holder_name,
         )
         _set_identification_value(
             identification,
             7,
             2,
-            "000.000.000-00",
+            holder_document,
         )
         _set_identification_value(
             identification,
@@ -402,6 +496,45 @@ def build_sigef_simulation_ods(
             2,
             "",
         )
+
+        municipalities = _municipalities_for_analysis(db, analysis)
+        if not municipalities:
+            raise ValueError(
+                "Malha municipal IBGE 2025 não carregada ou imóvel sem município identificado."
+            )
+
+        # O SIGEF aceita múltiplos municípios na linha Município(s).
+        # Preenche um município por célula, sem limite de quantidade.
+        # Quando houver apenas um município, repetimos A/B para manter
+        # compatibilidade com o modelo já validado no simulador.
+        municipality_values = list(municipalities)
+        if len(municipality_values) == 1:
+            municipality_values.append(municipality_values[0])
+
+        identification_rows = identification.findall(f"{TABLE}table-row")
+        if len(identification_rows) < 17:
+            raise ValueError("Linha Município(s) não encontrada no modelo SIGEF.")
+
+        municipality_row = identification_rows[16]
+        municipality_cells = _expand_row_cells(municipality_row)
+        if not municipality_cells:
+            raise ValueError("A linha Município(s) não possui células utilizáveis.")
+
+        # Expande a própria linha se a quantidade de municípios exceder
+        # o número de células originalmente existentes no modelo.
+        while len(municipality_cells) < len(municipality_values):
+            template_cell = deepcopy(municipality_cells[-1])
+            _set_string(template_cell, "")
+            municipality_row.append(template_cell)
+            municipality_cells.append(template_cell)
+
+        for index, municipality in enumerate(municipality_values):
+            _set_string(municipality_cells[index], municipality)
+
+        # Limpa células remanescentes da linha para não carregar conteúdo
+        # residual do modelo quando houver menos municípios que células.
+        for index in range(len(municipality_values), len(municipality_cells)):
+            _set_string(municipality_cells[index], "")
 
         _write_perimeter(
             perimeter,

@@ -16,6 +16,7 @@ async def lifespan(_:FastAPI):
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb"))
         connection.execute(text("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS source_status_json JSONB NOT NULL DEFAULT '[]'::jsonb"))
+        connection.execute(text("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS subject_json JSONB NOT NULL DEFAULT '{}'::jsonb"))
         connection.execute(text("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS error_message TEXT"))
     yield
 

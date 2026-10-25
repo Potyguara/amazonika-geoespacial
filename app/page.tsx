@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -24,11 +24,13 @@ import {
   EyeOff,
   FileSearch,
   FileText,
-  FolderKanban,
   Layers3,
   LockKeyhole,
   LogOut,
   Map,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   Settings,
@@ -193,11 +195,21 @@ export default function Home() {
   const [analysisProgress, setAnalysisProgress] = useState("");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisSessionOpen, setAnalysisSessionOpen] = useState(false);
+  const [analysisDraftReady, setAnalysisDraftReady] = useState(false);
+  const [analysisAreaName, setAnalysisAreaName] = useState("");
+  const [analysisHolderName, setAnalysisHolderName] = useState("");
+  const [analysisHolderDocument, setAnalysisHolderDocument] = useState("");
+  const [analysisResetNonce, setAnalysisResetNonce] = useState(0);
   const [activeView, setActiveView] = useState<
     "map" | "sigef" | "analyses" | "sources" | "users"
   >("map");
   const [sigefCurrent, setSigefCurrent] = useState<SourceVersion | null>(null);
   const [layerManagerOpen, setLayerManagerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [layerPanelCollapsed, setLayerPanelCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileLayerPanelOpen, setMobileLayerPanelOpen] = useState(false);
   const [incraUf, setIncraUf] = useState("AP");
   const [sourceHealth, setSourceHealth] = useState<SourceHealth | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -207,6 +219,11 @@ export default function Home() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [layerUiTransition, setLayerUiTransition] = useState<{
+    layerName: string;
+    enabling: boolean;
+  } | null>(null);
+  const layerUiTimerRef = useRef<number | null>(null);
   const [locationAccess, setLocationAccess] = useState<
     "idle" | "checking" | "allowed" | "denied" | "error"
   >("idle");
@@ -366,10 +383,39 @@ export default function Home() {
     };
   }, [authUser, locationRetryNonce]);
 
-  const setLayerEnabled = (index: number, checked: boolean) =>
+  const setLayerEnabled = (index: number, checked: boolean) => {
+    const layer = catalog[index];
+    if (!layer || layerUiTransition) return;
+
+    setLayerUiTransition({
+      layerName: layer.name,
+      enabling: checked,
+    });
+
     setEnabled((current) =>
       current.map((value, i) => (i === index ? checked : value)),
     );
+
+    if (layerUiTimerRef.current !== null) {
+      window.clearTimeout(layerUiTimerRef.current);
+    }
+
+    // Feedback deliberadamente fora do OpenLayers: evita interferir em
+    // tileload, zoom, pan ou ciclo de vida do mapa. O bloqueio cobre apenas
+    // a troca explícita feita pelo usuário no catálogo.
+    layerUiTimerRef.current = window.setTimeout(() => {
+      setLayerUiTransition(null);
+      layerUiTimerRef.current = null;
+    }, 1100);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (layerUiTimerRef.current !== null) {
+        window.clearTimeout(layerUiTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!territorialAccessReady) {
@@ -544,6 +590,39 @@ export default function Home() {
     [],
   );
 
+  const beginNewAnalysis = () => {
+    setActiveView("map");
+    setAnalysisSessionOpen(true);
+    setAnalysisDraftReady(false);
+    setAnalysisAreaName("");
+    setAnalysisHolderName("");
+    setAnalysisHolderDocument("");
+    setSubjectGeometry(null);
+    setAnalysis(null);
+    setAnalysisError(null);
+    setAnalysisProgress("");
+    setAnalysisResetNonce((current) => current + 1);
+  };
+
+  const confirmAnalysisRegistration = () => {
+    const areaName = analysisAreaName.trim();
+    const holderName = analysisHolderName.trim();
+    const digits = analysisHolderDocument.replace(/\D/g, "");
+
+    if (!areaName || !holderName) {
+      setAnalysisError("Informe o nome da área/imóvel e o detentor para iniciar a análise.");
+      return;
+    }
+
+    if (digits && digits.length !== 11 && digits.length !== 14) {
+      setAnalysisError("CPF/CNPJ deve possuir 11 ou 14 dígitos.");
+      return;
+    }
+
+    setAnalysisError(null);
+    setAnalysisDraftReady(true);
+  };
+
   const runSpatialAnalysis = async () => {
     if (!subjectGeometry) return;
     if (incraUf === "ALL") {
@@ -574,10 +653,15 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: `Consulta ${new Date().toLocaleString("pt-BR")}`,
+          name: analysisAreaName.trim() || `Consulta ${new Date().toLocaleString("pt-BR")}`,
           geometry: subjectGeometry,
           source_ids: sourceIds,
           incra_uf: incraUf,
+          subject: {
+            area_name: analysisAreaName.trim(),
+            holder_name: analysisHolderName.trim(),
+            holder_document: analysisHolderDocument.replace(/\D/g, ""),
+          },
         }),
       });
       if (!response.ok) {
@@ -793,8 +877,23 @@ export default function Home() {
     0,
   );
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileSidebarOpen ? "mobile-sidebar-open" : ""}`}>
       <aside className="sidebar">
+        <button
+          type="button"
+          className="sidebar-collapse-button"
+          onClick={() => {
+            if (window.matchMedia("(max-width: 900px)").matches) {
+              setMobileSidebarOpen(false);
+            } else {
+              setSidebarCollapsed((value) => !value);
+            }
+          }}
+          title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
+          aria-label={sidebarCollapsed ? "Expandir menu principal" : "Recolher menu principal"}
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </button>
         <div className="brand">
           <div className="brand-mark">A</div>
           <div>
@@ -805,38 +904,32 @@ export default function Home() {
         <nav className="main-nav" aria-label="Navegação principal">
           <button
             className={activeView === "map" ? "nav-active" : ""}
-            onClick={() => setActiveView("map")}
+            onClick={() => { setActiveView("map"); setMobileSidebarOpen(false); }}
           >
             <Map size={18} /> Visão geográfica
           </button>
           <button
             className={activeView === "sigef" ? "nav-active" : ""}
-            onClick={() => setActiveView("sigef")}
+            onClick={() => { setActiveView("sigef"); setMobileSidebarOpen(false); }}
           >
             <UploadCloud size={18} /> Módulo SIGEF
           </button>
-          <a href="#">
-            <FolderKanban size={18} /> Projetos
-          </a>
           <button
             className={activeView === "analyses" ? "nav-active" : ""}
-            onClick={() => setActiveView("analyses")}
+            onClick={() => { setActiveView("analyses"); setMobileSidebarOpen(false); }}
           >
             <FileSearch size={18} /> Análises
           </button>
           <button
             className={activeView === "sources" ? "nav-active" : ""}
-            onClick={() => setActiveView("sources")}
+            onClick={() => { setActiveView("sources"); setMobileSidebarOpen(false); }}
           >
             <Database size={18} /> Fontes de dados
           </button>
-          <a href="#">
-            <FileText size={18} /> Relatórios
-          </a>
           {authUser.permissions.includes("users.manage") && (
             <button
               className={activeView === "users" ? "nav-active" : ""}
-              onClick={() => setActiveView("users")}
+              onClick={() => { setActiveView("users"); setMobileSidebarOpen(false); }}
             >
               <Users size={18} /> Usuários
             </button>
@@ -873,9 +966,26 @@ export default function Home() {
           </div>
         </div>
       </aside>
+      {mobileSidebarOpen && (
+        <button
+          type="button"
+          className="mobile-sidebar-backdrop"
+          onClick={() => setMobileSidebarOpen(false)}
+          aria-label="Fechar menu principal"
+        />
+      )}
       <section className="workspace">
         <header className="topbar">
-          <div>
+          <button
+            type="button"
+            className="mobile-main-menu-button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label="Abrir menu principal"
+            title="Menu"
+          >
+            <Menu size={20} />
+          </button>
+          <div className="topbar-title">
             <p className="eyebrow">CENTRAL DE ANÁLISE TERRITORIAL</p>
             <h1>
               {activeView === "map"
@@ -898,7 +1008,10 @@ export default function Home() {
                   placeholder="Buscar projeto ou imóvel"
                 />
               </div>
-              <Button className="new-analysis">
+              <Button className="mobile-layers-button" onClick={() => setLayerManagerOpen(true)}>
+                <Layers3 size={17} /> Camadas
+              </Button>
+              <Button className="new-analysis" onClick={beginNewAnalysis}>
                 <Plus size={17} /> Nova análise
               </Button>
             </div>
@@ -955,16 +1068,33 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <div className="map-layout">
+            <div className={`map-layout ${layerPanelCollapsed ? "layer-panel-collapsed" : ""} ${mobileLayerPanelOpen ? "mobile-layer-panel-open" : ""}`}>
               <section className="layer-panel">
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">CATÁLOGO</p>
                     <h2>Camadas de análise</h2>
                   </div>
-                  <Badge variant="secondary">
-                    {enabled.filter(Boolean).length} ativas
-                  </Badge>
+                  <div className="panel-heading-actions">
+                    <Badge variant="secondary">
+                      {enabled.filter(Boolean).length} ativas
+                    </Badge>
+                    <button
+                      type="button"
+                      className="layer-panel-collapse-button"
+                      onClick={() => {
+                        if (window.matchMedia("(max-width: 900px)").matches) {
+                          setMobileLayerPanelOpen(false);
+                        } else {
+                          setLayerPanelCollapsed(true);
+                        }
+                      }}
+                      aria-label="Recolher painel de camadas"
+                      title="Recolher camadas"
+                    >
+                      <PanelLeftClose size={17} />
+                    </button>
+                  </div>
                 </div>
                 <div className="layer-search">
                   <Search size={16} />
@@ -1004,7 +1134,14 @@ export default function Home() {
                         <Switch
                           className="layer-visibility-switch"
                           checked={(enabled[index] ?? false) && layerAvailableForUf(layer, incraUf)}
-                          disabled={Boolean(incraUf !== "ALL" && layer.scopeUf && layer.scopeUf !== incraUf)}
+                          disabled={
+                            Boolean(layerUiTransition) ||
+                            Boolean(
+                              incraUf !== "ALL" &&
+                              layer.scopeUf &&
+                              layer.scopeUf !== incraUf
+                            )
+                          }
                           onCheckedChange={(checked) =>
                             setLayerEnabled(index, checked)
                           }
@@ -1026,8 +1163,53 @@ export default function Home() {
                 className="map-canvas"
                 aria-label="Mapa de análise territorial"
               >
+                <button
+                  type="button"
+                  className={`layer-panel-open-button ${layerPanelCollapsed ? "visible" : ""}`}
+                  onClick={() => {
+                    if (window.matchMedia("(max-width: 900px)").matches) {
+                      setMobileLayerPanelOpen(true);
+                    } else {
+                      setLayerPanelCollapsed(false);
+                    }
+                  }}
+                  aria-label="Abrir painel de camadas"
+                  title="Camadas"
+                >
+                  <Layers3 size={18} />
+                  <span>Camadas</span>
+                </button>
+                {layerUiTransition && (
+                  <div
+                    className="layer-toggle-feedback"
+                    role="status"
+                    aria-live="polite"
+                    aria-busy="true"
+                  >
+                    <div className="layer-toggle-feedback-card">
+                      <div className="layer-toggle-feedback-spinner" />
+                      <div>
+                        <strong>
+                          {layerUiTransition.enabling
+                            ? "Carregando camada…"
+                            : "Atualizando camadas…"}
+                        </strong>
+                        <span>{layerUiTransition.layerName}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {mobileLayerPanelOpen && (
+                  <button
+                    type="button"
+                    className="mobile-layer-backdrop"
+                    onClick={() => setMobileLayerPanelOpen(false)}
+                    aria-label="Fechar painel de camadas"
+                  />
+                )}
                 <GeoMap
                   incraUf={incraUf}
+                  resetNonce={analysisResetNonce}
                   onGeometryChange={geometryChanged}
                   layers={catalog.map((layer, index) => ({
                     id: layer.id,
@@ -1042,17 +1224,8 @@ export default function Home() {
                     wmsAvailableUfs: layer.wmsAvailableUfs,
                   }))}
                 />
-                <div className="map-legend">
-                  <strong>Consulta territorial</strong>
-                  <span>
-                    <i className="legend-subject" /> Área ou ponto analisado
-                  </span>
-                  <span>
-                    <i className="legend-overlap" /> Camada oficial consultada
-                  </span>
-                  <small>SIRGAS 2000 · EPSG:4674</small>
-                </div>
-                <div className="analysis-card">
+                {analysisSessionOpen && (
+                <div className="analysis-card analysis-card-session">
                   <div className="analysis-title">
                     <span className="status-icon green">
                       <ShieldCheck size={18} />
@@ -1068,7 +1241,46 @@ export default function Home() {
                       </strong>
                     </div>
                   </div>
-                  {analysis && (
+                  {!analysisDraftReady && (
+                    <div className="analysis-registration">
+                      <label>
+                        <span>Área / imóvel</span>
+                        <input
+                          value={analysisAreaName}
+                          onChange={(event) => setAnalysisAreaName(event.target.value)}
+                          placeholder="Ex.: Fazenda São José"
+                          autoFocus
+                        />
+                      </label>
+                      <label>
+                        <span>Detentor</span>
+                        <input
+                          value={analysisHolderName}
+                          onChange={(event) => setAnalysisHolderName(event.target.value)}
+                          placeholder="Nome ou razão social"
+                        />
+                      </label>
+                      <label>
+                        <span>CPF/CNPJ</span>
+                        <input
+                          value={analysisHolderDocument}
+                          onChange={(event) => setAnalysisHolderDocument(event.target.value)}
+                          placeholder="Opcional para análise · necessário para ODS SIGEF"
+                          inputMode="numeric"
+                        />
+                      </label>
+                      <Button className="analysis-register-button" onClick={confirmAnalysisRegistration}>
+                        Iniciar análise
+                      </Button>
+                    </div>
+                  )}
+                  {analysisDraftReady && (
+                    <div className="analysis-registration-summary">
+                      <strong>{analysisAreaName}</strong>
+                      <span>{analysisHolderName}</span>
+                    </div>
+                  )}
+                  {analysisDraftReady && analysis && (
                     <div className="metric-row">
                       <span>
                         Área analisada
@@ -1089,7 +1301,7 @@ export default function Home() {
                       </span>
                     </div>
                   )}
-                  {analysis && overlaps.length > 0 && (
+                  {analysisDraftReady && analysis && overlaps.length > 0 && (
                     <div className="overlap-list">
                       {overlaps.slice(0, 3).map((result) => (
                         <span key={result.source_name}>
@@ -1102,7 +1314,7 @@ export default function Home() {
                       ))}
                     </div>
                   )}
-                  {analysis && overlaps.length === 0 && (
+                  {analysisDraftReady && analysis && overlaps.length === 0 && (
                     <p className="no-overlap">
                       Nenhuma sobreposição identificada nas bases carregadas.
                     </p>
@@ -1110,17 +1322,17 @@ export default function Home() {
                   {analysisError && (
                     <p className="analysis-error">{analysisError}</p>
                   )}
-                  {analyzing && analysisProgress && (
+                  {analysisDraftReady && analyzing && analysisProgress && (
                     <p className="analysis-progress">{analysisProgress}</p>
                   )}
-                  {analysis?.warnings?.length ? (
+                  {analysisDraftReady && analysis?.warnings?.length ? (
                     <p className="analysis-warning">
                       {analysis.warnings.length} fonte(s) não puderam ser consultadas. O relatório registra somente as bases efetivamente analisadas.
                     </p>
                   ) : null}
                   <Button
                     className="report-button"
-                    disabled={!subjectGeometry || analyzing || !apiOnline}
+                    disabled={!analysisDraftReady || !subjectGeometry || analyzing || !apiOnline}
                     onClick={runSpatialAnalysis}
                   >
                     {analyzing
@@ -1129,7 +1341,7 @@ export default function Home() {
                         ? "Analisar novamente"
                         : "Executar análise"}
                   </Button>
-                  {analysis && (
+                  {analysisDraftReady && analysis && (
                     <a
                       className="create-report-button"
                       href={`${API_URL}/reports/analyses/${analysis.analysis_id}/pdf`}
@@ -1140,6 +1352,7 @@ export default function Home() {
                     </a>
                   )}
                 </div>
+                )}
               </section>
             </div>
           </>

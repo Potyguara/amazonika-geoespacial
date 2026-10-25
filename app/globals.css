@@ -4503,3 +4503,1262 @@ input {
     width: 100%;
   }
 }
+
+
+/* Feedback universal ao ligar/desligar camadas.
+   Não é acionado por zoom, pan ou tileload interno do OpenLayers. */
+.map-canvas {
+  position: relative;
+}
+
+.layer-toggle-feedback {
+  position: absolute;
+  inset: 0;
+  z-index: 2500;
+  display: grid;
+  place-items: center;
+  background: rgba(244, 248, 246, 0.44);
+  backdrop-filter: blur(1.5px);
+  pointer-events: all;
+  cursor: wait;
+}
+
+.layer-toggle-feedback-card {
+  min-width: 270px;
+  max-width: min(420px, calc(100% - 40px));
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 16px 18px;
+  border: 1px solid #bfd0c7;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 38px rgba(23, 63, 51, 0.18);
+  color: #173f32;
+}
+
+.layer-toggle-feedback-card strong,
+.layer-toggle-feedback-card span {
+  display: block;
+}
+
+.layer-toggle-feedback-card strong {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.layer-toggle-feedback-card span {
+  margin-top: 3px;
+  font-size: 10px;
+  color: #61756b;
+}
+
+.layer-toggle-feedback-spinner {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 3px solid #d4e1da;
+  border-top-color: #237152;
+  border-radius: 999px;
+  animation: layer-toggle-spin 0.8s linear infinite;
+}
+
+@keyframes layer-toggle-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+
+/* =========================================================
+   IDENTIFICAR — FEEDBACK E DESTAQUE UNIVERSAIS
+   ========================================================= */
+.identify-request-loading {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1205;
+  transform: translate(-50%, -50%);
+  min-width: 270px;
+  max-width: min(390px, calc(100% - 40px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(23, 77, 58, 0.18);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 18px 50px rgba(23, 63, 51, 0.28);
+  color: #173f33;
+  pointer-events: all;
+}
+.identify-request-loading::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: rgba(238, 244, 240, 0.16);
+  backdrop-filter: blur(1px);
+}
+.identify-request-loading strong,
+.identify-request-loading small {
+  display: block;
+}
+.identify-request-loading strong {
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+}
+.identify-request-loading small {
+  margin-top: 2px;
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: #677970;
+}
+.identify-request-spinner {
+  width: 21px;
+  height: 21px;
+  flex: 0 0 21px;
+  border: 3px solid #d9e6df;
+  border-top-color: #1c7454;
+  border-radius: 999px;
+  animation: amazonika-identify-spin 0.75s linear infinite;
+}
+@keyframes amazonika-identify-spin {
+  to { transform: rotate(360deg); }
+}
+.feature-info-loading {
+  min-height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  padding: 16px;
+  color: #173f33;
+  background: #f7faf8;
+}
+.feature-info-loading strong,
+.feature-info-loading small {
+  display: block;
+}
+.feature-info-loading strong {
+  font-size: 10.5px;
+  font-weight: 850;
+}
+.feature-info-loading small {
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.35;
+  color: #6b7b73;
+}
+
+
+/* =========================================================
+   IDENTIFICAR — PAINEL COMPLETO E ROLÁVEL
+   ========================================================= */
+
+.feature-info-panel {
+  max-height: min(72vh, calc(100% - 135px));
+}
+
+.feature-info-panel > header {
+  flex: 0 0 auto;
+}
+
+.feature-info-panel > dl {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.feature-info-panel > dl::-webkit-scrollbar {
+  width: 8px;
+}
+
+.feature-info-panel > dl::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #9eb5aa;
+  background-clip: padding-box;
+}
+
+.feature-info-panel > dl::-webkit-scrollbar-track {
+  background: #f4f7f5;
+}
+
+
+/* ================================================================
+   FLUXO NOVA ANÁLISE + RESPONSIVIDADE OPERACIONAL
+   ================================================================ */
+.mobile-layers-button {
+  display: none !important;
+}
+.analysis-registration {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 2px;
+}
+.analysis-registration label {
+  display: grid;
+  gap: 4px;
+}
+.analysis-registration label > span {
+  color: #667a70;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.analysis-registration input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #ccd9d1;
+  border-radius: 7px;
+  outline: 0;
+  background: #fff;
+  color: #18312b;
+  font-size: 10px;
+}
+.analysis-registration input:focus {
+  border-color: #3e8063;
+  box-shadow: 0 0 0 3px #3e806318;
+}
+.analysis-register-button {
+  width: 100%;
+  margin-top: 2px;
+  background: #174d3a !important;
+  color: #fff !important;
+  font-weight: 800 !important;
+}
+.analysis-registration-summary {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #eef5f1;
+  border: 1px solid #d6e3dc;
+}
+.analysis-registration-summary strong {
+  font-size: 10px;
+  color: #173f33;
+}
+.analysis-registration-summary span {
+  font-size: 8.5px;
+  color: #687970;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    display: block;
+    min-height: 100dvh;
+  }
+  .sidebar {
+    min-height: auto;
+    width: 100%;
+    padding: 8px 10px;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    overflow-x: auto;
+    position: relative;
+    z-index: 60;
+  }
+  .brand {
+    flex: none;
+    padding: 0 10px 0 0;
+    border: 0;
+    border-right: 1px solid #ffffff24;
+  }
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+    font-size: 17px;
+  }
+  .brand strong { font-size: 10px; }
+  .brand span { font-size: 7px; }
+  .main-nav {
+    display: flex;
+    gap: 4px;
+    padding: 0;
+    flex: none;
+  }
+  .main-nav button,
+  .main-nav a {
+    width: auto;
+    min-width: max-content;
+    padding: 8px 9px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .sidebar-bottom {
+    display: none;
+  }
+  .workspace {
+    padding: 10px;
+  }
+  .topbar {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .topbar h1 {
+    font-size: 20px;
+  }
+  .top-actions {
+    gap: 6px;
+  }
+  .search-box {
+    display: none;
+  }
+  .mobile-layers-button {
+    display: inline-flex !important;
+    background: #eef4f0 !important;
+    color: #174d3a !important;
+    border: 1px solid #ccd9d1 !important;
+    font-size: 10px !important;
+  }
+  .new-analysis {
+    min-height: 38px;
+    font-size: 10px !important;
+  }
+  .status-strip {
+    display: flex;
+    overflow-x: auto;
+    margin-bottom: 8px;
+  }
+  .status-strip > div {
+    min-width: 230px;
+    padding: 9px 10px;
+  }
+  .map-layout {
+    display: block;
+    height: calc(100dvh - 198px);
+    min-height: 520px;
+  }
+  .layer-panel {
+    display: none;
+  }
+  .map-canvas {
+    width: 100%;
+    height: 100%;
+  }
+  .analysis-card-session {
+    right: 8px;
+    bottom: 8px;
+    width: min(340px, calc(100% - 16px));
+    max-height: min(62dvh, 520px);
+    overflow-y: auto;
+  }
+  .geo-tools {
+    right: 8px;
+    left: 8px;
+    top: 8px;
+    width: auto;
+    overflow-x: auto;
+    justify-content: flex-start;
+    scrollbar-width: thin;
+  }
+  .geo-tools button,
+  .geo-tools label {
+    flex: none;
+    min-width: 38px;
+  }
+  .official-layer-status {
+    top: 58px;
+    right: 8px;
+    max-width: calc(100% - 16px);
+  }
+}
+
+@media (max-width: 560px) {
+  .workspace {
+    padding: 6px;
+  }
+  .topbar > div:first-child p {
+    display: none;
+  }
+  .topbar h1 {
+    font-size: 17px;
+  }
+  .new-analysis span,
+  .mobile-layers-button span {
+    display: none;
+  }
+  .status-strip {
+    display: none;
+  }
+  .map-layout {
+    height: calc(100dvh - 118px);
+    min-height: 480px;
+    border-radius: 9px;
+  }
+  .analysis-card-session {
+    left: 6px;
+    right: 6px;
+    bottom: 6px;
+    width: auto;
+    max-height: 56dvh;
+  }
+  .feature-info-panel {
+    left: 6px;
+    right: 6px;
+    width: auto;
+    top: 102px;
+    max-height: calc(100% - 235px);
+  }
+}
+
+
+/* FINAL_RESPONSIVE_COLLAPSIBLE_INTERFACE */
+.app-shell,
+.sidebar,
+.workspace,
+.map-layout,
+.layer-panel {
+  transition: grid-template-columns 180ms ease, width 180ms ease, transform 180ms ease, padding 180ms ease;
+}
+
+.sidebar {
+  position: relative;
+  overflow: hidden;
+}
+
+.sidebar-collapse-button {
+  position: absolute;
+  top: 14px;
+  right: 10px;
+  z-index: 5;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #ffffff24;
+  border-radius: 8px;
+  background: #ffffff10;
+  color: #d9ebe1;
+  cursor: pointer;
+}
+
+.sidebar-collapse-button:hover {
+  background: #ffffff1d;
+  color: #fff;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 72px 1fr;
+}
+
+.sidebar-collapsed .sidebar {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.sidebar-collapsed .brand {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  padding-top: 38px;
+}
+
+.sidebar-collapsed .brand > div:not(.brand-mark),
+.sidebar-collapsed .main-nav button > :not(svg),
+.sidebar-collapsed .main-nav a > :not(svg),
+.sidebar-collapsed .sidebar-bottom > a > :not(svg),
+.sidebar-collapsed .authenticated-user-info,
+.sidebar-collapsed .logout-button {
+  display: none;
+}
+
+.sidebar-collapsed .main-nav button,
+.sidebar-collapsed .main-nav a,
+.sidebar-collapsed .sidebar-bottom > a {
+  width: 48px;
+  min-width: 48px;
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  font-size: 0;
+}
+
+.sidebar-collapsed .main-nav button svg,
+.sidebar-collapsed .main-nav a svg,
+.sidebar-collapsed .sidebar-bottom > a svg {
+  margin: 0;
+}
+
+.sidebar-collapsed .user-card {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.mobile-main-menu-button,
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
+.panel-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.layer-panel-collapse-button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid #d5e0da;
+  border-radius: 7px;
+  background: #f7faf8;
+  color: #245440;
+  cursor: pointer;
+}
+
+.layer-panel-collapse-button:hover {
+  background: #eaf3ee;
+}
+
+.map-layout.layer-panel-collapsed {
+  grid-template-columns: 0 1fr;
+}
+
+.layer-panel-collapsed > .layer-panel {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-right: 0;
+}
+
+.layer-panel-open-button {
+  position: absolute;
+  z-index: 45;
+  left: 12px;
+  top: 78px;
+  min-height: 38px;
+  padding: 0 12px;
+  display: none;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #c7d5cd;
+  border-radius: 9px;
+  background: #fffffff2;
+  color: #174d3a;
+  box-shadow: 0 6px 20px #173f3324;
+  backdrop-filter: blur(8px);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.layer-panel-open-button.visible {
+  display: flex;
+}
+
+.mobile-layer-backdrop {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .workspace {
+    padding: 18px;
+  }
+  .status-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .status-strip > div:nth-child(2) {
+    border-right: 0;
+  }
+  .status-strip > div:last-child {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+  }
+  .map-layout {
+    grid-template-columns: 275px 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    display: block;
+    min-height: 100dvh;
+  }
+
+  .sidebar,
+  .sidebar-collapsed .sidebar {
+    position: fixed;
+    z-index: 120;
+    inset: 0 auto 0 0;
+    width: min(290px, 86vw);
+    min-height: 100dvh;
+    padding: 22px 16px 18px;
+    transform: translateX(-103%);
+    box-shadow: 18px 0 45px #0d2e2550;
+    overflow-y: auto;
+  }
+
+  .mobile-sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-collapsed .brand > div:not(.brand-mark),
+  .sidebar-collapsed .authenticated-user-info,
+  .sidebar-collapsed .logout-button {
+    display: block;
+  }
+
+  .sidebar-collapsed .brand,
+  .brand {
+    justify-content: flex-start;
+    padding: 0 44px 22px 7px;
+  }
+
+  .sidebar-collapsed .main-nav button,
+  .sidebar-collapsed .main-nav a,
+  .sidebar-collapsed .sidebar-bottom > a {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+
+  .sidebar-collapsed .user-card {
+    justify-content: flex-start;
+    padding: 12px 8px 0;
+  }
+
+  .sidebar-collapse-button {
+    top: 16px;
+    right: 13px;
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    z-index: 110;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: #071b158c;
+    backdrop-filter: blur(2px);
+  }
+
+  .workspace {
+    width: 100%;
+    padding: 12px;
+  }
+
+  .topbar {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .mobile-main-menu-button {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    flex: none;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #fff;
+    color: #174d3a;
+  }
+
+  .topbar-title {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .topbar .eyebrow {
+    display: none;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .top-actions {
+    gap: 6px;
+  }
+
+  .search-box {
+    display: none;
+  }
+
+  .new-analysis {
+    min-height: 40px !important;
+    padding: 0 12px !important;
+    white-space: nowrap;
+  }
+
+  .status-strip {
+    grid-template-columns: 1fr;
+    margin-bottom: 10px;
+    max-height: 116px;
+    overflow-y: auto;
+  }
+
+  .status-strip > div,
+  .status-strip > div:nth-child(2),
+  .status-strip > div:last-child {
+    grid-column: auto;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+    padding: 9px 11px;
+  }
+
+  .status-strip > div:first-child {
+    border-top: 0;
+  }
+
+  .map-layout,
+  .map-layout.layer-panel-collapsed {
+    position: relative;
+    display: block;
+    height: calc(100dvh - 190px);
+    min-height: 520px;
+    overflow: hidden;
+  }
+
+  .map-layout > .layer-panel,
+  .layer-panel-collapsed > .layer-panel {
+    position: absolute;
+    z-index: 70;
+    inset: 0 auto 0 0;
+    width: min(330px, 88vw);
+    min-width: 0;
+    height: 100%;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-103%);
+    background: #fff;
+    border-right: 1px solid var(--line);
+    box-shadow: 14px 0 34px #173f3340;
+    overflow: hidden;
+  }
+
+  .mobile-layer-panel-open > .layer-panel {
+    transform: translateX(0);
+  }
+
+  .map-canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  .layer-panel-open-button,
+  .layer-panel-open-button.visible {
+    top: 72px;
+    display: flex;
+  }
+
+  .mobile-layer-backdrop {
+    position: absolute;
+    z-index: 65;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: #0a211a66;
+  }
+
+  .analysis-card {
+    right: 8px;
+    bottom: 8px;
+    width: min(360px, calc(100% - 16px));
+    max-height: 52%;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .workspace {
+    padding: 8px;
+  }
+
+  .topbar {
+    min-height: 44px;
+  }
+
+  .topbar h1 {
+    font-size: 17px;
+  }
+
+  .new-analysis {
+    font-size: 10px !important;
+    padding-inline: 10px !important;
+  }
+
+  .new-analysis svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .status-strip {
+    display: none;
+  }
+
+  .map-layout,
+  .map-layout.layer-panel-collapsed {
+    height: calc(100dvh - 70px);
+    min-height: 460px;
+    border-radius: 9px;
+  }
+
+  .layer-panel-open-button,
+  .layer-panel-open-button.visible {
+    top: 66px;
+    left: 8px;
+    padding: 0 9px;
+  }
+
+  .layer-panel-open-button span {
+    display: none;
+  }
+
+  .map-toolbar {
+    max-width: calc(100% - 16px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .map-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .identify-panel,
+  .identify-candidates-panel {
+    right: 8px;
+    width: calc(100% - 16px);
+    max-width: none;
+  }
+
+  .analysis-card {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 46%;
+  }
+}
+
+
+/* MOBILE_EXPERIENCE_V2 */
+@media (max-width: 900px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 100dvh !important;
+  }
+
+  .workspace {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 8px !important;
+  }
+
+  .topbar {
+    display: grid !important;
+    grid-template-columns: 44px minmax(0, 1fr) auto !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin: 0 0 8px !important;
+    min-height: 48px !important;
+  }
+
+  .mobile-main-menu-button {
+    width: 42px !important;
+    height: 42px !important;
+    border-radius: 10px !important;
+  }
+
+  .topbar-title {
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .topbar-title .eyebrow {
+    display: none !important;
+  }
+
+  .topbar h1 {
+    margin: 0 !important;
+    max-width: 100% !important;
+    font-size: 18px !important;
+    line-height: 1.05 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .top-actions {
+    display: flex !important;
+    min-width: 0 !important;
+    gap: 6px !important;
+  }
+
+  .top-actions .search-box {
+    display: none !important;
+  }
+
+  .new-analysis {
+    height: 42px !important;
+    min-width: 0 !important;
+    padding: 0 12px !important;
+    border-radius: 10px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+  }
+
+  .status-strip {
+    display: none !important;
+  }
+
+  .map-layout,
+  .map-layout.layer-panel-collapsed {
+    display: block !important;
+    position: relative !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: calc(100dvh - 76px) !important;
+    min-height: 560px !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+  }
+
+  .map-canvas {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* Menu principal como drawer real, sempre vertical. */
+  .sidebar,
+  .sidebar-collapsed .sidebar {
+    position: fixed !important;
+    z-index: 150 !important;
+    inset: 0 auto 0 0 !important;
+    width: min(320px, 86vw) !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    padding: max(18px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom)) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: stretch !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    transform: translateX(-104%) !important;
+  }
+
+  .mobile-sidebar-open .sidebar {
+    transform: translateX(0) !important;
+  }
+
+  .sidebar .brand,
+  .sidebar-collapsed .brand {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    gap: 11px !important;
+    margin: 0 !important;
+    padding: 4px 44px 18px 4px !important;
+  }
+
+  .sidebar .brand > div:not(.brand-mark),
+  .sidebar-collapsed .brand > div:not(.brand-mark) {
+    display: block !important;
+  }
+
+  .sidebar .main-nav,
+  .sidebar-collapsed .main-nav {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+    gap: 5px !important;
+    padding: 14px 0 0 !important;
+    margin: 0 !important;
+  }
+
+  .sidebar .main-nav button,
+  .sidebar .main-nav a,
+  .sidebar-collapsed .main-nav button,
+  .sidebar-collapsed .main-nav a {
+    display: flex !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 12px !important;
+    font-size: 13px !important;
+    text-align: left !important;
+  }
+
+  .sidebar .sidebar-bottom,
+  .sidebar-collapsed .sidebar-bottom {
+    width: 100% !important;
+    margin-top: auto !important;
+    padding-top: 12px !important;
+  }
+
+  .sidebar .user-card,
+  .sidebar-collapsed .user-card {
+    width: 100% !important;
+    justify-content: flex-start !important;
+  }
+
+  .sidebar .authenticated-user-info,
+  .sidebar-collapsed .authenticated-user-info,
+  .sidebar .logout-button,
+  .sidebar-collapsed .logout-button {
+    display: block !important;
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed !important;
+    z-index: 140 !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: rgba(7, 27, 21, 0.58) !important;
+    backdrop-filter: blur(2px) !important;
+  }
+
+  /* Painel de camadas também vira drawer e não comprime o mapa. */
+  .map-layout > .layer-panel,
+  .map-layout.layer-panel-collapsed > .layer-panel {
+    position: fixed !important;
+    z-index: 145 !important;
+    inset: 0 auto 0 0 !important;
+    width: min(340px, 88vw) !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    background: #fff !important;
+    border-right: 1px solid var(--line) !important;
+    transform: translateX(-104%) !important;
+    overflow: hidden !important;
+  }
+
+  .map-layout.mobile-layer-panel-open > .layer-panel {
+    transform: translateX(0) !important;
+  }
+
+  .layer-panel .layer-list {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .mobile-layer-backdrop {
+    position: fixed !important;
+    z-index: 144 !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    border: 0 !important;
+    background: rgba(7, 27, 21, 0.42) !important;
+    backdrop-filter: blur(1px) !important;
+  }
+
+  .layer-panel-open-button,
+  .layer-panel-open-button.visible {
+    display: grid !important;
+    place-items: center !important;
+    left: 12px !important;
+    top: 132px !important;
+    width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    padding: 0 !important;
+    border-radius: 10px !important;
+  }
+
+  .layer-panel-open-button span {
+    display: none !important;
+  }
+
+  /* Ferramentas do mapa: compactas, uma única faixa rolável. */
+  .map-toolbar,
+  .geo-map-toolbar,
+  .map-tools,
+  .ol-map-toolbar {
+    max-width: calc(100% - 24px) !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .map-toolbar::-webkit-scrollbar,
+  .geo-map-toolbar::-webkit-scrollbar,
+  .map-tools::-webkit-scrollbar,
+  .ol-map-toolbar::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .analysis-card {
+    right: 10px !important;
+    bottom: 10px !important;
+    left: 10px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: 46dvh !important;
+    overflow-y: auto !important;
+  }
+
+  .identify-candidates-panel,
+  .identified-feature-panel,
+  .identify-panel {
+    left: 10px !important;
+    right: 10px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: 58dvh !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .workspace {
+    padding: 6px !important;
+  }
+
+  .topbar {
+    grid-template-columns: 42px minmax(0, 1fr) auto !important;
+    gap: 6px !important;
+  }
+
+  .topbar h1 {
+    font-size: 16px !important;
+  }
+
+  .new-analysis {
+    height: 40px !important;
+    padding: 0 10px !important;
+    font-size: 10px !important;
+  }
+
+  .map-layout,
+  .map-layout.layer-panel-collapsed {
+    height: calc(100dvh - 68px) !important;
+    border-radius: 10px !important;
+  }
+}
+
+
+/* MOBILE_LAYER_DRAWER_V3
+   O painel de camadas deve ficar SEMPRE acima do backdrop no celular.
+   O backdrop escurece apenas o mapa e fecha o drawer ao toque.
+*/
+@media (max-width: 900px) {
+  .map-layout {
+    position: relative;
+    overflow: visible !important;
+  }
+
+  .map-layout > .layer-panel {
+    position: fixed !important;
+    z-index: 162 !important;
+    top: env(safe-area-inset-top, 0px) !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    width: min(88vw, 360px) !important;
+    max-width: 360px !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    display: block !important;
+    opacity: 1 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    overscroll-behavior: contain;
+    background: #f8fbf9 !important;
+    border-right: 1px solid #cddbd4 !important;
+    box-shadow: 18px 0 48px rgba(7, 32, 24, .28) !important;
+    transform: translate3d(-104%, 0, 0) !important;
+    transition: transform 180ms ease !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+  }
+
+  .map-layout.mobile-layer-panel-open > .layer-panel {
+    transform: translate3d(0, 0, 0) !important;
+    pointer-events: auto !important;
+    visibility: visible !important;
+  }
+
+  .mobile-layer-backdrop {
+    position: fixed !important;
+    z-index: 158 !important;
+    inset: 0 !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: rgba(6, 27, 21, .48) !important;
+    backdrop-filter: blur(1.5px) !important;
+    -webkit-backdrop-filter: blur(1.5px) !important;
+    cursor: pointer !important;
+  }
+
+  /* O botão Camadas precisa continuar clicável quando o drawer estiver fechado. */
+  .layer-panel-open-button {
+    z-index: 70 !important;
+  }
+
+  /* Quando o drawer está aberto, não deixamos controles do mapa atravessarem o painel. */
+  .mobile-layer-panel-open .map-canvas,
+  .mobile-layer-panel-open .geo-tools,
+  .mobile-layer-panel-open .feature-info-panel {
+    isolation: isolate;
+  }
+
+  .layer-panel .panel-heading {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #f8fbf9;
+  }
+
+  .layer-panel-collapse-button {
+    display: grid !important;
+    width: 38px !important;
+    height: 38px !important;
+    flex: none !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .map-layout > .layer-panel {
+    width: min(92vw, 350px) !important;
+  }
+}

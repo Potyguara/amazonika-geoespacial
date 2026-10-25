@@ -18,6 +18,7 @@ class Analysis(Base, UUIDMixin, TimestampMixin):
     )
     warnings_json: Mapped[list]=mapped_column(JSON, default=list)
     source_status_json: Mapped[list]=mapped_column(JSON, default=list)
+    subject_json: Mapped[dict]=mapped_column(JSON, default=dict)
     error_message: Mapped[str|None]=mapped_column(Text)
     __table_args__=(Index("ix_analyses_input_geom", "input_geom", postgresql_using="gist"),)
 
