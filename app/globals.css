@@ -6262,3 +6262,13 @@ input {
 .work-vertex-action button:hover { background: #ffdbd8; }
 @media (max-width: 900px) { .professional-profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 570px) { .professional-profile-grid { grid-template-columns: 1fr; } }
+
+
+/* Impressão de peças técnicas: escolha explícita no estilo SIGEF */
+.plant-print-options { border: 1px solid #cbddd1; border-radius: 12px; padding: 12px; margin: 13px 0; background: #f4f9f5; }
+.plant-print-options > strong { display: block; color: #14533c; font-size: 13px; margin: 0 0 7px; }
+.plant-print-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.geo-advanced-panel .plant-print-options select,
+.geo-advanced-panel .plant-print-options input { width: 100%; min-width: 0; border: 1px solid #bdcec4; background: white; border-radius: 7px; padding: 9px 7px; color: #16432f; font-size: 11px; }
+.geo-advanced-panel .plant-print-options label { min-width: 0; }
+@media(max-width: 500px) { .plant-print-grid { grid-template-columns: 1fr; } }
