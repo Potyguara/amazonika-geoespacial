@@ -348,21 +348,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   };
 
   useEffect(() => {
-    if (!focusRequest) return;
-    void focusSource(focusRequest.sourceId);
-  }, [focusRequest?.nonce, focusRequest?.sourceId]);
-
-  useEffect(() => {
-    const enabled = layers.filter((layer) => layer.id && layer.enabled);
-    if (enabled.length !== 1 || enabled[0].slug !== "sigef-interno") return;
-    const sourceId = enabled[0].id!;
-    if (autoFocusRef.current === sourceId) return;
-    if ((mapRef.current?.getView().getZoom() ?? 0) >= 9) return;
-    autoFocusRef.current = sourceId;
-    void focusSource(sourceId);
-  }, [layers]);
-
-  useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
@@ -1010,6 +995,21 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    void focusSource(focusRequest.sourceId);
+  }, [focusRequest?.nonce, focusRequest?.sourceId]);
+
+  useEffect(() => {
+    const enabled = layers.filter((layer) => layer.id && layer.enabled);
+    if (enabled.length !== 1 || enabled[0].slug !== "sigef-interno") return;
+    const sourceId = enabled[0].id!;
+    if (autoFocusRef.current === sourceId) return;
+    if ((mapRef.current?.getView().getZoom() ?? 0) >= 9) return;
+    autoFocusRef.current = sourceId;
+    void focusSource(sourceId);
+  }, [layers]);
 
   useEffect(() => {
     identifyActiveRef.current = identifyActive;
