@@ -150,8 +150,10 @@ class GeospatialDocumentsTests(unittest.TestCase):
         plant = reader.pages[0].extract_text()
         self.assertIn("QUADRO DE COORDENADAS", plant)
         self.assertIn("V01", plant)
-        self.assertIn("Az", plant)
-        self.assertIn("D ", plant)
+        self.assertIn("ALT. (m)", plant)
+        self.assertIn("DIST. (m)", plant)
+        self.assertNotIn("QUADRO TÉCNICO", plant)
+        self.assertNotIn("RASTER DO MAPA", plant)
         memorial = reader.pages[1].extract_text()
         self.assertIn("DESCRIÇÃO DO PERÍMETRO", memorial)
         self.assertIn("Técnico teste", memorial)
@@ -174,8 +176,39 @@ class GeospatialDocumentsTests(unittest.TestCase):
         self.assertIn("segue confrontando com Rodovia", prose)
         self.assertIn("Latitude:", prose)
         self.assertIn("CREA TESTE", prose)
-        self.assertIn("altitude: 12.50 m", prose)
+        self.assertIn("Altitude: 12,50 m", prose)
+        self.assertIn("com os seguintes azimutes e distâncias:", prose)
+        self.assertNotIn("Latitude: 00°00", prose.split("Inicia-se a descrição")[0])
         self.assertIn("Este documento se trata apenas de um croqui", prose)
+
+    def test_complete_coordinates_remain_on_plant_for_nine_vertices(self):
+        import math
+        coords = [
+            [-51.05 + .0006 * math.cos(i * math.tau / 9),
+             .050 + .0006 * math.sin(i * math.tau / 9)]
+            for i in range(9)
+        ]
+        parcel = prepare_parcels([{
+            "name": "Lote de 9 vértices",
+            "geometry": {"type": "Polygon", "coordinates": [[*coords, coords[0]]]},
+            "altitudes_m": [float(15 + i) for i in range(9)],
+        }])
+        pic=io.BytesIO()
+        Image.new("RGB",(500,400),(42,110,79)).save(pic,format="PNG")
+        import base64
+        pdf,_,_=make_joint_pdf(
+            parcels=parcel,title="Quadra de validação",owner_name="Teste",
+            responsible_name="Técnico",croqui=False,
+            raster_b64=base64.b64encode(pic.getvalue()).decode(),
+            raster_source="Imagem sintética",paper_format="A4",
+        )
+        reader=PdfReader(io.BytesIO(pdf))
+        self.assertEqual(len(reader.pages),2,"Tabela deve permanecer na primeira folha.")
+        first=reader.pages[0].extract_text()
+        self.assertIn("ALT. (m)",first)
+        self.assertIn("V01",first)
+        self.assertIn("V09",first)
+        self.assertIn("19,00",first)
 
     def test_memorial_word_download(self):
         parcels = prepare_parcels([
