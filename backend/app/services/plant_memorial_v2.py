@@ -233,8 +233,19 @@ def make_joint_pdf(
     croqui: bool,
     raster_b64: str | None,
     raster_source: str | None,
+    owner_rg: str | None = None,
+    owner_cpf: str | None = None,
+    property_address: str | None = None,
+    plant_heading: str = "PLANTA GEORREFERENCIADA",
+    memorial_heading: str = "MEMORIAL DESCRITIVO",
+    professional: dict | None = None,
+    qr_url: str | None = None,
 ) -> tuple[bytes, str, int]:
     config = load_document_template()
+    professional = professional or {}
+    if not raster_b64:
+        raise ValueError("A planta de situação exige uma imagem raster capturada do mapa.")
+    issued_at = datetime.now(ZoneInfo("America/Belem"))
     all_points = [pt for p in parcels for pt in p.points]
     center_lon = sum(x for x, _ in all_points) / len(all_points)
     center_lat = sum(y for _, y in all_points) / len(all_points)
@@ -267,7 +278,7 @@ def make_joint_pdf(
     pdf.rect(24, 24, w - 48, h - 48)
     pdf.line(w * .74, 24, w * .74, h - 24)
     pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(40, h - 55, "PLANTA - CONJUNTO DE POLÍGONOS")
+    pdf.drawString(40, h - 55, plant_heading[:110].upper())
     pdf.setFont("Helvetica", 10)
     pdf.drawString(40, h - 72, title[:100])
     pdf.setFont("Helvetica", 7)
@@ -279,6 +290,28 @@ def make_joint_pdf(
         pdf.drawString(42, h - 93, f"{len(parcels)} polígonos selecionados")
     colors = [(0.08, 0.42, 0.29), (0.14, 0.32, 0.68), (0.69, 0.32, 0.13),
               (0.52, 0.25, 0.59), (0.32, 0.45, 0.20)]
+    # Grade georreferenciada UTM, com cotas em metros e espaçamento legível.
+    grid_step = max(1, int(10 ** math.floor(math.log10(max(max_x-min_x,max_y-min_y,1) / 4))))
+    if (max(max_x-min_x,max_y-min_y) / grid_step > 9:
+        grid_step *= 2
+    pdf.saveState()
+    pdf.setStrokeColor(colors.Color(.65, .72, .68, alpha=.45))
+    pdf.setLineWidth(.35)
+    pdf.setFont("Helvetica", 6)
+    grid_min_x = int(math.floor(min_x / grid_step)) * grid_step
+    grid_min_y = int(math.floor(min_y / grid_step)) * grid_step
+    for value in range(grid_min_x, int(max_x)+grid_step+1, grid_step):
+        xline, _ = xy(value, min_y)
+        if box_left <= xline <= box_left+box_width:
+            pdf.line(xline, box_bottom, xline, box_bottom+box_height)
+            pdf.drawCentredString(xline, box_bottom-13, f"E {value:,}")
+    for value in range(grid_min_y, int(max_y)+grid_step+1, grid_step):
+        _, yline = xy(min_x, value)
+        if box_bottom <= yline <= box_bottom+box_height:
+            pdf.line(box_left, yline, box_left+box_width, yline)
+            pdf.drawRightString(box_left-5, yline, f"N {value:,}")
+    pdf.restoreState()
+
     for parcel_index, (parcel, points) in enumerate(zip(parcels, projected)):
         r, g, b = colors[parcel_index % len(colors)]
         path = pdf.beginPath()
@@ -352,7 +385,14 @@ def make_joint_pdf(
         f"Impressão: tamanho real / 100%",
         f"Data: {date.today():%d/%m/%Y}",
         f"Interessado: {owner_name or 'Não informado'}",
-        f"Técnico: {responsible_name or config.get('responsible_name') or 'Não informado'}",
+        f"RG / CPF: {owner_rg or '—'} / {owner_cpf or '—'}",
+        f"Endereço do imóvel: {property_address or 'Não informado'}",
+        f"Técnico: {responsible_name or professional.get('full_name') or 'Não informado'}",
+        f"Profissão: {professional.get('profession') or '—'}",
+        f"CREA: {professional.get('crea') or '—'}",
+        f"Visto: {professional.get('visto') or '—'}",
+        f"INCRA: {professional.get('incra_code') or '—'}",
+        f"ART: {professional.get('art') or 'Não informada'}",
         f"Área total: {sum(p.area_ha for p in parcels):,.4f} ha",
         f"Perímetros somados: {sum(p.perimeter for p in parcels):,.3f} m",
     ]
@@ -384,9 +424,8 @@ def make_joint_pdf(
                           height=raster_h, preserveAspectRatio=True, anchor="c")
             pdf.setFont("Helvetica", 6)
             pdf.drawString(right_x, raster_y - 9, (raster_source or "Imagem fornecida pelo operador")[:52])
-    elif y > 100:
-        pdf.setFont("Helvetica-Oblique", 7)
-        pdf.drawString(right_x, 80, "Imagem raster não anexada.")
+    else:
+        raise ValueError("A imagem raster obrigatória não pôde ser inserida na prancha.")
 
     if croqui:
         pdf.saveState()
@@ -397,9 +436,27 @@ def make_joint_pdf(
         pdf.drawString(0, 0, DISCLAIMER[:175])
         pdf.restoreState()
 
+    # Rodapé e QR do documento ficam na coluna técnica e referenciam
+    # uma cópia preservada no armazenamento autenticado.
+    pdf.saveState()
+    pdf.setFont("Helvetica", 6.5)
+    issued = issued_at.strftime("%d/%m/%Y %H:%M:%S (America/Belem)")
+    pdf.drawString(right_x, 37, f"Emissão: {issued}")
+    if qr_url:
+        import qrcode
+        from reportlab.lib.utils import ImageReader
+        qrcode_png = io.BytesIO()
+        qrcode.make(qr_url, box_size=4, border=1).save(qrcode_png, format="PNG")
+        qrcode_png.seek(0)
+        pdf.drawImage(ImageReader(qrcode_png), right_x, 47, width=57, height=57)
+        pdf.drawString(right_x + 62, 51, "QR: acesso autenticado ao PDF")
+    pdf.restoreState()
+
     # Páginas de memorial - tabela com todas as geometrias e segmentos.
     memorial = build_joint_memorial(
-        parcels, title=title, owner=owner_name, responsible=responsible_name, croqui=croqui
+        parcels, title=title, owner=owner_name, responsible=responsible_name, croqui=croqui,
+        owner_rg=owner_rg, owner_cpf=owner_cpf, property_address=property_address,
+        memorial_heading=memorial_heading, professional=professional,
     )
     pdf.showPage()
     pdf.setPageSize(A4)
@@ -407,7 +464,7 @@ def make_joint_pdf(
     text_x = 44
     y = mh - 50
     pdf.setFont("Helvetica-Bold", 13)
-    pdf.drawString(text_x, y, "MEMORIAL DESCRITIVO")
+    pdf.drawString(text_x, y, memorial_heading[:75].upper())
     y -= 22
     pdf.setFont("Helvetica", 9)
     for paragraph in memorial.splitlines():
@@ -433,5 +490,7 @@ def make_joint_pdf(
             y -= 10
     pdf.setFont("Helvetica", 7)
     pdf.drawCentredString(mw / 2, 28, str(config.get("document_footer") or "")[:100])
+    pdf.setFont("Helvetica", 6.5)
+    pdf.drawRightString(mw - 30, 18, f"Emitido {issued_at:%d/%m/%Y %H:%M:%S} - Horário de Belém")
     pdf.save()
     return buffer.getvalue(), page_format, scale
