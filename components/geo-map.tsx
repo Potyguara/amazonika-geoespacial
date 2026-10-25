@@ -50,6 +50,7 @@ type DrawKind = "Point" | "Polygon" | null;
 interface GeoMapProps {
   onGeometryChange: (geometry: Record<string, unknown> | null) => void;
   hideAdvancedTools?: boolean;
+  focusRequest?: { sourceId: string; nonce: number } | null;
   incraUf: string;
   resetNonce?: number;
   layers: Array<{
@@ -58,6 +59,7 @@ interface GeoMapProps {
     name: string;
     color: string;
     enabled: boolean;
+    featureCount?: number;
     source?: string;
     wmsEnabled?: boolean;
     wmsTheme?: string;
@@ -207,7 +209,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -215,6 +217,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const snapLayerSourceRef = useRef(new VectorSource());
   const vertexLabelSourceRef = useRef(new VectorSource());
   const baseLayerRef = useRef<TileLayer<OSM | XYZ> | null>(null);
+  const autoFocusRef = useRef<string | null>(null);
 
   // Overlay exclusivo da ferramenta Identificar.
   // Toda feição selecionada, independentemente da base de origem,
@@ -260,6 +263,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [manualText, setManualText] = useState("");
   const [manualError, setManualError] = useState<string | null>(null);
   const [basemap, setBasemap] = useState("osm");
+  const [extentMessage, setExtentMessage] = useState<string | null>(null);
   const [importingVector, setImportingVector] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [geometryMetrics, setGeometryMetrics] = useState<{
@@ -287,6 +291,76 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     setIdentifyActive(false);
     clearIdentifiedFeature();
   }, [resetNonce]);
+
+  const focusSource = async (sourceId: string) => {
+    const map = mapRef.current;
+    if (!map) return;
+    setExtentMessage(null);
+    try {
+      const response = await fetch(`${getApiUrl()}/sources/${sourceId}/extent`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Não foi possível consultar a extensão da camada.");
+      const payload = await response.json() as { bbox?: [number, number, number, number] | null; feature_count?: number };
+      if (!payload.bbox || payload.bbox.length !== 4) {
+        setExtentMessage("A camada ainda não possui feições para enquadrar.");
+        return;
+      }
+      const [minLon, minLat, maxLon, maxLat] = payload.bbox;
+      if (![minLon, minLat, maxLon, maxLat].every(Number.isFinite)) {
+        throw new Error("A extensão geográfica da camada é inválida.");
+      }
+      const [minX, minY] = fromLonLat([minLon, minLat]);
+      const [maxX, maxY] = fromLonLat([maxLon, maxLat]);
+      const extent: [number, number, number, number] = [
+        Math.min(minX, maxX), Math.min(minY, maxY),
+        Math.max(minX, maxX), Math.max(minY, maxY),
+      ];
+      if (extent[0] === extent[2]) {
+        extent[0] -= 250;
+        extent[2] += 250;
+      }
+      if (extent[1] === extent[3]) {
+        extent[1] -= 250;
+        extent[3] += 250;
+      }
+      map.getView().fit(extent, {
+        padding: [80, 80, 80, 80],
+        maxZoom: 15,
+        duration: 650,
+      });
+      const source = layersRef.current.find((layer) => layer.id === sourceId);
+      if (source) {
+        const minimum = source.slug === "sigef-interno" && (source.featureCount ?? Infinity) <= 10000
+          ? 6
+          : /sigef|parcela/i.test(source.name) ? 9 : 0;
+        const targetZoom = Math.max(minimum + 0.2, map.getView().getZoom() ?? minimum);
+        if (targetZoom > (map.getView().getZoom() ?? 0)) {
+          map.getView().animate({
+            zoom: targetZoom,
+            duration: 650,
+          });
+        }
+      }
+    } catch (error) {
+      setExtentMessage(error instanceof Error ? error.message : "Falha ao enquadrar camada.");
+    }
+  };
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    void focusSource(focusRequest.sourceId);
+  }, [focusRequest?.nonce, focusRequest?.sourceId]);
+
+  useEffect(() => {
+    const enabled = layers.filter((layer) => layer.id && layer.enabled);
+    if (enabled.length !== 1 || enabled[0].slug !== "sigef-interno") return;
+    const sourceId = enabled[0].id!;
+    if (autoFocusRef.current === sourceId) return;
+    if ((mapRef.current?.getView().getZoom() ?? 0) >= 9) return;
+    autoFocusRef.current = sourceId;
+    void focusSource(sourceId);
+  }, [layers]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -614,7 +688,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   useEffect(() => {
     if (!mapElement.current || mapRef.current) return;
-    const baseLayer = new TileLayer({ source: new OSM(), zIndex: 0 });
+    const baseLayer = new TileLayer({ source: new OSM({ maxZoom: 19 }), zIndex: 0 });
     baseLayerRef.current = baseLayer;
     const map = new Map({
       target: mapElement.current,
@@ -955,6 +1029,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       /sigef|parcela/i.test(layer.name);
 
     const minimumVectorZoom = (layer: (typeof layers)[number]) => {
+      if (layer.slug === "sigef-interno" && (layer.featureCount ?? Infinity) <= 10000) return 6;
       if (isParcelLayer(layer)) return 9;
 
       if (layer.slug === "anm-processos-minerarios") return 7;
@@ -1397,6 +1472,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       layer.setSource(
         new XYZ({
           url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          // Limita as consultas a um nível com cobertura mais ampla.
+          // O OpenLayers amplia o último tile quando o usuário aproxima mais.
+          maxZoom: 15,
           crossOrigin: "anonymous",
           attributions: "Tiles © Esri",
         }),
@@ -1405,12 +1483,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       layer.setSource(
         new XYZ({
           url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+          maxZoom: 16,
           crossOrigin: "anonymous",
           attributions: "Tiles © Esri",
         }),
       );
     } else {
-      layer.setSource(new OSM());
+      layer.setSource(new OSM({ maxZoom: 19 }));
     }
     setBasemap(value);
   };
@@ -1633,6 +1712,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         </div>
       )}
 
+      {extentMessage && <div className="map-operation-feedback error" role="alert" onClick={() => setExtentMessage(null)}>{extentMessage}</div>}
       {importingVector && <div className="map-operation-feedback">Importando e convertendo arquivo vetorial…</div>}
       {importError && <div className="map-operation-feedback error">{importError}</div>}
 
