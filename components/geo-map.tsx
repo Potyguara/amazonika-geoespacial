@@ -286,6 +286,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
   const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A4");
+  const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
   const [scaleChoice, setScaleChoice] = useState("auto");
   const [customScale, setCustomScale] = useState("1500");
   const [ownerRg, setOwnerRg] = useState("");
@@ -1893,6 +1894,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           raster_b64,
           raster_source,
           paper_format: paperFormat,
+          orientation: paperOrientation,
           scale_denominator: scaleChoice === "auto"
             ? null : scaleChoice === "custom"
               ? Number(customScale)
@@ -2181,6 +2183,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 </select>
               </label>
             </div>
+            <label><span>Orientação da folha</span><select
+              value={paperOrientation}
+              onChange={(event) => setPaperOrientation(event.target.value as typeof paperOrientation)}
+            >
+              <option value="paisagem">Paisagem (deitada)</option>
+              <option value="retrato">Retrato (em pé)</option>
+            </select></label>
             {scaleChoice === "custom" && (
               <label>
                 <span>Denominador da escala (1:...)</span>
