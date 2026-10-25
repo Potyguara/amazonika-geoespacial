@@ -15,6 +15,7 @@ from shapely.geometry import shape
 
 from app.core.config import get_settings
 from app.services.geospatial_export import export_polygon
+from app.services.plant_memorial_v2 import prepare_parcels, make_joint_pdf, build_joint_memorial
 from app.services.auth import require_permission
 from app.services.plant_memorial import (
     build_plant_memorial_pdf,
@@ -31,8 +32,18 @@ router = APIRouter(
 )
 
 
-class MemorialRequest(BaseModel):
+class MemorialParcel(BaseModel):
+    name: str = Field(max_length=120)
     geometry: dict[str, Any]
+    vertex_names: list[str] | None = None
+
+
+class MemorialRequest(BaseModel):
+    geometry: dict[str, Any] | None = None
+    parcels: list[MemorialParcel] | None = None
+    include_croqui_warning: bool = False
+    raster_b64: str | None = Field(default=None, max_length=12000000)
+    raster_source: str | None = Field(default=None, max_length=250)
     title: str = Field(default="Área analisada", max_length=180)
     owner_name: str | None = Field(default=None, max_length=255)
     responsible_name: str | None = Field(default=None, max_length=255)
@@ -263,6 +274,26 @@ def convert_vector(file: UploadFile = File(...)):
 
 @router.post("/memorial-draft")
 def memorial_draft(payload: MemorialRequest):
+    if payload.parcels:
+        try:
+            prepared = prepare_parcels([item.model_dump() for item in payload.parcels])
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {
+            "title": payload.title,
+            "area_hectares": round(sum(p.area_ha for p in prepared), 4),
+            "perimeter_meters": round(sum(p.perimeter for p in prepared), 3),
+            "parcel_count": len(prepared),
+            "memorial_text": build_joint_memorial(
+                prepared, title=payload.title, owner=payload.owner_name,
+                responsible=payload.responsible_name,
+                croqui=payload.include_croqui_warning,
+            ),
+            "ai_used": False,
+            "calculation_engine": "pyproj.Geod/GRS80",
+        }
+    if payload.geometry is None:
+        raise HTTPException(422, "Selecione ao menos uma área para o memorial.")
     vertices, area_ha, perimeter_m = _polygon_vertices(payload.geometry, payload.vertex_prefix.upper())
     memorial = _openai_memorial(payload, vertices, area_ha, perimeter_m)
     ai_used = memorial is not None
@@ -321,6 +352,33 @@ def upload_document_logo(file: UploadFile = File(...)):
 
 @router.post("/plant-memorial/pdf")
 def plant_memorial_pdf(payload: MemorialRequest):
+    if payload.parcels:
+        try:
+            prepared = prepare_parcels([item.model_dump() for item in payload.parcels])
+            pdf, page_name, scale = make_joint_pdf(
+                parcels=prepared,
+                title=payload.title,
+                owner_name=payload.owner_name,
+                responsible_name=payload.responsible_name,
+                croqui=payload.include_croqui_warning,
+                raster_b64=payload.raster_b64,
+                raster_source=payload.raster_source,
+            )
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(422, f"Não foi possível gerar a prancha: {str(exc)[:500]}") from exc
+        safe_name = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in payload.title.strip()).strip("-") or "planta"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_name[:80]}-planta-memorial.pdf"',
+                "Cache-Control": "no-store",
+                "X-Page-Format": page_name,
+                "X-Map-Scale": str(scale),
+            },
+        )
+    if payload.geometry is None:
+        raise HTTPException(422, "Selecione ao menos uma área para a planta.")
     vertices, area_ha, perimeter_m = _polygon_vertices(
         payload.geometry,
         payload.vertex_prefix.upper(),
