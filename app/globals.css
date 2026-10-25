@@ -4743,3 +4743,139 @@ input {
 .users-delete-button:hover {
   background: #fdeaea;
 }
+
+
+.memorial-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+}
+.geo-tool-secondary {
+  width: 100%;
+  border: 1px solid #9fb9ad;
+  border-radius: 8px;
+  background: #f4f8f5;
+  color: #174d3a;
+  padding: 10px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.geo-tool-secondary:disabled {
+  opacity: 0.55;
+}
+
+.settings-module {
+  display: grid;
+  gap: 18px;
+}
+.settings-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+}
+.settings-hero h2 {
+  margin: 2px 0 7px;
+  font: 700 24px Georgia, serif;
+}
+.settings-hero p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.settings-card {
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.settings-grid label {
+  display: grid;
+  gap: 6px;
+}
+.settings-grid label.wide {
+  grid-column: 1 / -1;
+}
+.settings-grid span {
+  font-size: 11px;
+  font-weight: 800;
+  color: #315448;
+}
+.settings-grid input {
+  min-height: 40px;
+  border: 1px solid #d7e2dc;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #fbfcfb;
+}
+.settings-logo-upload {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  border: 1px dashed #9eb7ab;
+  border-radius: 11px;
+  background: #f6faf7;
+  cursor: pointer;
+}
+.settings-logo-upload div {
+  flex: 1;
+}
+.settings-logo-upload strong,
+.settings-logo-upload small {
+  display: block;
+}
+.settings-logo-upload small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.settings-logo-upload input {
+  display: none;
+}
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+.settings-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 8px;
+  background: #174d3a;
+  color: white;
+  padding: 10px 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.settings-loading {
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+
+@media (max-width: 760px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .settings-grid label.wide {
+    grid-column: auto;
+  }
+  .settings-card,
+  .settings-hero {
+    padding: 16px;
+  }
+}
