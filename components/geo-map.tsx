@@ -710,7 +710,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   };
 
   const emitGeometry = () => {
-    const feature = sourceRef.current.getFeatures()[0];
+    const all = sourceRef.current.getFeatures();
+    const feature = all.find((item) =>
+      selectedPolygonIds.includes(String(item.get("workPolygonId")))
+    ) ?? all[0];
     const geometry = feature?.getGeometry();
     if (!geometry) {
       onGeometryChange(null);
@@ -729,6 +732,21 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     updateGeometryMetrics();
     refreshVertexLabels();
   };
+
+  useEffect(() => {
+    const features = sourceRef.current.getFeatures();
+    if (!features.length) return;
+    const primary = features.find((feature) =>
+      selectedPolygonIds.includes(String(feature.get("workPolygonId")))
+    ) ?? features[0];
+    const geometry = primary?.getGeometry();
+    if (!geometry) return;
+    onGeometryChange(new GeoJSON().writeGeometryObject(geometry, {
+      featureProjection: "EPSG:3857",
+      dataProjection: "EPSG:4326",
+      decimals: 8,
+    }) as Record<string, unknown>);
+  }, [selectedPolygonIds]);
 
   const clearIdentifiedFeature = () => {
     identifyAbortRef.current?.abort();
