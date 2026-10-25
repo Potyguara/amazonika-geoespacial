@@ -6180,3 +6180,40 @@ input {
 .sigef-view-on-map:hover {
   background: #d6ecdf;
 }
+
+/* Geometrias de trabalho: seleção, renomeação e exportação */
+.polygons-panel { width: min(450px, calc(100% - 100px)); }
+.work-polygon {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #cfe0d7;
+  border-radius: 10px;
+  background: #f7faf8;
+}
+.work-polygon-heading { display: flex; align-items: center; gap: 7px; }
+.work-polygon-heading > input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; }
+.work-polygon-heading .work-polygon-name { flex: 1; min-width: 80px; margin: 0; font-weight: 800; }
+.work-polygon-heading > button { border: 0; background: #fff0ee; color: #9b3333; border-radius: 7px; padding: 8px; }
+.work-vertex-details { border-top: 1px solid #dce7df; margin-top: 8px; padding-top: 8px; }
+.work-vertex-details summary { cursor: pointer; font-size: 11px; font-weight: 800; }
+.work-vertex-details > button {
+  margin: 8px 0; background: #e4f2e9; border: 1px solid #b8d3c1;
+  border-radius: 6px; padding: 6px 8px; font-size: 10px; color: #174d3a; cursor: pointer;
+}
+.work-vertex-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 240px; overflow-y: auto; }
+.geo-advanced-panel .work-vertex-grid label { margin: 0; }
+.work-polygon-export { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.work-polygon-export button {
+  display: flex; justify-content: center; align-items: center; gap: 4px;
+  border: 1px solid #b5d4c2; background: white; color: #144a37;
+  padding: 8px 4px; border-radius: 7px; cursor: pointer; font-size: 10px; font-weight: 800;
+}
+.work-polygon-export button:disabled { opacity: .5; cursor: wait; }
+.geo-advanced-panel label.work-croqui-toggle {
+  display: flex; gap: 8px; align-items: flex-start; font-weight: 600;
+}
+.geo-advanced-panel label.work-croqui-toggle input { flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px; }
+.geo-advanced-panel input[type="file"] { font-size: 10px; min-width: 0; }
+@media (max-width: 760px) {
+  .polygons-panel { width: auto; }
+}
