@@ -806,12 +806,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       // trabalha exclusivamente com geometrias vetoriais presentes no PostGIS.
       setIdentifiedFeature(null);
     };
-    const identifyListener = (event: MapBrowserEvent<PointerEvent>) => {
-      void identifyAtPixel(event);
+    const identifyListener = (event: Parameters<Map["on"]>[1] extends (value: infer E) => unknown ? E : never) => {
+      void identifyAtPixel(event as MapBrowserEvent<PointerEvent>);
     };
-    map.on("singleclick", identifyListener);
+    map.on("singleclick", identifyListener as never);
     return () => {
-      map.un("singleclick", identifyListener);
+      map.un("singleclick", identifyListener as never);
       identifyAbortRef.current?.abort();
       map.setTarget(undefined);
       mapRef.current = null;
