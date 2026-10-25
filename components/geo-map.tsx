@@ -49,6 +49,7 @@ type DrawKind = "Point" | "Polygon" | null;
 
 interface GeoMapProps {
   onGeometryChange: (geometry: Record<string, unknown> | null) => void;
+  hideAdvancedTools?: boolean;
   incraUf: string;
   resetNonce?: number;
   layers: Array<{
@@ -206,7 +207,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0 }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -1562,14 +1563,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0 }: Ge
           <span>Limpar</span>
         </button>
       </div>
-      <div className="geo-advanced-tools" aria-label="Ferramentas avançadas">
+      {!hideAdvancedTools && <div className="geo-advanced-tools" aria-label="Ferramentas avançadas">
         <button className={advancedPanel === "coordinates" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "coordinates" ? null : "coordinates")} title="Inserir coordenadas manualmente"><MapPin size={18} /></button>
         <button className={snapSubjectEnabled || snapLayersEnabled ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "snap" ? null : "snap")} title="Configurar Snap"><Magnet size={18} /></button>
         <button className={advancedPanel === "basemap" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "basemap" ? null : "basemap")} title="Mapa base / satélite"><Satellite size={18} /></button>
         <button className={advancedPanel === "memorial" ? "active" : ""} disabled={!sourceRef.current.getFeatures().length} onClick={() => setAdvancedPanel((current) => current === "memorial" ? null : "memorial")} title="Gerar memorial descritivo"><Sparkles size={18} /></button>
-      </div>
+      </div>}
 
-      {advancedPanel === "coordinates" && (
+      {!hideAdvancedTools && advancedPanel === "coordinates" && (
         <aside className="geo-advanced-panel coordinates-panel">
           <header><strong>Inserir coordenadas</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
           <div className="coordinate-mode-tabs">
@@ -1584,7 +1585,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0 }: Ge
         </aside>
       )}
 
-      {advancedPanel === "snap" && (
+      {!hideAdvancedTools && advancedPanel === "snap" && (
         <aside className="geo-advanced-panel snap-panel">
           <header><strong>Snap / atração magnética</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
           <label><input type="checkbox" checked={snapSubjectEnabled} onChange={(event) => setSnapSubjectEnabled(event.target.checked)} /><span>Vértices e arestas da geometria em edição</span></label>
@@ -1593,7 +1594,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0 }: Ge
         </aside>
       )}
 
-      {advancedPanel === "basemap" && (
+      {!hideAdvancedTools && advancedPanel === "basemap" && (
         <aside className="geo-advanced-panel basemap-panel">
           <header><strong>Mapa base</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
           <button className={basemap === "osm" ? "active" : ""} onClick={() => changeBasemap("osm")}>OpenStreetMap</button>
@@ -1603,7 +1604,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0 }: Ge
         </aside>
       )}
 
-      {advancedPanel === "memorial" && (
+      {!hideAdvancedTools && advancedPanel === "memorial" && (
         <aside className="geo-advanced-panel memorial-panel">
           <header><strong>Planta e memorial</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
           <label><span>Nome da área</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
