@@ -42,7 +42,7 @@ def _layout(
     paper: str | None,
     denominator: int | None,
 ) -> tuple[str, float, float, int, tuple[float, float, float, float], tuple[float, float, float, float]]:
-    name = (paper or "A3").upper()
+    name = (paper or "A4").upper()
     if name not in FORMATS:
         raise ValueError("Formato inválido. Escolha A4, A3, A2, A1 ou A0.")
     w, h = FORMATS[name]
