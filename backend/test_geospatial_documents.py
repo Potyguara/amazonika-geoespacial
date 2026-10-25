@@ -9,7 +9,8 @@ from pathlib import Path
 from PIL import Image
 
 from app.services.geospatial_export import export_polygon
-from app.services.plant_memorial_v2 import prepare_parcels, make_joint_pdf, build_joint_memorial
+from app.services.plant_memorial_v2 import prepare_parcels, build_joint_memorial
+from app.services.plant_memorial_pro import make_joint_pdf
 from app.services.memorial_docx import build_memorial_docx
 
 
@@ -87,6 +88,37 @@ class GeospatialDocumentsTests(unittest.TestCase):
         self.assertTrue(pdf.startswith(b"%PDF-"))
         self.assertIn(paper, {"A4", "A3", "A2", "A1", "A0"})
         self.assertGreater(scale, 0)
+
+    def test_scale_and_paper_selection(self):
+        parcels = prepare_parcels([{"name": "Lote", "geometry": self.geometry}])
+        image = Image.new("RGB", (600, 350), "#487F3A")
+        temp = io.BytesIO()
+        image.save(temp, format="PNG")
+        import base64
+        source = base64.b64encode(temp.getvalue()).decode()
+        output, paper, scale = make_joint_pdf(
+            parcels=parcels, title="Prancha controle",
+            owner_name="Cliente", responsible_name="Técnico", croqui=False,
+            raster_b64=source, raster_source="Raster autorizado de teste",
+            paper_format="A3", scale_denominator=1500,
+        )
+        self.assertTrue(output.startswith(b"%PDF-"))
+        self.assertEqual(paper, "A3")
+        self.assertEqual(scale, 1500)
+
+    def test_explicit_scale_out_of_paper_is_rejected(self):
+        parcels = prepare_parcels([{"name": "Lote", "geometry": self.geometry}])
+        image = Image.new("RGB", (180, 120), "green")
+        out = io.BytesIO()
+        image.save(out, format="PNG")
+        import base64
+        with self.assertRaisesRegex(ValueError, "não cabe"):
+            make_joint_pdf(
+                parcels=parcels, title="Prancha",
+                owner_name=None, responsible_name=None, croqui=False,
+                raster_b64=base64.b64encode(out.getvalue()).decode(),
+                raster_source="Teste", paper_format="A4", scale_denominator=100,
+            )
 
     def test_memorial_matches_perimetral_model_without_inventing_values(self):
         parcels = prepare_parcels([
