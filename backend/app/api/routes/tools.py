@@ -450,7 +450,7 @@ def plant_memorial_pdf(
         prepared = prepare_parcels(raw_parcels)
         document_id = uuid4()
         site = get_settings().public_base_url.rstrip("/")
-        download_url = f"{site}/api/v1/tools/documents/{document_id}"
+        download_url = f"{site}/documentos/{document_id}"
         professional = {"full_name": user.full_name, **(user.professional_profile_json or {})}
         pdf, page_name, scale = make_joint_pdf(
             parcels=prepared,
