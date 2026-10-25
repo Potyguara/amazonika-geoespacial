@@ -37,6 +37,9 @@ import {
   Info,
   MapPin,
   Magnet,
+  Layers3,
+  Download,
+  Trash2,
   Pencil,
   Pentagon,
   Ruler,
@@ -258,7 +261,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [officialCount, setOfficialCount] = useState(0);
   const [snapSubjectEnabled, setSnapSubjectEnabled] = useState(true);
   const [snapLayersEnabled, setSnapLayersEnabled] = useState(false);
-  const [advancedPanel, setAdvancedPanel] = useState<"coordinates" | "snap" | "basemap" | "memorial" | null>(null);
+  const [advancedPanel, setAdvancedPanel] = useState<"coordinates" | "snap" | "basemap" | "memorial" | "polygons" | null>(null);
+  const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; areaHa: number }>>([]);
+  const [selectedPolygonIds, setSelectedPolygonIds] = useState<string[]>([]);
+  const polygonSequenceRef = useRef(0);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [croquiNote, setCroquiNote] = useState(true);
+  const [rasterFile, setRasterFile] = useState<File | null>(null);
+  const [rasterAttribution, setRasterAttribution] = useState("");
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const [manualMode, setManualMode] = useState<ManualCoordinateMode>("DD");
   const [manualText, setManualText] = useState("");
   const [manualError, setManualError] = useState<string | null>(null);
@@ -285,6 +296,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   useEffect(() => {
     if (!resetNonce) return;
     sourceRef.current.clear();
+    setPolygons([]);
+    setSelectedPolygonIds([]);
+    vertexLabelSourceRef.current.clear();
     identifySelectionSourceRef.current.clear();
     setDrawKind(null);
     setModifyActive(false);
@@ -370,29 +384,152 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     );
   }, [incraUf]);
 
+  const polygonFeatures = (): Feature[] =>
+    sourceRef.current.getFeatures().filter((feature) => feature.getGeometry() instanceof Polygon) as Feature[];
+
+  const syncPolygonRegistry = () => {
+    const current = polygonFeatures();
+    const registry = current.map((feature) => {
+      const geometry = feature.getGeometry() as Polygon;
+      const count = Math.max(0, (geometry.getCoordinates()[0]?.length ?? 1) - 1);
+      let id = String(feature.get("workPolygonId") ?? "");
+      if (!id) {
+        polygonSequenceRef.current += 1;
+        id = `POL-${polygonSequenceRef.current}`;
+        feature.set("workPolygonId", id, true);
+        feature.set("workPolygonName", `Polígono ${polygonSequenceRef.current}`, true);
+      }
+      const existing = (feature.get("vertexNames") as string[] | undefined) ?? [];
+      const names = Array.from({ length: count }, (_, index) =>
+        existing[index] ?? `${id}-V${String(index + 1).padStart(2, "0")}`,
+      );
+      feature.set("vertexNames", names, true);
+      return {
+        id,
+        name: String(feature.get("workPolygonName") ?? id),
+        vertices: names,
+        areaHa: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
+      };
+    });
+    setPolygons(registry);
+    setSelectedPolygonIds((old) => {
+      const retained = old.filter((id) => registry.some((item) => item.id === id));
+      if (retained.length) return retained;
+      return registry.length ? [registry[registry.length - 1].id] : [];
+    });
+  };
+
+  const selectedFeatures = () =>
+    polygonFeatures().filter((feature) =>
+      selectedPolygonIds.includes(String(feature.get("workPolygonId"))),
+    );
+
+  const setPolygonName = (id: string, name: string) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    feature.set("workPolygonName", name, true);
+    syncPolygonRegistry();
+  };
+
+  const renameVertex = (id: string, index: number, name: string) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    const names = [...((feature.get("vertexNames") as string[] | undefined) ?? [])];
+    names[index] = name;
+    feature.set("vertexNames", names, true);
+    syncPolygonRegistry();
+    refreshVertexLabels();
+  };
+
+  const removePolygon = (id: string) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (feature) sourceRef.current.removeFeature(feature);
+    emitGeometry();
+  };
+
+  const readRasterData = async () => {
+    if (!rasterFile) return null;
+    if (rasterFile.size > 8 * 1024 * 1024) throw new Error("Raster máximo: 8 MB.");
+    if (!["image/png", "image/jpeg"].includes(rasterFile.type)) {
+      throw new Error("Use imagem raster PNG ou JPG.");
+    }
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Falha ao ler imagem raster."));
+      reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+      reader.readAsDataURL(rasterFile);
+    });
+  };
+
+  const documentParcels = () => {
+    const features = selectedFeatures();
+    if (!features.length) throw new Error("Selecione ao menos um polígono.");
+    const parcels = features.map((feature) => ({
+      name: String(feature.get("workPolygonName") ?? feature.get("workPolygonId")),
+      geometry: new GeoJSON().writeGeometryObject(feature.getGeometry()!, {
+        featureProjection: "EPSG:3857",
+        dataProjection: "EPSG:4674",
+        decimals: 9,
+      }),
+      vertex_names: feature.get("vertexNames") as string[],
+    }));
+    return parcels;
+  };
+
+  const exportIndividualPolygon = async (id: string, format: "txt" | "kml" | "shp") => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    setExportBusy(true);
+    setDocumentError(null);
+    try {
+      const payload = {
+        geometry: new GeoJSON().writeGeometryObject(feature.getGeometry()!, {
+          featureProjection: "EPSG:3857", dataProjection: "EPSG:4674", decimals: 9,
+        }),
+        filename: String(feature.get("workPolygonName") ?? id),
+        vertex_names: feature.get("vertexNames"),
+        format,
+      };
+      const response = await fetch(`${getApiUrl()}/tools/export-polygon`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : "Falha na exportação.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const defaultName = `poligono-${id}.${format === "shp" ? "zip" : format}`;
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? defaultName;
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : "Falha na exportação.");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   const refreshVertexLabels = () => {
     vertexLabelSourceRef.current.clear();
-    const geometry = sourceRef.current.getFeatures()[0]?.getGeometry();
-    if (!geometry) return;
-
-    let index = 0;
-    const addRing = (ring: number[][]) => {
-      for (const coordinate of ring.slice(0, -1)) {
-        vertexLabelSourceRef.current.addFeature(
-          new Feature({
-            geometry: new Point(coordinate),
-            vertexName: `V${String(index + 1).padStart(2, "0")}`,
-          }),
-        );
-        index += 1;
-      }
-    };
-
-    if (geometry instanceof Polygon) {
-      addRing(geometry.getCoordinates()[0] ?? []);
-    } else if (geometry instanceof MultiPolygon) {
-      for (const polygon of geometry.getCoordinates()) {
-        addRing(polygon[0] ?? []);
+    for (const feature of polygonFeatures()) {
+      const geometry = feature.getGeometry() as Polygon;
+      const ring = geometry.getCoordinates()[0] ?? [];
+      const names = (feature.get("vertexNames") as string[] | undefined) ?? [];
+      for (const [index, coordinate] of ring.slice(0, -1).entries()) {
+        vertexLabelSourceRef.current.addFeature(new Feature({
+          geometry: new Point(coordinate),
+          vertexName: names[index] ?? `V${String(index + 1).padStart(2, "0")}`,
+        }));
       }
     }
   };
@@ -467,6 +604,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       decimals: 8,
     });
     onGeometryChange(output as Record<string, unknown>);
+    syncPolygonRegistry();
     updateGeometryMetrics();
     refreshVertexLabels();
   };
@@ -1193,7 +1331,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     if (!drawKind) return;
 
     const draw = new Draw({ source: sourceRef.current, type: drawKind });
-    draw.on("drawstart", () => sourceRef.current.clear());
+    // Mantém os polígonos previamente desenhados, possibilitando loteamentos.
     draw.on("drawend", () => window.setTimeout(emitGeometry, 0));
     map.addInteraction(draw);
     drawRef.current = draw;
@@ -1349,6 +1487,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   const clear = () => {
     sourceRef.current.clear();
+    setPolygons([]);
+    setSelectedPolygonIds([]);
     vertexLabelSourceRef.current.clear();
     setGeometryMetrics({ areaHectares: null, perimeterMeters: null, vertices: 0 });
     setDrawKind(null);
@@ -1414,8 +1554,19 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
       if (!features.length) throw new Error("O arquivo não contém feições utilizáveis.");
 
-      sourceRef.current.clear();
-      sourceRef.current.addFeatures(features);
+      // Cada polígono importado permanece como objeto independente.
+      const separate: Feature[] = [];
+      for (const feature of features) {
+        const geometry = feature.getGeometry();
+        if (geometry instanceof MultiPolygon) {
+          for (const coords of geometry.getCoordinates()) {
+            separate.push(new Feature({ geometry: new Polygon(coords) }));
+          }
+        } else {
+          separate.push(feature);
+        }
+      }
+      sourceRef.current.addFeatures(separate);
       setDrawKind(null);
       setModifyActive(false);
       setIdentifyActive(false);
@@ -1450,7 +1601,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
               ],
             ]);
 
-      sourceRef.current.clear();
       sourceRef.current.addFeature(new Feature({ geometry }));
       setDrawKind(null);
       setModifyActive(false);
@@ -1476,7 +1626,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
           // Limita as consultas a um nível com cobertura mais ampla.
           // O OpenLayers amplia o último tile quando o usuário aproxima mais.
-          maxZoom: 15,
+          maxZoom: 19,
           crossOrigin: "anonymous",
           attributions: "Tiles © Esri",
         }),
@@ -1485,7 +1635,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       layer.setSource(
         new XYZ({
           url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
-          maxZoom: 16,
+          maxZoom: 19,
           crossOrigin: "anonymous",
           attributions: "Tiles © Esri",
         }),
@@ -1653,6 +1803,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         <button className={advancedPanel === "coordinates" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "coordinates" ? null : "coordinates")} title="Inserir coordenadas manualmente"><MapPin size={18} /></button>
         <button className={snapSubjectEnabled || snapLayersEnabled ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "snap" ? null : "snap")} title="Configurar Snap"><Magnet size={18} /></button>
         <button className={advancedPanel === "basemap" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "basemap" ? null : "basemap")} title="Mapa base / satélite"><Satellite size={18} /></button>
+        <button className={advancedPanel === "polygons" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "polygons" ? null : "polygons")} title="Polígonos e exportação"><Layers3 size={18} /></button>
         <button className={advancedPanel === "memorial" ? "active" : ""} disabled={!sourceRef.current.getFeatures().length} onClick={() => setAdvancedPanel((current) => current === "memorial" ? null : "memorial")} title="Gerar memorial descritivo"><Sparkles size={18} /></button>
       </div>}
 
