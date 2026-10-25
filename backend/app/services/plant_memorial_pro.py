@@ -48,7 +48,7 @@ def _layout(
     w, h = FORMATS[name]
     # Alocação fixa: coluna técnica à direita, quadro inferior à esquerda.
     side_x = w * .735
-    view = (44.0, 197.0, side_x - 73.0, h - 304.0)
+    view = (44.0, 215.0, side_x - 73.0, h - 322.0)
     if view[2] <= 100 or view[3] <= 140:
         raise ValueError("O formato escolhido não comporta a prancha.")
     all_pts = [point for ring in projected for point in ring]
@@ -138,11 +138,11 @@ def _segment_labels(pdf, coords, segments, centroid, view_box):
         labels.append(_label(pdf, [heading, distance], lx, ly))
 
 
-def _short_table(pdf, parcels, projected, transformer, bounds):
+def _short_table(pdf, parcels, projected, transformer, bounds, max_inline: int):
     total = sum(len(p.points) for p in parcels)
     left, bottom, right, top = bounds
     # O resumo integra a planta; volumes maiores recebem quadro adicional.
-    if total > 8:
+    if total > max_inline:
         pdf.setFont("Helvetica-Bold", 9)
         pdf.setFillColor(GREEN)
         pdf.drawString(left+8, top-23, "QUADRO DE COORDENADAS")
@@ -178,7 +178,7 @@ def _full_coordinate_sheet(pdf, parcels, transformer, zone, hemisphere, property
     rows = [(p.name, p.names[i], _dms(lat, "lat"), _dms(lon, "lon"),
              *transformer.transform(lon, lat), s["azimuth"], s["distance"])
             for p in parcels for i, ((lon,lat),s) in enumerate(zip(p.points,p.segments))]
-    if len(rows) <= 8:
+    if len(rows) <= 5:
         return
     pdf.showPage()
     w, h = landscape(A3)
@@ -361,12 +361,16 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     pdf.saveState()
     pdf.setStrokeColor(colors.HexColor("#DEE8E1"));pdf.setLineWidth(.5)
     pdf.setFont("Helvetica",7);pdf.setFillColor(MUTED)
-    for east in range(int(math.floor(x0/gridstep)*gridstep),int(x1+gridstep),int(gridstep)):
+    for k in range(150):
+        east=(math.floor(x0/gridstep)+k)*gridstep
+        if east>x1+gridstep:break
         ex=xy(east,y0)[0]
         if vx<=ex<=vx+vw:
             pdf.line(ex,vy,ex,vy+vh)
             pdf.drawCentredString(ex,vy-7,f"{east:,.0f}")
-    for north in range(int(math.floor(y0/gridstep)*gridstep),int(y1+gridstep),int(gridstep)):
+    for k in range(150):
+        north=(math.floor(y0/gridstep)+k)*gridstep
+        if north>y1+gridstep:break
         ny=xy(x0,north)[1]
         if vy<=ny<=vy+vh:
             pdf.line(vx,ny,vx+vw,ny)
@@ -403,14 +407,14 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             pdf.setFont("Helvetica-Bold",8);pdf.setFillColor(DARK);pdf.drawString(tx,ty,text)
 
     # Quadro de coordenadas integrado à prancha para lotes de pequena dimensão.
-    _short_table(pdf,parcels,projected,transformer,(35,34,side-19,174))
+    _short_table(pdf,parcels,projected,transformer,(35,70,side-19,193),5)
     # Norte, escala gráfica e escala nominal têm papéis diferentes.
     nx,ny=vx+20,vy+vh-22
     pdf.setStrokeColor(GREEN);pdf.setLineWidth(2)
     pdf.line(nx,ny-30,nx,ny);pdf.line(nx,ny,nx-6,ny-10);pdf.line(nx,ny,nx+6,ny-10)
     pdf.setFont("Helvetica-Bold",12);pdf.setFillColor(GREEN);pdf.drawCentredString(nx,ny+7,"N")
     pdf.setFont("Helvetica-Bold",8.5)
-    pdf.drawString(vx,185,f"ESCALA NOMINAL  1:{scale:,}   |   FORMATO {name}   |   IMPRIMIR EM 100%")
+    pdf.drawString(vx,202,f"ESCALA NOMINAL  1:{scale:,}   |   FORMATO {name}   |   IMPRIMIR EM 100%")
     # Coluna de identificação: títulos legíveis, não cinza com opacidade.
     right_x=side+12;right_w=w-right_x-37
     pdf.setFillColor(PALE);pdf.rect(side,24,w-side-24,h-48,fill=1,stroke=0)
@@ -435,15 +439,16 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         p.drawOn(pdf,right_x,y-ph+2);y-=ph+11
     field("IMÓVEL",title)
     field("DETENTOR / POSSEIRO",owner_name)
-    field("LOCALIZAÇÃO",property_address)
+    if name != "A4": field("LOCALIZAÇÃO",property_address)
     field("ÁREA TOTAL",f"{sum(p.area_ha for p in parcels):,.4f} ha")
-    field("PERÍMETRO",f"{sum(p.perimeter for p in parcels):,.3f} m")
+    if name != "A4": field("PERÍMETRO",f"{sum(p.perimeter for p in parcels):,.3f} m")
     field("DATUM / FUSO",f"SIRGAS 2000 / UTM {zone}{hemisphere}")
     field("TÉCNICO",responsible_name or professional.get("full_name"))
-    field("REGISTRO", "  |  ".join(str(professional.get(k) or "")
-          for k in ("crea","visto") if professional.get(k)))
+    if name != "A4":
+        field("REGISTRO", "  |  ".join(str(professional.get(k) or "")
+              for k in ("crea","visto") if professional.get(k)))
     # Raster com espaço reservado e proporção mantida: impresso com fundo/opacidade integrais.
-    image_bottom=171
+    image_bottom=142 if name == "A4" else 171
     image_height=min(137,max(90,y-image_bottom-29))
     if y<image_bottom+image_height+33:
         image_height=max(70,y-image_bottom-29)
@@ -471,7 +476,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.saveState();pdf.setFillColor(colors.HexColor("#8D4F2E"))
         pdf.setFont("Helvetica-Bold",6.9)
         note=textwrap.wrap(DISCLAIMER,width=max(45,int((side-55)/4.5)))
-        for i,line in enumerate(note[:3]):pdf.drawString(38,174-i*10,line)
+        for i,line in enumerate(note[:3]):pdf.drawString(38,63-i*10,line)
         pdf.restoreState()
 
     _full_coordinate_sheet(pdf,parcels,transformer,zone,hemisphere,title,stamp)
