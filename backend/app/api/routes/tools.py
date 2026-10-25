@@ -14,6 +14,7 @@ from pyproj import Geod
 from shapely.geometry import shape
 
 from app.core.config import get_settings
+from app.services.geospatial_export import export_polygon
 from app.services.auth import require_permission
 from app.services.plant_memorial import (
     build_plant_memorial_pdf,
@@ -172,6 +173,38 @@ def _openai_memorial(payload: MemorialRequest, vertices: list[dict], area_ha: fl
             if isinstance(text_value, str):
                 parts.append(text_value)
     return "\n".join(parts).strip() or None
+
+
+class ExportPolygonRequest(BaseModel):
+    geometry: dict[str, Any]
+    filename: str = Field(default="poligono", min_length=1, max_length=180)
+    format: str = Field(pattern="^(txt|kml|shp)$")
+    vertex_names: list[str] | None = None
+    utm_zone: int | None = Field(default=None, ge=1, le=60)
+    hemisphere: str | None = Field(default=None, pattern="^[NS]$")
+
+
+@router.post("/export-polygon")
+def download_polygon(payload: ExportPolygonRequest):
+    try:
+        data, filename, media_type = export_polygon(
+            geometry=payload.geometry,
+            filename=payload.filename,
+            format=payload.format,
+            names=payload.vertex_names,
+            utm_zone=payload.utm_zone,
+            hemisphere=payload.hemisphere,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/convert-vector")
