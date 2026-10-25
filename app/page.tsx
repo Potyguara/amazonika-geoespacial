@@ -1216,6 +1216,7 @@ export default function Home() {
                 <GeoMap
                   incraUf={incraUf}
                   resetNonce={analysisResetNonce}
+                  hideAdvancedTools={layerManagerOpen}
                   onGeometryChange={geometryChanged}
                   layers={catalog.map((layer, index) => ({
                     id: layer.id,
