@@ -520,6 +520,77 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     });
   };
 
+  const captureMapSituation = async (): Promise<{ raster_b64: string; raster_source: string }> => {
+    const map = mapRef.current;
+    if (!map) throw new Error("O mapa ainda não está pronto para a captura de situação.");
+    const size = map.getSize();
+    if (!size || size[0] <= 0 || size[1] <= 0) {
+      throw new Error("O mapa precisa estar visível antes de gerar a planta.");
+    }
+
+    // A exportação utiliza os canvas raster/vetoriais já renderizados
+    // pelo próprio OpenLayers, nunca uma imagem arbitrária enviada ao servidor.
+    await new Promise<void>((resolve) => {
+      let completed = false;
+      const done = () => {
+        if (completed) return;
+        completed = true;
+        map.un("rendercomplete", done);
+        resolve();
+      };
+      map.once("rendercomplete", done);
+      map.renderSync();
+      window.setTimeout(done, 3000);
+    });
+
+    const output = document.createElement("canvas");
+    const width = Math.min(1600, Math.round(size[0]));
+    const height = Math.min(1200, Math.round(size[1]));
+    output.width = width;
+    output.height = height;
+    const context = output.getContext("2d");
+    if (!context) throw new Error("O navegador não permite capturar a imagem raster.");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, width, height);
+    context.scale(width / size[0], height / size[1]);
+
+    const canvases = Array.from(
+      map.getViewport().querySelectorAll<HTMLCanvasElement>(".ol-layer canvas, canvas.ol-layer")
+    ).filter((canvas) => canvas.width > 0 && canvas.height > 0);
+    if (!canvases.length) throw new Error("Nenhum raster renderizado foi encontrado no mapa.");
+    try {
+      for (const layerCanvas of canvases) {
+        const opacity = Number(layerCanvas.parentElement?.style.opacity || "1");
+        context.save();
+        context.globalAlpha = Number.isFinite(opacity) ? opacity : 1;
+        const rawTransform = layerCanvas.style.transform;
+        const matrix = rawTransform.match(/^matrix\(([^)]+)\)$/);
+        if (matrix) {
+          const numbers = matrix[1].split(",").map(Number);
+          if (numbers.length === 6 && numbers.every(Number.isFinite)) {
+            context.setTransform(...(numbers as [number, number, number, number, number, number]));
+          }
+        } else {
+          context.translate(layerCanvas.offsetLeft, layerCanvas.offsetTop);
+        }
+        context.drawImage(layerCanvas, 0, 0);
+        context.restore();
+      }
+      const attribution = basemap === "esri-imagery" ? "Esri World Imagery - mapa de referência" :
+        basemap === "esri-topo" ? "Esri World Topographic - mapa de referência" :
+        "OpenStreetMap contributors - base cartográfica";
+      return {
+        raster_b64: output.toDataURL("image/jpeg", 0.88).split(",")[1],
+        raster_source: attribution,
+      };
+    } catch {
+      throw new Error(
+        "A captura do raster foi bloqueada pelo provedor de imagens ou pelo navegador. " +
+        "Selecione uma base autorizada para exportação e tente novamente."
+      );
+    }
+  };
+
   const documentParcels = () => {
     const features = selectedFeatures();
     if (!features.length) throw new Error("Selecione ao menos um polígono.");
@@ -1729,7 +1800,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         body: JSON.stringify({
           parcels,
           title: memorialTitle,
+          plant_heading: plantHeading,
+          memorial_heading: memorialHeading,
           owner_name: memorialOwner || null,
+          owner_rg: ownerRg || null,
+          owner_cpf: ownerCpf || null,
+          property_address: propertyAddress || null,
           responsible_name: memorialResponsible || null,
           include_croqui_warning: croquiNote,
         }),
@@ -1754,7 +1830,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     setMemorialLoading(true);
     try {
       const parcels = documentParcels();
-      const raster_b64 = await readRasterData();
+      const { raster_b64, raster_source } = await captureMapSituation();
       const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
         method: "POST",
         credentials: "include",
@@ -1762,11 +1838,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         body: JSON.stringify({
           parcels,
           title: memorialTitle,
+          plant_heading: plantHeading,
+          memorial_heading: memorialHeading,
           owner_name: memorialOwner || null,
+          owner_rg: ownerRg || null,
+          owner_cpf: ownerCpf || null,
+          property_address: propertyAddress || null,
           responsible_name: memorialResponsible || null,
           include_croqui_warning: croquiNote,
           raster_b64,
-          raster_source: rasterAttribution || null,
+          raster_source,
         }),
       });
       if (!response.ok) {
@@ -2014,28 +2095,20 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       {!hideAdvancedTools && advancedPanel === "memorial" && (
         <aside className="geo-advanced-panel memorial-panel">
           <header><strong>Planta e memorial</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
-          <label><span>Nome da área</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
-          <label><span>Detentor / interessado</span><input value={memorialOwner} onChange={(event) => setMemorialOwner(event.target.value)} /></label>
-          <label><span>Responsável técnico</span><input value={memorialResponsible} onChange={(event) => setMemorialResponsible(event.target.value)} /></label>
+          <label><span>Título da planta</span><input value={plantHeading} onChange={(event) => setPlantHeading(event.target.value)} /></label>
+          <label><span>Título do memorial</span><input value={memorialHeading} onChange={(event) => setMemorialHeading(event.target.value)} /></label>
+          <label><span>Denominação do imóvel/lote</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
+          <label><span>Nome completo do detentor / posseiro</span><input value={memorialOwner} onChange={(event) => setMemorialOwner(event.target.value)} /></label>
+          <label><span>RG do detentor</span><input value={ownerRg} onChange={(event) => setOwnerRg(event.target.value)} /></label>
+          <label><span>CPF do detentor</span><input value={ownerCpf} onChange={(event) => setOwnerCpf(event.target.value)} /></label>
+          <label><span>Endereço/localização do imóvel/lote</span><input value={propertyAddress} onChange={(event) => setPropertyAddress(event.target.value)} /></label>
+          <small>Carimbo técnico: nome completo, RG/CPF, profissão, CREA, visto e ART são preenchidos a partir de Configurações → Meu perfil e carimbo profissional. A ART deve ser conferida em cada emissão.</small>
           <small><strong>{selectedPolygonIds.length} polígono(s) selecionado(s)</strong>. Para escolher áreas e renomear vértices, abra a ferramenta “Polígonos” na paleta.</small>
           <label className="work-croqui-toggle">
             <input type="checkbox" checked={croquiNote} onChange={(event) => setCroquiNote(event.target.checked)} />
             <span>Inserir ressalva opcional de croqui na planta e no memorial</span>
           </label>
-          <label>
-            <span>Imagem raster de situação (PNG/JPG, opcional)</span>
-            <input
-              type="file"
-              accept="image/png,image/jpeg"
-              onChange={(event) => setRasterFile(event.target.files?.[0] ?? null)}
-            />
-          </label>
-          {rasterFile && <small>Raster anexado: {rasterFile.name}</small>}
-          <label><span>Fonte/autoria do raster</span><input
-            value={rasterAttribution}
-            placeholder="Ex.: ortomosaico autorizado / levantamento próprio"
-            onChange={(event) => setRasterAttribution(event.target.value)}
-          /></label>
+          <small>Planta de situação: imagem raster capturada obrigatoriamente do mapa atual. Ajuste o enquadramento e escolha a base antes de gerar o PDF. Fontes e créditos serão registrados.</small>
           <small>A prancha selecionará papel A4–A0 e escala de modo automático. Para impressão, utilize tamanho real (100%).</small>
           <div className="memorial-actions">
             <button className="geo-tool-primary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
