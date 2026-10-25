@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+from uuid import UUID, uuid4
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -16,7 +18,8 @@ from shapely.geometry import shape
 from app.core.config import get_settings
 from app.services.geospatial_export import export_polygon
 from app.services.plant_memorial_v2 import prepare_parcels, make_joint_pdf, build_joint_memorial
-from app.services.auth import require_permission
+from app.services.auth import require_permission, get_current_user
+from app.models.auth import User
 from app.services.plant_memorial import (
     build_plant_memorial_pdf,
     load_document_template,
@@ -36,6 +39,8 @@ class MemorialParcel(BaseModel):
     name: str = Field(max_length=120)
     geometry: dict[str, Any]
     vertex_names: list[str] | None = None
+    confrontants: list[str] | None = None
+    altitudes_m: list[float | None] | None = None
 
 
 class MemorialRequest(BaseModel):
@@ -45,6 +50,11 @@ class MemorialRequest(BaseModel):
     raster_b64: str | None = Field(default=None, max_length=12000000)
     raster_source: str | None = Field(default=None, max_length=250)
     title: str = Field(default="Área analisada", max_length=180)
+    plant_heading: str = Field(default="PLANTA GEORREFERENCIADA", max_length=150)
+    memorial_heading: str = Field(default="MEMORIAL DESCRITIVO", max_length=150)
+    owner_rg: str | None = Field(default=None, max_length=60)
+    owner_cpf: str | None = Field(default=None, max_length=25)
+    property_address: str | None = Field(default=None, max_length=350)
     owner_name: str | None = Field(default=None, max_length=255)
     responsible_name: str | None = Field(default=None, max_length=255)
     vertex_prefix: str = Field(default="V", min_length=1, max_length=8)
@@ -288,6 +298,10 @@ def memorial_draft(payload: MemorialRequest):
                 prepared, title=payload.title, owner=payload.owner_name,
                 responsible=payload.responsible_name,
                 croqui=payload.include_croqui_warning,
+                owner_rg=payload.owner_rg,
+                owner_cpf=payload.owner_cpf,
+                property_address=payload.property_address,
+                memorial_heading=payload.memorial_heading,
             ),
             "ai_used": False,
             "calculation_engine": "pyproj.Geod/GRS80",
@@ -350,61 +364,101 @@ def upload_document_logo(file: UploadFile = File(...)):
     return {"logo_path": path, "template": load_document_template()}
 
 
-@router.post("/plant-memorial/pdf")
-def plant_memorial_pdf(payload: MemorialRequest):
-    if payload.parcels:
-        try:
-            prepared = prepare_parcels([item.model_dump() for item in payload.parcels])
-            pdf, page_name, scale = make_joint_pdf(
-                parcels=prepared,
-                title=payload.title,
-                owner_name=payload.owner_name,
-                responsible_name=payload.responsible_name,
-                croqui=payload.include_croqui_warning,
-                raster_b64=payload.raster_b64,
-                raster_source=payload.raster_source,
-            )
-        except (ValueError, TypeError) as exc:
-            raise HTTPException(422, f"Não foi possível gerar a prancha: {str(exc)[:500]}") from exc
-        safe_name = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in payload.title.strip()).strip("-") or "planta"
-        return Response(
-            content=pdf,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="{safe_name[:80]}-planta-memorial.pdf"',
-                "Cache-Control": "no-store",
-                "X-Page-Format": page_name,
-                "X-Map-Scale": str(scale),
-            },
-        )
-    if payload.geometry is None:
-        raise HTTPException(422, "Selecione ao menos uma área para a planta.")
-    vertices, area_ha, perimeter_m = _polygon_vertices(
-        payload.geometry,
-        payload.vertex_prefix.upper(),
-    )
-    memorial = _openai_memorial(payload, vertices, area_ha, perimeter_m)
-    if memorial is None:
-        memorial = _deterministic_memorial(payload, vertices, area_ha, perimeter_m)
+def _generated_documents_dir() -> Path:
+    directory = get_settings().storage_dir / "generated_documents"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
-    pdf = build_plant_memorial_pdf(
-        title=payload.title,
-        owner_name=payload.owner_name,
-        responsible_name=payload.responsible_name,
-        area_hectares=area_ha,
-        perimeter_meters=perimeter_m,
-        vertices=vertices,
-        memorial_text=memorial,
+
+@router.get("/documents/{document_id}")
+def download_saved_document(
+    document_id: UUID,
+    user: User = Depends(get_current_user),
+):
+    directory = _generated_documents_dir()
+    stem = document_id.hex
+    file_path = directory / f"{stem}.pdf"
+    meta_path = directory / f"{stem}.json"
+    if not file_path.is_file() or not meta_path.is_file():
+        raise HTTPException(404, "Documento não encontrado.")
+    metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    # O QR não é autorização pública. É necessário login e pertencer ao
+    # responsável pela emissão ou ter perfil administrador.
+    is_admin = any(role.code == "ADMINISTRADOR" for role in user.roles)
+    if metadata.get("user_id") != str(user.id) and not is_admin:
+        raise HTTPException(403, "Documento pertence a outro usuário.")
+    return Response(
+        content=file_path.read_bytes(),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="amazonika-documento-{stem[:12]}.pdf"',
+            "Cache-Control": "private, no-store",
+        },
     )
+
+
+@router.post("/plant-memorial/pdf")
+def plant_memorial_pdf(
+    payload: MemorialRequest,
+    user: User = Depends(get_current_user),
+):
+    raw_parcels = (
+        [parcel.model_dump() for parcel in payload.parcels]
+        if payload.parcels else (
+            [{"name": payload.title, "geometry": payload.geometry}]
+            if payload.geometry else []
+        )
+    )
+    if not raw_parcels:
+        raise HTTPException(422, "Selecione ao menos uma área para a planta.")
+    try:
+        prepared = prepare_parcels(raw_parcels)
+        document_id = uuid4()
+        site = get_settings().public_base_url.rstrip("/")
+        download_url = f"{site}/api/v1/tools/documents/{document_id}"
+        professional = {"full_name": user.full_name, **(user.professional_profile_json or {})}
+        pdf, page_name, scale = make_joint_pdf(
+            parcels=prepared,
+            title=payload.title,
+            owner_name=payload.owner_name,
+            owner_rg=payload.owner_rg,
+            owner_cpf=payload.owner_cpf,
+            property_address=payload.property_address,
+            responsible_name=user.full_name,
+            professional=professional,
+            croqui=payload.include_croqui_warning,
+            raster_b64=payload.raster_b64,
+            raster_source=payload.raster_source,
+            plant_heading=payload.plant_heading,
+            memorial_heading=payload.memorial_heading,
+            qr_url=download_url,
+        )
+        folder = _generated_documents_dir()
+        stem = document_id.hex
+        destination = folder / f"{stem}.pdf"
+        metadata = folder / f"{stem}.json"
+        temporary = folder / f"{stem}.tmp"
+        temporary.write_bytes(pdf)
+        os.replace(temporary, destination)
+        metadata.write_text(
+            json.dumps({"user_id": str(user.id), "document_id": str(document_id),
+                        "title": payload.title}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, f"Não foi possível gerar a prancha: {str(exc)[:500]}") from exc
     safe_name = "".join(
         char if char.isalnum() or char in {"-", "_"} else "-"
         for char in payload.title.strip()
-    ).strip("-") or "planta-memorial"
+    ).strip("-") or "planta"
     return Response(
         content=pdf,
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="{safe_name[:80]}-planta-memorial.pdf"',
-            "Cache-Control": "no-store",
+            "Cache-Control": "private, no-store",
+            "X-Page-Format": page_name,
+            "X-Map-Scale": str(scale),
+            "X-Document-Id": str(document_id),
         },
     )
