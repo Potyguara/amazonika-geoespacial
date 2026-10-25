@@ -468,7 +468,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       name: String(feature.get("workPolygonName") ?? feature.get("workPolygonId")),
       geometry: new GeoJSON().writeGeometryObject(feature.getGeometry()!, {
         featureProjection: "EPSG:3857",
-        dataProjection: "EPSG:4674",
+        dataProjection: "EPSG:4326",
         decimals: 9,
       }),
       vertex_names: feature.get("vertexNames") as string[],
@@ -484,7 +484,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     try {
       const payload = {
         geometry: new GeoJSON().writeGeometryObject(feature.getGeometry()!, {
-          featureProjection: "EPSG:3857", dataProjection: "EPSG:4674", decimals: 9,
+          featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
         }),
         filename: String(feature.get("workPolygonName") ?? id),
         vertex_names: feature.get("vertexNames"),
@@ -1652,16 +1652,17 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     setMemorialLoading(true);
     setMemorialText("");
     try {
+      const parcels = documentParcels();
       const response = await fetch(`${getApiUrl()}/tools/memorial-draft`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          geometry,
+          parcels,
           title: memorialTitle,
           owner_name: memorialOwner || null,
           responsible_name: memorialResponsible || null,
-          vertex_prefix: "V",
+          include_croqui_warning: croquiNote,
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -1683,16 +1684,20 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     if (!geometry) return;
     setMemorialLoading(true);
     try {
+      const parcels = documentParcels();
+      const raster_b64 = await readRasterData();
       const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          geometry,
+          parcels,
           title: memorialTitle,
           owner_name: memorialOwner || null,
           responsible_name: memorialResponsible || null,
-          vertex_prefix: "V",
+          include_croqui_warning: croquiNote,
+          raster_b64,
+          raster_source: rasterAttribution || null,
         }),
       });
       if (!response.ok) {
@@ -1841,15 +1846,106 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         </aside>
       )}
 
+      {!hideAdvancedTools && advancedPanel === "polygons" && (
+        <aside className="geo-advanced-panel polygons-panel">
+          <header>
+            <strong>Polígonos, vértices e exportação ({polygons.length})</strong>
+            <button onClick={() => setAdvancedPanel(null)} aria-label="Fechar"><X size={17} /></button>
+          </header>
+          <small>Desenhe quantos polígonos desejar. Marque as áreas que entrarão em uma única planta e memorial. Exporte cada uma individualmente em TXT UTM, KML ou Shapefile ZIP.</small>
+          {polygons.map((polygon) => (
+            <div className="work-polygon" key={polygon.id}>
+              <div className="work-polygon-heading">
+                <input
+                  aria-label={`Selecionar ${polygon.name}`}
+                  type="checkbox"
+                  checked={selectedPolygonIds.includes(polygon.id)}
+                  onChange={(event) => setSelectedPolygonIds((current) =>
+                    event.target.checked
+                      ? [...new Set([...current, polygon.id])]
+                      : current.filter((id) => id !== polygon.id)
+                  )}
+                />
+                <input
+                  aria-label="Nome do polígono"
+                  className="work-polygon-name"
+                  value={polygon.name}
+                  onChange={(event) => setPolygonName(polygon.id, event.target.value)}
+                />
+                <button title="Excluir somente este polígono" aria-label="Excluir polígono" onClick={() => removePolygon(polygon.id)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <small>{polygon.areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha · {polygon.vertices.length} vértices</small>
+              <details className="work-vertex-details">
+                <summary>Renomear vértices antes da emissão</summary>
+                <button
+                  onClick={() => {
+                    for (const [index] of polygon.vertices.entries()) {
+                      renameVertex(polygon.id, index, `V${String(index + 1).padStart(2, "0")}`);
+                    }
+                  }}
+                >Padronizar V01, V02…</button>
+                <div className="work-vertex-grid">
+                  {polygon.vertices.map((name, index) => (
+                    <label key={index}>
+                      <span>Vértice {index + 1}</span>
+                      <input
+                        value={name}
+                        onChange={(event) => renameVertex(polygon.id, index, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </details>
+              <div className="work-polygon-export">
+                {(["txt", "kml", "shp"] as const).map((format) => (
+                  <button
+                    key={format}
+                    disabled={exportBusy}
+                    onClick={() => void exportIndividualPolygon(polygon.id, format)}
+                  >
+                    <Download size={13} />
+                    {format === "shp" ? "ZIP (SHP)" : format.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {polygons.length === 0 && <p>Desenhe ou importe ao menos um polígono.</p>}
+          {documentError && <p className="geo-tool-error" role="alert">{documentError}</p>}
+        </aside>
+      )}
+
       {!hideAdvancedTools && advancedPanel === "memorial" && (
         <aside className="geo-advanced-panel memorial-panel">
           <header><strong>Planta e memorial</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
           <label><span>Nome da área</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
           <label><span>Detentor / interessado</span><input value={memorialOwner} onChange={(event) => setMemorialOwner(event.target.value)} /></label>
           <label><span>Responsável técnico</span><input value={memorialResponsible} onChange={(event) => setMemorialResponsible(event.target.value)} /></label>
+          <small><strong>{selectedPolygonIds.length} polígono(s) selecionado(s)</strong>. Para escolher áreas e renomear vértices, abra a ferramenta “Polígonos” na paleta.</small>
+          <label className="work-croqui-toggle">
+            <input type="checkbox" checked={croquiNote} onChange={(event) => setCroquiNote(event.target.checked)} />
+            <span>Inserir ressalva opcional de croqui na planta e no memorial</span>
+          </label>
+          <label>
+            <span>Imagem raster de situação (PNG/JPG, opcional)</span>
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={(event) => setRasterFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+          {rasterFile && <small>Raster anexado: {rasterFile.name}</small>}
+          <label><span>Fonte/autoria do raster</span><input
+            value={rasterAttribution}
+            placeholder="Ex.: ortomosaico autorizado / levantamento próprio"
+            onChange={(event) => setRasterAttribution(event.target.value)}
+          /></label>
+          <small>A prancha selecionará papel A4–A0 e escala de modo automático. Para impressão, utilize tamanho real (100%).</small>
           <div className="memorial-actions">
-            <button className="geo-tool-primary" disabled={memorialLoading} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
-            <button className="geo-tool-secondary" disabled={memorialLoading} onClick={() => void downloadPlantMemorialPdf()}>Gerar Planta + Memorial PDF</button>
+            <button className="geo-tool-primary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
+            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadPlantMemorialPdf()}>Gerar Planta + Memorial PDF</button>
           </div>
           {memorialText && <textarea className="memorial-output" readOnly value={memorialText} rows={12} />}
           <small>O PDF usa o modelo institucional salvo em Configurações, com logomarca, responsável, vértices, escala, área e perímetro.</small>
