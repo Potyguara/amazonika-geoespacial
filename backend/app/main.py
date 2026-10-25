@@ -14,6 +14,7 @@ async def lifespan(_:FastAPI):
     Base.metadata.create_all(bind=engine)
     # Migração compatível com instalações locais e futuras implantações no VPS.
     with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS professional_profile_json JSONB NOT NULL DEFAULT '{}'::jsonb"))
         connection.execute(text("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb"))
         connection.execute(text("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS source_status_json JSONB NOT NULL DEFAULT '[]'::jsonb"))
         connection.execute(text("ALTER TABLE analyses ADD COLUMN IF NOT EXISTS subject_json JSONB NOT NULL DEFAULT '{}'::jsonb"))
