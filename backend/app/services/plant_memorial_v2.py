@@ -535,15 +535,6 @@ def make_joint_pdf(
             pdf.drawString(text_x, y, line)
             y -= 13
         y -= 5
-    if croqui:
-        if y < 100:
-            pdf.showPage()
-            pdf.setPageSize(A4)
-            y = mh - 60
-        pdf.setFont("Helvetica-Bold", 7)
-        for line in textwrap.wrap(DISCLAIMER, width=118):
-            pdf.drawString(text_x, y, line)
-            y -= 10
     pdf.setFont("Helvetica", 7)
     pdf.drawCentredString(mw / 2, 28, str(config.get("document_footer") or "")[:100])
     pdf.setFont("Helvetica", 6.5)
