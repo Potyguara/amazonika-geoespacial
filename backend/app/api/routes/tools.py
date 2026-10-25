@@ -202,6 +202,29 @@ def convert_vector(file: UploadFile = File(...)):
 
         frame = frame.to_crs("EPSG:4674")
         frame = frame[frame.geometry.notna() & ~frame.geometry.is_empty]
+        if frame.empty:
+            raise HTTPException(422, "O arquivo não contém geometria válida após a conversão.")
+
+        # A geometria importada é usada como objeto de análise. Quando o
+        # arquivo possui várias feições poligonais, consolidamos todas em uma
+        # única geometria (Polygon/MultiPolygon) para que mapa, métricas,
+        # análise, Snap e documentos usem exatamente o mesmo objeto.
+        geometry_types = set(frame.geometry.geom_type.astype(str))
+        if geometry_types.issubset({"Polygon", "MultiPolygon"}):
+            merged = frame.geometry.union_all()
+            output = gpd.GeoDataFrame(
+                [{"source_features": int(len(frame))}],
+                geometry=[merged],
+                crs="EPSG:4674",
+            )
+            return json.loads(output.to_json(drop_id=False))
+
+        if len(frame) > 1:
+            raise HTTPException(
+                422,
+                "Arquivos com múltiplas feições não poligonais devem ser separados antes da importação para análise.",
+            )
+
         return json.loads(frame.to_json(drop_id=False))
 
 
