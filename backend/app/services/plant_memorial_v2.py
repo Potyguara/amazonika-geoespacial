@@ -96,93 +96,126 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
     return output
 
 
+def _br_number(value: float, decimals: int = 2) -> str:
+    return f"{value:,.{decimals}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
 def _dms(value: float, axis: str) -> str:
+    # Negativos explícitos, conforme padrão solicitado no memorial.
+    sign = "-" if value < 0 else ""
     absolute = abs(value)
-    degree = int(absolute)
-    minute_float = (absolute - degree) * 60
-    minute = int(minute_float)
-    second = (minute_float - minute) * 60
-    hemi = ("S" if value < 0 else "N") if axis == "lat" else ("W" if value < 0 else "E")
-    return f"{degree:02d}°{minute:02d}'{second:06.3f}\" {hemi}"
+    total_ms = round(absolute * 3600 * 1000)
+    degrees, rest = divmod(total_ms, 3600 * 1000)
+    minutes, seconds_ms = divmod(rest, 60 * 1000)
+    digits = 2 if axis == "lat" else 2
+    return f'{sign}{degrees:0{digits}d}°{minutes:02d}\u0027{seconds_ms / 1000:06.3f}"'.replace(".", ",")
+
+
+def _azimuth_minutes(degrees: float) -> str:
+    total = round((degrees % 360) * 60) % (360 * 60)
+    degree, minute = divmod(total, 60)
+    return f"{degree:02d}°{minute:02d}'"
 
 
 def build_joint_memorial(
     parcels: list[Parcel], *, title: str, owner: str | None,
     responsible: str | None, croqui: bool,
     owner_rg: str | None = None, owner_cpf: str | None = None,
-    property_address: str | None = None, memorial_heading: str = "MEMORIAL DESCRITIVO",
+    property_address: str | None = None,
+    memorial_heading: str = "MEMORIAL DESCRITIVO",
     professional: dict | None = None,
 ) -> str:
+    """Redação corrida, agrupando trechos contíguos do mesmo confrontante.
+
+    Nunca sintetiza altitude, confrontante ou credenciais ausentes.
+    """
     professional = professional or {}
-    total_area = sum(p.area_ha for p in parcels)
-    total_perimeter = sum(p.perimeter for p in parcels)
     lines = [
-        memorial_heading.upper(), "",
-        f"Imóvel: {title}",
-        f"Detentor/Posseiro: {owner or 'Não informado'}",
+        memorial_heading.upper(), title.upper(), "",
+        f"IMÓVEL: {title}",
+        f"DETENTOR/POSSEIRO: {owner or 'Não informado'}",
     ]
-    if owner_rg: lines.append(f"RG: {owner_rg}")
-    if owner_cpf: lines.append(f"CPF: {owner_cpf}")
-    if property_address: lines.append(f"Localização: {property_address}")
+    if owner_rg:
+        lines.append(f"RG: {owner_rg}")
+    if owner_cpf:
+        lines.append(f"CPF: {owner_cpf}")
+    if property_address:
+        lines.append(f"LOCALIZAÇÃO: {property_address}")
     lines += [
-        f"Área total das parcelas: {total_area:.4f} ha",
-        f"Perímetro total (soma dos perímetros): {total_perimeter:.3f} m",
-        f"Polígonos descritos: {len(parcels)}", "",
+        f"ÁREA TOTAL: {_br_number(sum(p.area_ha for p in parcels), 4)} ha",
+        f"PERÍMETRO TOTAL: {_br_number(sum(p.perimeter for p in parcels), 2)} m",
+        "",
     ]
     for parcel in parcels:
-        lines += [
-            f"DESCRIÇÃO DO PERÍMETRO - {parcel.name}",
-            f"Área: {parcel.area_ha:.4f} ha. Perímetro: {parcel.perimeter:.3f} m.",
-        ]
+        lines.append(f"DESCRIÇÃO DO PERÍMETRO - {parcel.name}")
         initial = parcel.segments[0]
-        altitude = parcel.altitudes[0]
-        altitude_phrase = f"; altitude: {altitude:.2f} m" if altitude is not None else ""
-        lines.append(
-            f"Inicia-se a descrição deste perímetro no vértice {initial['start']}, "
-            f"de coordenadas (Longitude: {_dms(initial['lon'], 'lon')}; "
-            f"Latitude: {_dms(initial['lat'], 'lat')}{altitude_phrase})."
+        start_alt = parcel.altitudes[0]
+        altitude_clause = (
+            f' e Altitude: {_br_number(start_alt, 2)} m'
+            if start_alt is not None else ""
         )
-        last_name = None
-        for i, row in enumerate(parcel.segments):
-            confrontant = parcel.confrontants[i] or "confrontante não informado"
-            if confrontant != last_name:
-                lines.append(f"Deste, segue confrontando com {confrontant},")
-                last_name = confrontant
-            next_altitude = parcel.altitudes[(i + 1) % len(parcel.altitudes)]
-            next_altitude_phrase = (
-                f"; altitude: {next_altitude:.2f} m" if next_altitude is not None else ""
+        story = (
+            f"Inicia-se a descrição deste perímetro no vértice {initial['start']}, "
+            f"de coordenadas (Longitude: {_dms(initial['lon'], 'lon')}, "
+            f"Latitude: {_dms(initial['lat'], 'lat')}{altitude_clause}); "
+        )
+        previous = None
+        for i, segment in enumerate(parcel.segments):
+            confrontant = parcel.confrontants[i].strip()
+            if i == 0 or confrontant != previous:
+                if i > 0:
+                    story += " "
+                if confrontant:
+                    story += (
+                        f"Linha ideal; deste, segue confrontando com {confrontant}, "
+                        "com os seguintes azimutes e distâncias: "
+                    )
+                else:
+                    story += (
+                        "Linha ideal; deste, segue por trecho cujo confrontante não "
+                        "foi informado, com os seguintes azimutes e distâncias: "
+                    )
+            next_is_start = i == len(parcel.segments) - 1
+            story += (
+                f"{_azimuth_minutes(segment['azimuth'])} e "
+                f"{_br_number(segment['distance'], 2)} m até o vértice "
+                f"{segment['end']}"
             )
-            lines.append(
-                f"com azimute geodésico de {row['azimuth']:.6f}° e distância de "
-                f"{row['distance']:.3f} m até o vértice {row['end']}, "
-                f"de coordenadas (Longitude: {_dms(row['next_lon'], 'lon')}; "
-                f"Latitude: {_dms(row['next_lat'], 'lat')}{next_altitude_phrase});"
-            )
+            if next_is_start:
+                story += ", ponto inicial da descrição deste perímetro."
+            else:
+                altitude = parcel.altitudes[i + 1]
+                altitude_part = (
+                    f" e Altitude: {_br_number(altitude, 2)} m"
+                    if altitude is not None else ""
+                )
+                story += (
+                    f", (Longitude: {_dms(segment['next_lon'], 'lon')}, "
+                    f"Latitude: {_dms(segment['next_lat'], 'lat')}"
+                    f"{altitude_part}); "
+                )
+            previous = confrontant
+        lines.append(story)
         lines.append(
-            f"retornando ao vértice inicial {initial['start']}, encerrando este perímetro."
+            f"Área desta parcela: {_br_number(parcel.area_ha, 4)} ha; "
+            f"perímetro: {_br_number(parcel.perimeter, 2)} m."
         )
         lines.append("")
-    lines += [
-        "As coordenadas foram tratadas em SIRGAS 2000; área, distâncias e azimutes "
-        "calculados pelo elipsóide GRS80 por problema geodésico inverso. "
-        "Não correspondem automaticamente à área SGL/SIGEF ou a levantamento certificado.",
-        "A planta anexa integra este memorial descritivo.",
+    lines.append(
+        "Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
+        "geodésicos calculados sobre o elipsóide GRS80. "
+        "A precisão depende da fonte da geometria; a emissão não corresponde "
+        "a certificação fundiária."
+    )
+    if croqui:
+        lines.extend(["", "OBSERVAÇÃO:", DISCLAIMER])
+    person = responsible or professional.get("full_name") or "Não informado"
+    lines.extend(["", "________________________________________", person])
+    credentials = [
+        str(professional.get(key) or "").strip()
+        for key in ("profession", "specialization", "crea", "visto", "incra_code", "art")
     ]
-    if croqui: lines += ["", "OBSERVAÇÃO:", DISCLAIMER]
-    professional_name = responsible or professional.get("full_name") or "Não informado"
-    credential = " / ".join(str(professional.get(key) or "").strip() for key in ("crea", "visto") if professional.get(key))
-    lines += [
-        "", "________________________________________",
-        professional_name,
-        str(professional.get("profession") or "").strip(),
-        str(professional.get("specialization") or "").strip(),
-        f"RG: {professional['rg']}" if professional.get("rg") else "",
-        f"CPF: {professional['cpf']}" if professional.get("cpf") else "",
-        credential,
-    ]
-    if professional.get("incra_code"): lines.append(f"Credenciamento INCRA: {professional['incra_code']}")
-    if professional.get("art"): lines.append(f"ART informada: {professional['art']}")
-    lines.append("Documento gerado a partir dos dados fornecidos, sujeito à conferência e assinatura técnica.")
+    lines.extend(value for value in credentials if value)
     return "\n".join(lines)
 
 
