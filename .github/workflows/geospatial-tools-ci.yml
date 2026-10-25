@@ -41,7 +41,7 @@ jobs:
             backend/app/services/plant_memorial_v2.py \
             backend/app/services/geospatial_export.py \
             backend/app/models/security.py \
-            backend/app/test_geospatial_documents.py \
+            backend/test_geospatial_documents.py \
             backend/app/core/config.py \
             backend/app/api/router.py
 
@@ -51,4 +51,4 @@ jobs:
       - name: Test export and joint plant / memorial
         env:
           PYTHONPATH: backend
-        run: python -m unittest app.test_geospatial_documents -v
+        run: python -m unittest test_geospatial_documents -v
