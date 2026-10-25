@@ -288,11 +288,11 @@ def make_joint_pdf(
     if len(parcels) > 1:
         pdf.setFont("Helvetica-Bold", 9)
         pdf.drawString(42, h - 93, f"{len(parcels)} polígonos selecionados")
-    colors = [(0.08, 0.42, 0.29), (0.14, 0.32, 0.68), (0.69, 0.32, 0.13),
+    palette = [(0.08, 0.42, 0.29), (0.14, 0.32, 0.68), (0.69, 0.32, 0.13),
               (0.52, 0.25, 0.59), (0.32, 0.45, 0.20)]
     # Grade georreferenciada UTM, com cotas em metros e espaçamento legível.
     grid_step = max(1, int(10 ** math.floor(math.log10(max(max_x-min_x,max_y-min_y,1) / 4))))
-    if (max(max_x-min_x,max_y-min_y) / grid_step > 9:
+    if max(max_x - min_x, max_y - min_y) / grid_step > 9:
         grid_step *= 2
     pdf.saveState()
     pdf.setStrokeColor(colors.Color(.65, .72, .68, alpha=.45))
@@ -313,7 +313,7 @@ def make_joint_pdf(
     pdf.restoreState()
 
     for parcel_index, (parcel, points) in enumerate(zip(parcels, projected)):
-        r, g, b = colors[parcel_index % len(colors)]
+        r, g, b = palette[parcel_index % len(palette)]
         path = pdf.beginPath()
         path.moveTo(*xy(*points[0]))
         for point in points[1:]:
