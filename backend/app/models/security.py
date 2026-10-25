@@ -5,7 +5,7 @@ from uuid import UUID
 
 from geoalchemy2 import Geometry
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -16,8 +16,8 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 authorized_area_users = Table(
     "authorized_area_users",
     Base.metadata,
-    Column("area_id", UUID(as_uuid=True), ForeignKey("authorized_areas.id", ondelete="CASCADE"), primary_key=True),
-    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("area_id", PG_UUID(as_uuid=True), ForeignKey("authorized_areas.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
