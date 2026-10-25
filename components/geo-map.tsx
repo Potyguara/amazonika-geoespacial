@@ -560,7 +560,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     });
     mapRef.current = map;
     const identifyAtPixel = async (
-      event: MapBrowserEvent<PointerEvent>,
+      event: MapBrowserEvent<UIEvent>,
     ) => {
       if (!identifyActiveRef.current) return;
 
@@ -657,7 +657,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
                     dataProjection: "EPSG:4674",
                     featureProjection: "EPSG:3857",
                   },
-                );
+                ) as Feature;
 
                 const properties =
                   item?.properties ?? {};
@@ -873,7 +873,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       }
 
       const vectorTileSource = new VectorTileSource({
-        format: new MVT({ featureClass: Feature }),
+        format: new MVT({ featureClass: Feature as never }),
         url: `${getApiUrl()}/sources/${layer.id}/tiles/${tileUf}/{z}/{x}/{y}.pbf`,
       });
 
@@ -883,10 +883,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         minZoom: minimumVectorZoom(layer),
         declutter: false,
         style: (feature) => {
-          feature.set("displayColor", layer.color);
-          feature.set("catalogName", layer.name);
+          const mutableFeature = feature as unknown as Feature;
+          mutableFeature.set("displayColor", layer.color);
+          mutableFeature.set("catalogName", layer.name);
 
-          return feature.get("isSelected")
+          return mutableFeature.get("isSelected")
             ? selectedOfficialStyle
             : officialStyle(layer.color);
         },
@@ -997,7 +998,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     draw.on("drawend", () => window.setTimeout(emitGeometry, 0));
     map.addInteraction(draw);
     drawRef.current = draw;
-    return () => map.removeInteraction(draw);
+    return () => {
+      map.removeInteraction(draw);
+    };
   }, [drawKind]);
 
   useEffect(() => {
