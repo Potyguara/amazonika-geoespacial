@@ -267,8 +267,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const polygonSequenceRef = useRef(0);
   const [exportBusy, setExportBusy] = useState(false);
   const [croquiNote, setCroquiNote] = useState(true);
-  const [rasterFile, setRasterFile] = useState<File | null>(null);
-  const [rasterAttribution, setRasterAttribution] = useState("");
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [manualMode, setManualMode] = useState<ManualCoordinateMode>("DD");
   const [manualText, setManualText] = useState("");
@@ -291,7 +289,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [ownerCpf, setOwnerCpf] = useState("");
   const [propertyAddress, setPropertyAddress] = useState("");
   const [memorialOwner, setMemorialOwner] = useState("");
-  const [memorialResponsible, setMemorialResponsible] = useState("");
   const [loadingOfficial, setLoadingOfficial] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState({ completed: 0, total: 0 });
   const [officialStatus, setOfficialStatus] = useState(
@@ -504,20 +501,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
     if (feature) sourceRef.current.removeFeature(feature);
     emitGeometry();
-  };
-
-  const readRasterData = async () => {
-    if (!rasterFile) return null;
-    if (rasterFile.size > 8 * 1024 * 1024) throw new Error("Raster máximo: 8 MB.");
-    if (!["image/png", "image/jpeg"].includes(rasterFile.type)) {
-      throw new Error("Use imagem raster PNG ou JPG.");
-    }
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error("Falha ao ler imagem raster."));
-      reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-      reader.readAsDataURL(rasterFile);
-    });
   };
 
   const captureMapSituation = async (): Promise<{ raster_b64: string; raster_source: string }> => {
@@ -1806,7 +1789,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           owner_rg: ownerRg || null,
           owner_cpf: ownerCpf || null,
           property_address: propertyAddress || null,
-          responsible_name: memorialResponsible || null,
           include_croqui_warning: croquiNote,
         }),
       });
@@ -1844,7 +1826,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           owner_rg: ownerRg || null,
           owner_cpf: ownerCpf || null,
           property_address: propertyAddress || null,
-          responsible_name: memorialResponsible || null,
           include_croqui_warning: croquiNote,
           raster_b64,
           raster_source,
