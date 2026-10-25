@@ -12,7 +12,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-from app.services.plant_memorial_v2 import Parcel, build_joint_memorial
+from app.services.plant_memorial_v2 import Parcel, build_joint_memorial, DISCLAIMER, _br_number
 from app.services.plant_memorial import load_document_template
 
 
@@ -72,14 +72,9 @@ def build_memorial_docx(
     normal.paragraph_format.line_spacing = 1.15
     normal.paragraph_format.space_after = Pt(3)
 
+    # Documento técnico neutro: sem logomarca ou assinatura institucional.
     header = section.header.paragraphs[0]
-    header.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    header.paragraph_format.space_after = Pt(2)
-    r = header.add_run(str(config.get("company_name") or "Amazônika Engenharia").upper())
-    r.bold = True
-    r.font.name = "Arial"
-    r.font.color.rgb = GREEN
-    r.font.size = Pt(9)
+    header.text = ""
 
     main_title = doc.add_paragraph()
     main_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -118,13 +113,12 @@ def build_memorial_docx(
         _text(cells[1], value, size=9)
     doc.add_paragraph("").paragraph_format.space_after = Pt(0)
 
-    summary = doc.add_table(rows=1, cols=3)
+    summary = doc.add_table(rows=1, cols=2)
     summary.autofit = False
     summary.alignment = WD_TABLE_ALIGNMENT.CENTER
     data = [
-        ("ÁREA TOTAL", f"{sum(p.area_ha for p in parcels):,.4f} ha"),
-        ("PERÍMETRO TOTAL", f"{sum(p.perimeter for p in parcels):,.3f} m"),
-        ("POLÍGONOS", str(len(parcels))),
+        ("ÁREA TOTAL", f"{_br_number(sum(p.area_ha for p in parcels), 4)} ha"),
+        ("PERÍMETRO TOTAL", f"{_br_number(sum(p.perimeter for p in parcels), 2)} m"),
     ]
     for cell, (label, value) in zip(summary.rows[0].cells, data):
         _shade(cell, "174B3A")
@@ -143,7 +137,7 @@ def build_memorial_docx(
 
     narrative = build_joint_memorial(
         parcels, title=title, owner=owner_name,
-        responsible=professional.get("full_name"), croqui=include_warning,
+        responsible=professional.get("full_name"), croqui=False,
         owner_rg=owner_rg, owner_cpf=owner_cpf,
         property_address=property_address,
         memorial_heading=memorial_heading, professional=professional,
@@ -208,10 +202,12 @@ def build_memorial_docx(
     foot = section.footer.paragraphs[0]
     foot.alignment = WD_ALIGN_PARAGRAPH.CENTER
     stamp = datetime.now(ZoneInfo("America/Belem")).strftime("%d/%m/%Y %H:%M:%S")
-    r = foot.add_run(
-        f"{config.get('document_footer') or 'Documento técnico gerado pelo Amazônika Geoespacial.'}  "
-        f"•  Emitido: {stamp} (Belém)"
-    )
+    if include_warning:
+        warning = foot.add_run(DISCLAIMER)
+        warning.font.size = Pt(6.3)
+        warning.font.color.rgb = RGBColor(137, 47, 35)
+        foot.add_run("\n")
+    r = foot.add_run(f"Emitido: {stamp} - Horário de Belém")
     r.font.size = Pt(7)
     r.font.color.rgb = MUTED
     _page_number(foot)
