@@ -4503,3 +4503,218 @@ input {
     width: 100%;
   }
 }
+
+
+/* Ferramentas geoespaciais avançadas */
+.geo-advanced-tools {
+  position: absolute;
+  right: 14px;
+  top: 88px;
+  z-index: 120;
+  display: grid;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid #d9e3dd;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px rgba(21, 61, 49, 0.14);
+  backdrop-filter: blur(10px);
+}
+.geo-advanced-tools button {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #174d3a;
+  cursor: pointer;
+}
+.geo-advanced-tools button:hover,
+.geo-advanced-tools button.active {
+  background: #e3f1e8;
+  color: #0d6847;
+}
+.geo-advanced-tools button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.geo-advanced-panel {
+  position: absolute;
+  z-index: 130;
+  right: 66px;
+  top: 88px;
+  width: min(380px, calc(100% - 96px));
+  max-height: calc(100% - 112px);
+  overflow: auto;
+  padding: 15px;
+  border: 1px solid #d7e2dc;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 48px rgba(20, 55, 43, 0.2);
+}
+.geo-advanced-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.geo-advanced-panel header button {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: #edf4f0;
+  color: #174d3a;
+}
+.geo-advanced-panel label {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.geo-advanced-panel input,
+.geo-advanced-panel textarea {
+  width: 100%;
+  border: 1px solid #d5e0da;
+  border-radius: 8px;
+  background: white;
+  padding: 9px 10px;
+  color: #18312b;
+}
+.geo-advanced-panel textarea {
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.geo-advanced-panel small {
+  display: block;
+  color: #6f8178;
+  font-size: 10px;
+  line-height: 1.45;
+  margin-bottom: 10px;
+}
+.coordinate-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.coordinate-mode-tabs button,
+.basemap-panel > button {
+  border: 1px solid #d7e2dc;
+  background: white;
+  color: #174d3a;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.coordinate-mode-tabs button.active,
+.basemap-panel > button.active {
+  border-color: #6fa98a;
+  background: #e6f3eb;
+}
+.basemap-panel > button {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 7px;
+}
+.snap-panel label {
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+  font-weight: 600;
+}
+.snap-panel input {
+  width: 18px;
+  height: 18px;
+}
+.geo-tool-primary {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: #174d3a;
+  color: white;
+  padding: 10px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.geo-tool-primary:disabled {
+  opacity: 0.55;
+}
+.geo-tool-error {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: #fff0f0;
+  color: #a93c3c;
+  font-size: 11px;
+}
+.memorial-output {
+  margin-top: 10px;
+  min-height: 220px;
+}
+.geometry-metrics-card {
+  position: absolute;
+  z-index: 110;
+  right: 14px;
+  bottom: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: calc(100% - 28px);
+  padding: 8px 11px;
+  border: 1px solid #d5e0da;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 24px rgba(22, 63, 48, 0.11);
+  color: #21473a;
+  font-size: 10px;
+  font-weight: 800;
+}
+.map-operation-feedback {
+  position: absolute;
+  z-index: 140;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(18, 62, 48, 0.94);
+  color: white;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.22);
+  font-size: 12px;
+  font-weight: 800;
+}
+.map-operation-feedback.error {
+  background: rgba(139, 48, 48, 0.95);
+}
+
+@media (max-width: 760px) {
+  .geo-advanced-tools {
+    right: 8px;
+    top: 86px;
+  }
+  .geo-advanced-panel {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 62vh;
+    z-index: 190;
+  }
+  .geometry-metrics-card {
+    left: 8px;
+    right: 8px;
+    bottom: 42px;
+    justify-content: center;
+  }
+}
