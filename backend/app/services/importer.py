@@ -220,12 +220,44 @@ def _persist_frames(db:Session, source:Source, version:SourceVersion, frames, ac
 def _persist_frame(db:Session, source:Source, version:SourceVersion, frame:gpd.GeoDataFrame, activate:bool=True)->SourceVersion:
     return _persist_frames(db,source,version,[frame],activate=activate)
 
+def _resolve_geopackage_layer(path:Path, requested:str|None, default:str|None=None)->str:
+    """Identifica uma camada interna do GPKG antes de abrir a geometria.
+
+    O nome de uma fonte no catálogo não precisa coincidir com uma camada
+    interna. Quando o usuário não informa uma camada, mantemos a seleção
+    automática da primeira camada espacial que já existia no importador.
+    """
+    available=pyogrio.list_layers(path)
+    names=[str(row[0]) for row in available if len(row)>1 and row[1] is not None]
+    if not names:
+        raise ValueError("O GeoPackage não contém camadas vetoriais espaciais utilizáveis.")
+
+    explicit=(requested or "").strip()
+    if explicit:
+        matching=next((name for name in names if name.casefold()==explicit.casefold()),None)
+        if matching:
+            return matching
+        display=", ".join(names[:20])
+        suffix="…" if len(names)>20 else ""
+        raise ValueError(
+            f"A camada interna '{explicit}' não existe neste GeoPackage. "
+            f"Camadas disponíveis: {display}{suffix}. "
+            "Deixe o campo 'Camada interna' vazio para selecionar automaticamente."
+        )
+
+    configured=(default or "").strip()
+    if configured:
+        matching=next((name for name in names if name.casefold()==configured.casefold()),None)
+        if matching:
+            return matching
+    return names[0]
+
+
 def import_geopackage(db:Session, source:Source, path:Path, reference_date:date|None, layer_name:str|None=None)->SourceVersion:
     checksum=_file_checksum(path)
     version=_create_version(db,source,reference_date,checksum,path.name)
     try:
-        available=pyogrio.list_layers(path)
-        selected=layer_name or source.layer_name or str(available[0][0])
+        selected=_resolve_geopackage_layer(path,layer_name,source.layer_name)
         frame=gpd.read_file(path,layer=selected)
         return _persist_frame(db,source,version,frame)
     except Exception as exc:
