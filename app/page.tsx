@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   UploadCloud,
   Users,
+  X,
 } from "lucide-react";
 
 const API_URL = getApiUrl();
