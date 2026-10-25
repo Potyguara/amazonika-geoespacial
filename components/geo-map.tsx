@@ -444,6 +444,34 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     refreshVertexLabels();
   };
 
+  const removeVertex = (id: string, index: number) => {
+    setDocumentError(null);
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    const geometry = feature?.getGeometry();
+    if (!(geometry instanceof Polygon)) return;
+    const rings = geometry.getCoordinates();
+    const points = (rings[0] ?? []).slice(0, -1);
+    if (points.length <= 3) {
+      setDocumentError("O polígono precisa manter pelo menos três vértices.");
+      return;
+    }
+    if (rings.length > 1) {
+      setDocumentError("A exclusão de vértices de polígonos com ilhas deve ser feita no editor de geometria.");
+      return;
+    }
+    const next = points.filter((_, i) => i !== index);
+    const candidate = new Polygon([[...next, next[0]]]);
+    if (getArea(candidate, { projection: "EPSG:3857" }) < 0.001) {
+      setDocumentError("A exclusão geraria um polígono sem área. Operação cancelada.");
+      return;
+    }
+    const names = ((feature.get("vertexNames") as string[] | undefined) ?? [])
+      .filter((_, i) => i !== index);
+    feature.set("vertexNames", names, true);
+    geometry.setCoordinates([[...next, next[0]]]);
+    emitGeometry();
+  };
+
   const removePolygon = (id: string) => {
     const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
     if (feature) sourceRef.current.removeFeature(feature);
@@ -1899,10 +1927,18 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                   {polygon.vertices.map((name, index) => (
                     <label key={index}>
                       <span>Vértice {index + 1}</span>
-                      <input
-                        value={name}
-                        onChange={(event) => renameVertex(polygon.id, index, event.target.value)}
-                      />
+                      <div className="work-vertex-action">
+                        <input
+                          value={name}
+                          onChange={(event) => renameVertex(polygon.id, index, event.target.value)}
+                        />
+                        <button
+                          type="button"
+                          title={`Excluir vértice ${name}`}
+                          aria-label={`Excluir vértice ${name}`}
+                          onClick={() => removeVertex(polygon.id, index)}
+                        ><Trash2 size={15}/></button>
+                      </div>
                     </label>
                   ))}
                 </div>
