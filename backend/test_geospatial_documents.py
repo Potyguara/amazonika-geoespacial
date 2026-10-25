@@ -9,7 +9,8 @@ from pathlib import Path
 from PIL import Image
 
 from app.services.geospatial_export import export_polygon
-from app.services.plant_memorial_v2 import prepare_parcels, make_joint_pdf
+from app.services.plant_memorial_v2 import prepare_parcels, make_joint_pdf, build_joint_memorial
+from app.services.memorial_docx import build_memorial_docx
 
 
 def square(lon: float, lat: float) -> dict:
@@ -85,6 +86,56 @@ class GeospatialDocumentsTests(unittest.TestCase):
         self.assertTrue(pdf.startswith(b"%PDF-"))
         self.assertIn(paper, {"A4", "A3", "A2", "A1", "A0"})
         self.assertGreater(scale, 0)
+
+    def test_memorial_matches_perimetral_model_without_inventing_values(self):
+        parcels = prepare_parcels([
+            {"name": "Gleba Teste", "geometry": self.geometry,
+             "vertex_names": ["M01", "M02", "M03", "M04"],
+             "confrontants": ["Rodovia", "Lote Vizinho", "", "Ramal"],
+             "altitudes_m": [None, 12.5, None, None]},
+        ])
+        prose = build_joint_memorial(
+            parcels, title="Fazenda Teste", owner="Pessoa Teste",
+            responsible="Responsável Teste", croqui=True,
+            owner_rg="RG Teste", owner_cpf="000.000.000-00",
+            property_address="Área Rural Teste",
+            professional={"crea": "CREA TESTE", "visto": "VISTO TESTE"},
+        )
+        self.assertIn("Inicia-se a descrição deste perímetro", prose)
+        self.assertIn("segue confrontando com Rodovia", prose)
+        self.assertIn("Latitude:", prose)
+        self.assertIn("CREA TESTE", prose)
+        self.assertIn("altitude: 12.50 m", prose)
+        self.assertIn("Este documento se trata apenas de um croqui", prose)
+
+    def test_memorial_word_download(self):
+        parcels = prepare_parcels([
+            {"name": "Lote 1", "geometry": self.geometry,
+             "vertex_names": ["V01", "V02", "V03", "V04"]},
+        ])
+        content = build_memorial_docx(
+            parcels=parcels, title="Fazenda Teste",
+            memorial_heading="Memorial do lote",
+            owner_name="Detentor Teste", owner_rg="RG Teste",
+            owner_cpf="000.000.000-00",
+            property_address="Macapá-AP",
+            professional={"full_name": "Profissional Teste", "crea": "CREA TESTE"},
+            include_warning=False,
+        )
+        self.assertTrue(content.startswith(b"PK"))
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            xml = archive.read("word/document.xml").decode()
+            self.assertIn("DESCRIÇÃO DO PERÍMETRO", xml)
+            self.assertIn("CREA TESTE", xml)
+
+    def test_pdf_requires_map_raster(self):
+        parcels = prepare_parcels([{"name": "Lote", "geometry": self.geometry}])
+        with self.assertRaises(ValueError):
+            make_joint_pdf(
+                parcels=parcels, title="Lote", owner_name=None,
+                responsible_name=None, croqui=False, raster_b64=None,
+                raster_source=None,
+            )
 
     def test_reject_duplicate_vertex_codes(self):
         with self.assertRaises(ValueError):
