@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Table, Column, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -32,6 +33,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(500))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    professional_profile_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
     roles: Mapped[list["Role"]] = relationship(
         secondary=user_roles,
