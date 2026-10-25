@@ -24,7 +24,7 @@ DISCLAIMER = (
     "com coordenadas precisas, os pontos nao foram coletados com equipamentos "
     "GNSS de alta precisão."
 )
-SIZES = [("A4", landscape(A4)), ("A3", landscape(A3)),
+SIZES = [("A3", landscape(A3)),
          ("A2", landscape(A2)), ("A1", landscape(A1)), ("A0", landscape(A0))]
 SCALES = [100, 200, 250, 500, 750, 1000, 1500, 2000, 2500, 5000, 7500,
           10000, 15000, 20000, 25000, 50000, 100000, 200000, 500000]
@@ -409,13 +409,13 @@ def make_joint_pdf(
     pdf.setFont("Helvetica", 7)
     for parcel in parcels[:50]:
         for line in textwrap.wrap(f"{parcel.name}: {parcel.area_ha:.4f} ha", width=max(26, int(right_w / 4))):
-            if y < 170: break
+            if y < 310: break
             pdf.drawString(right_x, y, line)
             y -= 11
 
     # Raster de situação: fornecido pelo operador com fonte identificada.
     if raster is not None:
-        raster_y = 65
+        raster_y = 128
         raster_h = min(h * .22, max(65, y - raster_y - 18))
         if raster_h > 45:
             pdf.setFont("Helvetica-Bold", 8)
@@ -451,6 +451,55 @@ def make_joint_pdf(
         pdf.drawImage(ImageReader(qrcode_png), right_x, 47, width=57, height=57)
         pdf.drawString(right_x + 62, 51, "QR: acesso autenticado ao PDF")
     pdf.restoreState()
+
+    # Quadro de coordenadas e segmentos em folhas suplementares
+    # para garantir legibilidade em impressão de gráfica.
+    pdf.showPage()
+    pdf.setPageSize(landscape(A3))
+    tw, th = landscape(A3)
+    all_rows = []
+    for parcel in parcels:
+        for j, row in enumerate(parcel.segments):
+            xx, yy = transformer.transform(row["lon"], row["lat"])
+            altitude = parcel.altitudes[j]
+            all_rows.append((
+                parcel.name, row["start"], _dms(row["lat"], "lat"),
+                _dms(row["lon"], "lon"), f"{xx:.3f}", f"{yy:.3f}",
+                f"{altitude:.2f}" if altitude is not None else "—",
+                parcel.confrontants[j] or "Não informado",
+                f"{row['azimuth']:.4f}°", f"{row['distance']:.3f}",
+            ))
+    headers = ["Área", "Vértice", "Latitude", "Longitude", "E (m)", "N (m)",
+               "Cota", "Confrontante", "Azimute", "Dist. (m)"]
+    x_positions = [28, 145, 226, 330, 442, 538, 630, 682, 970, 1070]
+    table_y = th - 78
+
+    def table_header():
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawString(30, th - 40, "QUADRO DE COORDENADAS E SEGMENTOS")
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(30, th - 55, f"SIRGAS2000 / UTM {zone}{hemisphere} - {title[:90]}")
+        pdf.setFillColorRGB(.89, .94, .91)
+        pdf.rect(24, table_y - 5, tw - 48, 19, fill=1, stroke=0)
+        pdf.setFillColorRGB(.06, .2, .14)
+        pdf.setFont("Helvetica-Bold", 7)
+        for col, xpos in zip(headers, x_positions):
+            pdf.drawString(xpos, table_y, col)
+
+    table_header()
+    ytable = table_y - 18
+    for row in all_rows:
+        if ytable < 60:
+            pdf.showPage()
+            pdf.setPageSize(landscape(A3))
+            table_header()
+            ytable = table_y - 18
+        pdf.setFont("Helvetica", 6.5)
+        pdf.setFillColorRGB(0, 0, 0)
+        for value, xpos, max_chars in zip(row, x_positions,
+                                          [22, 16, 19, 20, 18, 18, 9, 43, 16, 15]):
+            pdf.drawString(xpos, ytable, str(value)[:max_chars])
+        ytable -= 12
 
     # Páginas de memorial - tabela com todas as geometrias e segmentos.
     memorial = build_joint_memorial(
