@@ -596,6 +596,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const geometry = feature?.getGeometry();
     if (!geometry) {
       onGeometryChange(null);
+      syncPolygonRegistry();
+      updateGeometryMetrics();
+      refreshVertexLabels();
       return;
     }
     const output = new GeoJSON().writeGeometryObject(geometry, {
@@ -1547,7 +1550,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           );
         }
         features = new GeoJSON().readFeatures(payload, {
-          dataProjection: "EPSG:4674",
+          // Coordenadas geográficas SIRGAS2000 do backend usam longitude/latitude.
+          // A renderização web utiliza WGS84 como aproximação; projeção/métricas
+          // documentais e exportação UTM são tratadas no backend com GRS80.
+          dataProjection: "EPSG:4326",
           featureProjection: "EPSG:3857",
         });
       }
