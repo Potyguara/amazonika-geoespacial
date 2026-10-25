@@ -82,7 +82,11 @@ fi
 
 section "Dependências frontend"
 
-if [[ ! -d node_modules ]] || [[ package-lock.json -nt node_modules/.package-lock.json 2>/dev/null ]]; then
+if [[ ! -d node_modules ]]; then
+  npm ci
+elif [[ ! -f node_modules/.package-lock.json ]]; then
+  npm ci
+elif [[ package-lock.json -nt node_modules/.package-lock.json ]]; then
   npm ci
 else
   green "node_modules já disponível."
