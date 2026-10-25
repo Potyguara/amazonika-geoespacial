@@ -603,11 +603,11 @@ export default function Home() {
     setAnalysisAreaName("");
     setAnalysisHolderName("");
     setAnalysisHolderDocument("");
-    setSubjectGeometry(null);
+    // A análise é um novo cadastro, não uma ordem para apagar o desenho.
+    // Preserva o polígono feito antes de clicar em Nova análise.
     setAnalysis(null);
     setAnalysisError(null);
     setAnalysisProgress("");
-    setAnalysisResetNonce((current) => current + 1);
   };
 
   const confirmAnalysisRegistration = () => {
@@ -1233,7 +1233,7 @@ export default function Home() {
                 <GeoMap
                   incraUf={incraUf}
                   resetNonce={analysisResetNonce}
-                  hideAdvancedTools={layerManagerOpen}
+                  hideAdvancedTools={layerManagerOpen || analysisSessionOpen}
                   focusRequest={focusRequest}
                   onGeometryChange={geometryChanged}
                   layers={catalog.map((layer, index) => ({
@@ -1266,6 +1266,13 @@ export default function Home() {
                             : "Desenhe ou importe uma geometria"}
                       </strong>
                     </div>
+                    <button
+                      type="button"
+                      className="analysis-close-button"
+                      onClick={() => setAnalysisSessionOpen(false)}
+                      aria-label="Fechar painel de análise espacial"
+                      title="Fechar painel sem apagar o desenho"
+                    ><X size={17} /></button>
                   </div>
                   {!analysisDraftReady && (
                     <div className="analysis-registration">
