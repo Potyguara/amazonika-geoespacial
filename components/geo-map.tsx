@@ -262,7 +262,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [snapSubjectEnabled, setSnapSubjectEnabled] = useState(true);
   const [snapLayersEnabled, setSnapLayersEnabled] = useState(false);
   const [advancedPanel, setAdvancedPanel] = useState<"coordinates" | "snap" | "basemap" | "memorial" | "polygons" | null>(null);
-  const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; areaHa: number; perimeterM: number }>>([]);
+  const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; confrontants: string[]; altitudes: string[]; areaHa: number; perimeterM: number }>>([]);
   const [selectedPolygonIds, setSelectedPolygonIds] = useState<string[]>([]);
   const polygonSequenceRef = useRef(0);
   const [exportBusy, setExportBusy] = useState(false);
@@ -285,6 +285,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [memorialLoading, setMemorialLoading] = useState(false);
   const [memorialText, setMemorialText] = useState("");
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
+  const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
+  const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
+  const [ownerRg, setOwnerRg] = useState("");
+  const [ownerCpf, setOwnerCpf] = useState("");
+  const [propertyAddress, setPropertyAddress] = useState("");
   const [memorialOwner, setMemorialOwner] = useState("");
   const [memorialResponsible, setMemorialResponsible] = useState("");
   const [loadingOfficial, setLoadingOfficial] = useState(false);
@@ -404,10 +409,17 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         existing[index] ?? `${id}-V${String(index + 1).padStart(2, "0")}`,
       );
       feature.set("vertexNames", names, true);
+      const oldConfrontants = (feature.get("confrontants") as string[] | undefined) ?? [];
+      const oldAltitudes = (feature.get("altitudes") as string[] | undefined) ?? [];
+      const confrontants = Array.from({ length: count }, (_, i) => oldConfrontants[i] ?? "");
+      const altitudes = Array.from({ length: count }, (_, i) => oldAltitudes[i] ?? "");
+      feature.set("confrontants", confrontants, true);
+      feature.set("altitudes", altitudes, true);
       return {
         id,
         name: String(feature.get("workPolygonName") ?? id),
         vertices: names,
+        confrontants, altitudes,
         areaHa: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
         perimeterM: getLength(new LineString(geometry.getCoordinates()[0] ?? []), {
           projection: "EPSG:3857",
@@ -444,6 +456,17 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     refreshVertexLabels();
   };
 
+  const updateParcelVertexData = (
+    id: string, index: number, type: "confrontants" | "altitudes", value: string,
+  ) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    const values = [...((feature.get(type) as string[] | undefined) ?? [])];
+    values[index] = value;
+    feature.set(type, values, true);
+    syncPolygonRegistry();
+  };
+
   const removeVertex = (id: string, index: number) => {
     setDocumentError(null);
     const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
@@ -468,6 +491,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const names = ((feature.get("vertexNames") as string[] | undefined) ?? [])
       .filter((_, i) => i !== index);
     feature.set("vertexNames", names, true);
+    for (const property of ["confrontants", "altitudes"]) {
+      const values = ((feature.get(property) as string[] | undefined) ?? [])
+        .filter((_, i) => i !== index);
+      feature.set(property, values, true);
+    }
     geometry.setCoordinates([[...next, next[0]]]);
     emitGeometry();
   };
@@ -503,6 +531,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         decimals: 9,
       }),
       vertex_names: feature.get("vertexNames") as string[],
+      confrontants: feature.get("confrontants") as string[],
+      altitudes_m: ((feature.get("altitudes") as string[] | undefined) ?? []).map((value) =>
+        value?.trim() ? Number(value.replace(",", ".")) : null
+      ),
     }));
     return parcels;
   };
@@ -1939,6 +1971,23 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                           onClick={() => removeVertex(polygon.id, index)}
                         ><Trash2 size={15}/></button>
                       </div>
+                      <span>Altitude do vértice (m, opcional)</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={polygon.altitudes[index] ?? ""}
+                        onChange={(event) => updateParcelVertexData(
+                          polygon.id, index, "altitudes", event.target.value
+                        )}
+                      />
+                      <span>Confrontante no segmento que começa neste vértice</span>
+                      <input
+                        value={polygon.confrontants[index] ?? ""}
+                        placeholder="Nome do confrontante ou via"
+                        onChange={(event) => updateParcelVertexData(
+                          polygon.id, index, "confrontants", event.target.value
+                        )}
+                      />
                     </label>
                   ))}
                 </div>
