@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 from PIL import Image
+from pypdf import PdfReader
 
 from app.services.geospatial_export import export_polygon
 from app.services.plant_memorial_v2 import prepare_parcels, build_joint_memorial
@@ -119,6 +120,41 @@ class GeospatialDocumentsTests(unittest.TestCase):
                 raster_b64=base64.b64encode(out.getvalue()).decode(),
                 raster_source="Teste", paper_format="A4", scale_denominator=100,
             )
+
+    def test_five_vertices_single_compact_sheet_and_memorial_page(self):
+        # Terreno sintético, sem atributos ou dados cadastrais reais.
+        geometry = {
+            "type": "Polygon",
+            "coordinates": [[
+                [-51.0500, 0.0500], [-51.0490, 0.0500],
+                [-51.0489, 0.0507], [-51.0495, 0.0511],
+                [-51.0501, 0.0508], [-51.0500, 0.0500],
+            ]],
+        }
+        parcel = prepare_parcels([{
+            "name": "Lote de validação", "geometry": geometry,
+            "vertex_names": ["V01", "V02", "V03", "V04", "V05"],
+        }])
+        image = Image.new("RGB", (640, 360), (44, 115, 80))
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        import base64
+        generated, paper, scale = make_joint_pdf(
+            parcels=parcel, title="Área sintética",
+            owner_name="Pessoa fictícia", responsible_name="Técnico teste",
+            croqui=False, raster_b64=base64.b64encode(output.getvalue()).decode(),
+            raster_source="Imagem sintética de teste", paper_format="A3",
+        )
+        reader = PdfReader(io.BytesIO(generated))
+        self.assertEqual(len(reader.pages), 2, "Cinco vértices devem caber na planta sem folha isolada.")
+        plant = reader.pages[0].extract_text()
+        self.assertIn("QUADRO DE COORDENADAS", plant)
+        self.assertIn("V01", plant)
+        self.assertIn("Az", plant)
+        self.assertIn("D ", plant)
+        memorial = reader.pages[1].extract_text()
+        self.assertIn("DESCRIÇÃO DO PERÍMETRO", memorial)
+        self.assertIn("Técnico teste", memorial)
 
     def test_memorial_matches_perimetral_model_without_inventing_values(self):
         parcels = prepare_parcels([
