@@ -28,6 +28,10 @@ def create_analysis(
             created_by_user_id=current_user.id,
         )
     except ValueError as exc: raise HTTPException(422,str(exc)) from exc
+    analysis.subject_json = dict(payload.subject or {})
+    db.add(analysis)
+    db.commit()
+    db.refresh(analysis)
     background_tasks.add_task(run_analysis_background,analysis.id,payload.name,payload.geometry,payload.source_ids,payload.incra_uf)
     return {"analysis_id":analysis.id,"name":analysis.name,"geometry_kind":analysis.geometry_kind,"area_hectares":round(analysis.area_hectares,4) if analysis.area_hectares is not None else None,"status":"QUEUED"}
 
@@ -84,6 +88,7 @@ def list_analyses(
             ),
             "warnings_count": len(analysis.warnings_json or []),
             "error_message": analysis.error_message,
+            "subject": analysis.subject_json or {},
         }
         for analysis, user in rows
     ]
@@ -139,6 +144,7 @@ def analysis_status(
         "source_statuses": analysis.source_status_json or [],
         "status": analysis.status,
         "error_message": analysis.error_message,
+        "subject": analysis.subject_json or {},
     }
 
 @router.get(

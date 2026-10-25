@@ -4,11 +4,22 @@ from datetime import datetime
 from uuid import UUID
 
 from geoalchemy2 import Geometry
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
+
+
+# Vinculação territorial exigida pelos endpoints de usuários e autorização.
+# A tabela pode já existir na VPS; create_all só a cria quando estiver ausente.
+authorized_area_users = Table(
+    "authorized_area_users",
+    Base.metadata,
+    Column("area_id", PG_UUID(as_uuid=True), ForeignKey("authorized_areas.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 
 class AuthorizedArea(Base, UUIDMixin, TimestampMixin):

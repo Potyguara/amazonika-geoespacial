@@ -7,6 +7,7 @@ class AnalysisRequest(BaseModel):
     geometry:dict[str,Any]
     source_ids:list[UUID]|None=None
     incra_uf:str|None=Field(default=None,pattern="^[A-Za-z]{2}$")
+    subject:dict[str,Any]|None=None
 
 class LayerResult(BaseModel):
     source_id:UUID; source_name:str; institution:str; reference_date:str|None

@@ -21,6 +21,8 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-amazonika}:${POSTGRES_PASSWORD:-amazonika_local}@db:5432/${POSTGRES_DB:-amazonika_geo}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4173}
       STORAGE_DIR: /data/uploads
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
     ports:
       - "8000:8000"
     volumes:

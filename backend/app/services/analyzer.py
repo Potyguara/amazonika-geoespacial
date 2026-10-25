@@ -170,10 +170,28 @@ def run_analysis(db:Session,name:str,geometry:dict,source_ids:list[UUID]|None=No
                 ) or 0
                 overlap=0.0
                 if subject.geom_type!="Point" and matched:
+                    # A sobreposição territorial de uma fonte deve representar
+                    # a área ÚNICA ocupada dentro do imóvel. Somar a interseção
+                    # de cada feição individualmente duplica áreas quando duas
+                    # ou mais feições da mesma fonte se sobrepõem entre si.
+                    # Primeiro coletamos/dissolvemos as interseções e somente
+                    # depois calculamos a área geodésica do resultado.
+                    intersection_geom = func.ST_Intersection(
+                        GeoFeature.geom,
+                        db_geom,
+                    )
+                    dissolved_overlap = func.ST_UnaryUnion(
+                        func.ST_Collect(intersection_geom)
+                    )
                     overlap=float(db.scalar(
-                        select(func.coalesce(func.sum(
-                            func.ST_Area(_geography(func.ST_Intersection(GeoFeature.geom,db_geom)))/10000.0
-                        ),0)).where(filter_version,intersects)
+                        select(
+                            func.coalesce(
+                                func.ST_Area(
+                                    _geography(dissolved_overlap)
+                                ) / 10000.0,
+                                0,
+                            )
+                        ).where(filter_version,intersects)
                     ) or 0)
                 nearest=_nearest_distance(db,version.id,db_geom)
         except SQLAlchemyError as exc:
@@ -198,8 +216,10 @@ def run_analysis(db:Session,name:str,geometry:dict,source_ids:list[UUID]|None=No
                 "nearest_distance_meters": None,
             })
             continue
-        percent=(overlap/area_ha*100) if area_ha else 0.0
-        result=AnalysisResult(analysis_id=analysis.id,source_id=source.id,source_version_id=version.id,intersects=matched>0,matched_features=matched,overlap_hectares=round(overlap,4),overlap_percent=round(percent,4),nearest_distance_meters=round(float(nearest),2) if nearest is not None else None,details={"access_mode":access_mode,"uf":incra_uf.upper() if incra_uf and metadata.get("wfs_on_demand") else None,"calculation":"POSTGIS_VECTOR"})
+        # Tolerâncias geométricas de ponto flutuante não podem produzir
+        # percentuais acima de 100% para uma interseção contida no imóvel.
+        percent=min(100.0, (overlap/area_ha*100)) if area_ha else 0.0
+        result=AnalysisResult(analysis_id=analysis.id,source_id=source.id,source_version_id=version.id,intersects=matched>0,matched_features=matched,overlap_hectares=round(overlap,4),overlap_percent=round(percent,4),nearest_distance_meters=round(float(nearest),2) if nearest is not None else None,details={"access_mode":access_mode,"uf":incra_uf.upper() if incra_uf and metadata.get("wfs_on_demand") else None,"calculation":"POSTGIS_VECTOR_UNIQUE_UNION"})
         db.add(result)
 
         analyzed_status = {

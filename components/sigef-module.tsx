@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getApiUrl } from "@/lib/api";
-import { Archive, CheckCircle2, Clock3, Database, FileArchive, HardDriveUpload, RefreshCw, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Archive, CheckCircle2, Clock3, Database, FileArchive, HardDriveUpload, MapPinned, RefreshCw, ShieldCheck, TriangleAlert } from "lucide-react";
 
 const API_URL = getApiUrl();
 
@@ -12,6 +12,7 @@ export type SourceVersion = { id:string; source_id:string; reference_date:string
 
 interface SigefModuleProps {
   onVersionChanged?: (version: SourceVersion) => void;
+  onShowOnMap?: (sourceId: string) => void;
 }
 
 function formatDate(value: string | null) {
@@ -28,7 +29,7 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("pt-BR").format(value);
 }
 
-export function SigefModule({ onVersionChanged }: SigefModuleProps) {
+export function SigefModule({ onVersionChanged, onShowOnMap }: SigefModuleProps) {
   const [sources, setSources] = useState<Source[]>([]);
   const [versions, setVersions] = useState<SourceVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,13 +47,13 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const sourceResponse = await fetch(`${API_URL}/sources`);
+      const sourceResponse = await fetch(`${API_URL}/sources`, { credentials: "include" });
       if (!sourceResponse.ok) throw new Error("Não foi possível consultar as fontes cadastradas.");
       const loadedSources: Source[] = await sourceResponse.json();
       setSources(loadedSources);
       const sigef = loadedSources.find((source) => source.slug === "sigef-interno");
       if (!sigef) throw new Error("A fonte SIGEF interno não está cadastrada. Execute a carga inicial do catálogo.");
-      const versionResponse = await fetch(`${API_URL}/sources/${sigef.id}/versions`);
+      const versionResponse = await fetch(`${API_URL}/sources/${sigef.id}/versions`, { credentials: "include" });
       if (!versionResponse.ok) throw new Error("Não foi possível consultar o histórico do SIGEF.");
       setVersions(await versionResponse.json());
     } catch (error) {
@@ -73,7 +74,7 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
     data.append("reference_date",referenceDate);
     if (layerName.trim()) data.append("layer_name",layerName.trim());
     try {
-      const response = await fetch(`${API_URL}/sources/${sigefSource.id}/imports/geopackage`,{method:"POST",body:data});
+      const response = await fetch(`${API_URL}/sources/${sigefSource.id}/imports/geopackage`,{method:"POST",body:data,credentials:"include"});
       const body = await response.json().catch(()=>null);
       if (!response.ok) throw new Error(body?.detail??"Falha ao importar o GeoPackage.");
       setMessage({kind:"success",text:`Carga concluída: ${formatNumber(body.feature_count)} parcelas importadas e ativadas.`});
@@ -91,7 +92,7 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
     if (!sigefSource || version.is_current) return;
     setActivating(version.id); setMessage(null);
     try {
-      const response=await fetch(`${API_URL}/sources/${sigefSource.id}/versions/${version.id}/activate`,{method:"POST"});
+      const response=await fetch(`${API_URL}/sources/${sigefSource.id}/versions/${version.id}/activate`,{method:"POST",credentials:"include"});
       const body=await response.json().catch(()=>null);
       if (!response.ok) throw new Error(body?.detail??"Não foi possível ativar esta versão.");
       setMessage({kind:"success",text:`A carga de ${formatDate(version.reference_date)} voltou a ser a versão ativa.`});
@@ -108,6 +109,17 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
       <Button className="sigef-refresh" onClick={()=>void load()} disabled={loading}><RefreshCw size={16} className={loading?"spin":""}/> Atualizar</Button>
     </div>
 
+    {currentVersion && sigefSource && onShowOnMap && (
+      <button
+        type="button"
+        className="sigef-view-on-map"
+        onClick={() => onShowOnMap(sigefSource.id)}
+      >
+        <MapPinned size={16} />
+        Ver parcelas importadas no mapa
+      </button>
+    )}
+
     <div className="sigef-summary">
       <article><span className="status-icon blue"><Database size={19}/></span><div><small>VERSÃO ATIVA</small><strong>{currentVersion?formatDate(currentVersion.reference_date):"Sem carga"}</strong></div></article>
       <article><span className="status-icon green"><FileArchive size={19}/></span><div><small>PARCELAS ATIVAS</small><strong>{currentVersion?formatNumber(currentVersion.feature_count):"0"}</strong></div></article>
@@ -122,7 +134,8 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
         <div className="sigef-card-title"><span><HardDriveUpload size={20}/></span><div><small>NOVA ATUALIZAÇÃO</small><h3>Importar GeoPackage mensal</h3></div></div>
         <p>O arquivo será validado, convertido para SIRGAS 2000 e somente substituirá a versão atual após a conclusão integral da importação.</p>
         <label className="sigef-file-drop"><HardDriveUpload size={25}/><strong>{file?file.name:"Selecionar arquivo .gpkg"}</strong><small>{file?`${(file.size/1024/1024).toFixed(2)} MB`:"GeoPackage contendo as parcelas do SIGEF"}</small><input type="file" accept=".gpkg,application/geopackage+sqlite3" onChange={(event)=>setFile(event.target.files?.[0]??null)}/></label>
-        <div className="sigef-form-row"><label><span>Data de referência *</span><input type="date" required value={referenceDate} onChange={(event)=>setReferenceDate(event.target.value)}/></label><label><span>Nome da camada</span><input placeholder="Automático" value={layerName} onChange={(event)=>setLayerName(event.target.value)}/></label></div>
+        <div className="sigef-form-row"><label><span>Data de referência *</span><input type="date" required value={referenceDate} onChange={(event)=>setReferenceDate(event.target.value)}/></label><label><span>Camada interna do GeoPackage (opcional)</span><input placeholder="Detectar automaticamente" value={layerName} onChange={(event)=>setLayerName(event.target.value)}/></label></div>
+        <p className="sigef-layer-help">Deixe o campo da camada interna vazio para usar a detecção automática. Preencha somente quando o arquivo tiver várias camadas e você souber o nome exato da camada dentro do GeoPackage. Esse campo não altera o nome da fonte no catálogo.</p>
         <Button className="sigef-upload-button" type="submit" disabled={!file||!sigefSource||uploading}>{uploading?<><RefreshCw size={16} className="spin"/> Importando parcelas…</>:<><HardDriveUpload size={16}/> Importar e ativar versão</>}</Button>
       </form>
 

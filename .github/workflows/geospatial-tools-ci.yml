@@ -1,0 +1,60 @@
+name: Geospatial Tools Branch CI
+
+on:
+  push:
+    branches:
+      - feat/geospatial-tools-v1
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: TypeScript validation
+        run: ./node_modules/.bin/tsc --noEmit -p tsconfig.ci.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python syntax validation
+        run: |
+          python -m py_compile \
+            backend/app/api/routes/tools.py \
+            backend/app/api/routes/users.py \
+            backend/app/api/routes/security.py \
+            backend/app/services/plant_memorial.py \
+            backend/app/services/plant_memorial_v2.py \
+            backend/app/services/plant_memorial_pro.py \
+            backend/app/services/plant_memorial_v3.py \
+            backend/app/services/memorial_docx.py \
+            backend/app/services/geospatial_export.py \
+            backend/app/models/security.py \
+            backend/app/models/auth.py \
+            backend/app/api/routes/auth.py \
+            backend/app/main.py \
+            backend/test_geospatial_documents.py \
+            backend/app/core/config.py \
+            backend/app/api/router.py
+
+      - name: Install geospatial Python dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Test export and joint plant / memorial
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest test_geospatial_documents -v

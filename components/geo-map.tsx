@@ -7,20 +7,28 @@ import MVT from "ol/format/MVT";
 import KML from "ol/format/KML";
 import Draw from "ol/interaction/Draw";
 import Modify from "ol/interaction/Modify";
+import Snap from "ol/interaction/Snap";
 import Map from "ol/Map";
 import MapBrowserEvent from "ol/MapBrowserEvent";
+import LineString from "ol/geom/LineString";
+import MultiPolygon from "ol/geom/MultiPolygon";
+import Point from "ol/geom/Point";
+import Polygon from "ol/geom/Polygon";
 import ImageLayer from "ol/layer/Image";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorTileLayer from "ol/layer/VectorTile";
 import { fromLonLat, toLonLat } from "ol/proj";
 import OSM from "ol/source/OSM";
+import XYZ from "ol/source/XYZ";
 import ImageWMS from "ol/source/ImageWMS";
 import VectorSource from "ol/source/Vector";
 import VectorTileSource from "ol/source/VectorTile";
-import { Fill, Stroke, Style, Circle as CircleStyle } from "ol/style";
+import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "ol/style";
 import View from "ol/View";
+import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
+import { parseManualCoordinates, type ManualCoordinateMode } from "@/lib/geospatial-tools";
 import {
   ArrowLeft,
   Crosshair,
@@ -28,8 +36,15 @@ import {
   FileUp,
   Info,
   MapPin,
+  Magnet,
+  Layers3,
+  Download,
+  Trash2,
   Pencil,
   Pentagon,
+  Ruler,
+  Satellite,
+  Sparkles,
   X,
 } from "lucide-react";
 
@@ -37,13 +52,17 @@ type DrawKind = "Point" | "Polygon" | null;
 
 interface GeoMapProps {
   onGeometryChange: (geometry: Record<string, unknown> | null) => void;
+  hideAdvancedTools?: boolean;
+  focusRequest?: { sourceId: string; nonce: number } | null;
   incraUf: string;
+  resetNonce?: number;
   layers: Array<{
     id?: string;
     slug?: string;
     name: string;
     color: string;
     enabled: boolean;
+    featureCount?: number;
     source?: string;
     wmsEnabled?: boolean;
     wmsTheme?: string;
@@ -72,6 +91,31 @@ const selectedOfficialStyle = new Style({
     stroke: new Stroke({ color: "#ffffff", width: 2 }),
   }),
 });
+
+// Destaque universal da ferramenta Identificar.
+// Duas passadas de estilo garantem contraste sobre qualquer camada/base.
+const identifyHighlightStyles = [
+  // halo branco: separa a seleção de qualquer simbologia existente
+  new Style({
+    fill: new Fill({ color: "rgba(255, 159, 28, 0.10)" }),
+    stroke: new Stroke({ color: "rgba(255,255,255,0.98)", width: 10 }),
+    image: new CircleStyle({
+      radius: 12,
+      fill: new Fill({ color: "rgba(255,255,255,0.98)" }),
+      stroke: new Stroke({ color: "rgba(23,63,50,0.35)", width: 2 }),
+    }),
+  }),
+  // corpo laranja: seleção propriamente dita
+  new Style({
+    fill: new Fill({ color: "rgba(255, 159, 28, 0.42)" }),
+    stroke: new Stroke({ color: "#ff7a00", width: 5 }),
+    image: new CircleStyle({
+      radius: 8,
+      fill: new Fill({ color: "#ff7a00" }),
+      stroke: new Stroke({ color: "#ffffff", width: 2 }),
+    }),
+  }),
+];
 
 type IdentifiedFeature = {
   title: string;
@@ -168,11 +212,15 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
   const officialSourceRef = useRef(new VectorSource());
+  const snapLayerSourceRef = useRef(new VectorSource());
+  const vertexLabelSourceRef = useRef(new VectorSource());
+  const baseLayerRef = useRef<TileLayer<OSM | XYZ> | null>(null);
+  const autoFocusRef = useRef<string | null>(null);
 
   // Overlay exclusivo da ferramenta Identificar.
   // Toda feição selecionada, independentemente da base de origem,
@@ -192,6 +240,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const identifyAbortRef = useRef<AbortController | null>(null);
   const drawRef = useRef<Draw | null>(null);
   const modifyRef = useRef<Modify | null>(null);
+  const snapSubjectRef = useRef<Snap | null>(null);
+  const snapLayersRef = useRef<Snap | null>(null);
   const identifyActiveRef = useRef(false);
   const selectedFeatureRef = useRef<Feature | null>(null);
   const identifyCandidateHistoryRef = useRef<IdentifyCandidate[]>([]);
@@ -201,15 +251,121 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   const [identifyActive, setIdentifyActive] = useState(false);
   const [identifiedFeature, setIdentifiedFeature] =
     useState<IdentifiedFeature | null>(null);
+  const [identifyLoading, setIdentifyLoading] = useState(false);
+  const [identifyLoadingMessage, setIdentifyLoadingMessage] = useState(
+    "Aguardando informações…",
+  );
   const [identifyCandidates, setIdentifyCandidates] = useState<
     IdentifyCandidate[]
   >([]);
   const [officialCount, setOfficialCount] = useState(0);
+  const [snapSubjectEnabled, setSnapSubjectEnabled] = useState(true);
+  const [snapLayersEnabled, setSnapLayersEnabled] = useState(false);
+  const [advancedPanel, setAdvancedPanel] = useState<"coordinates" | "snap" | "basemap" | "memorial" | "polygons" | null>(null);
+  const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; confrontants: string[]; altitudes: string[]; areaHa: number; perimeterM: number }>>([]);
+  const [selectedPolygonIds, setSelectedPolygonIds] = useState<string[]>([]);
+  const polygonSequenceRef = useRef(0);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [croquiNote, setCroquiNote] = useState(true);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [manualMode, setManualMode] = useState<ManualCoordinateMode>("DD");
+  const [manualText, setManualText] = useState("");
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [basemap, setBasemap] = useState("osm");
+  const [extentMessage, setExtentMessage] = useState<string | null>(null);
+  const [importingVector, setImportingVector] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [geometryMetrics, setGeometryMetrics] = useState<{
+    areaHectares: number | null;
+    perimeterMeters: number | null;
+    vertices: number;
+  }>({ areaHectares: null, perimeterMeters: null, vertices: 0 });
+  const [memorialLoading, setMemorialLoading] = useState(false);
+  const [memorialText, setMemorialText] = useState("");
+  const [memorialTitle, setMemorialTitle] = useState("Área analisada");
+  const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
+  const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
+  const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A4");
+  const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
+  const [scaleChoice, setScaleChoice] = useState("auto");
+  const [customScale, setCustomScale] = useState("1500");
+  const [ownerRg, setOwnerRg] = useState("");
+  const [ownerCpf, setOwnerCpf] = useState("");
+  const [propertyAddress, setPropertyAddress] = useState("");
+  const [memorialOwner, setMemorialOwner] = useState("");
   const [loadingOfficial, setLoadingOfficial] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState({ completed: 0, total: 0 });
   const [officialStatus, setOfficialStatus] = useState(
     "Preparando camadas oficiais…",
   );
+
+  useEffect(() => {
+    if (!resetNonce) return;
+    sourceRef.current.clear();
+    setPolygons([]);
+    setSelectedPolygonIds([]);
+    vertexLabelSourceRef.current.clear();
+    identifySelectionSourceRef.current.clear();
+    setDrawKind(null);
+    setModifyActive(false);
+    setIdentifyActive(false);
+    clearIdentifiedFeature();
+  }, [resetNonce]);
+
+  const focusSource = async (sourceId: string) => {
+    const map = mapRef.current;
+    if (!map) return;
+    setExtentMessage(null);
+    try {
+      const response = await fetch(`${getApiUrl()}/sources/${sourceId}/extent`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Não foi possível consultar a extensão da camada.");
+      const payload = await response.json() as { bbox?: [number, number, number, number] | null; feature_count?: number };
+      if (!payload.bbox || payload.bbox.length !== 4) {
+        setExtentMessage("A camada ainda não possui feições para enquadrar.");
+        return;
+      }
+      const [minLon, minLat, maxLon, maxLat] = payload.bbox;
+      if (![minLon, minLat, maxLon, maxLat].every(Number.isFinite)) {
+        throw new Error("A extensão geográfica da camada é inválida.");
+      }
+      const [minX, minY] = fromLonLat([minLon, minLat]);
+      const [maxX, maxY] = fromLonLat([maxLon, maxLat]);
+      const extent: [number, number, number, number] = [
+        Math.min(minX, maxX), Math.min(minY, maxY),
+        Math.max(minX, maxX), Math.max(minY, maxY),
+      ];
+      if (extent[0] === extent[2]) {
+        extent[0] -= 250;
+        extent[2] += 250;
+      }
+      if (extent[1] === extent[3]) {
+        extent[1] -= 250;
+        extent[3] += 250;
+      }
+      map.getView().fit(extent, {
+        padding: [80, 80, 80, 80],
+        maxZoom: 15,
+        duration: 650,
+      });
+      const source = layersRef.current.find((layer) => layer.id === sourceId);
+      if (source) {
+        const minimum = source.slug === "sigef-interno" && (source.featureCount ?? Infinity) <= 10000
+          ? 6
+          : /sigef|parcela/i.test(source.name) ? 9 : 0;
+        const targetZoom = Math.max(minimum + 0.2, map.getView().getZoom() ?? minimum);
+        if (targetZoom > (map.getView().getZoom() ?? 0)) {
+          map.getView().animate({
+            zoom: targetZoom,
+            duration: 650,
+          });
+        }
+      }
+    } catch (error) {
+      setExtentMessage(error instanceof Error ? error.message : "Falha ao enquadrar camada.");
+    }
+  };
 
   useEffect(() => {
     const map = mapRef.current;
@@ -234,11 +390,342 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     );
   }, [incraUf]);
 
+  const polygonFeatures = (): Feature[] =>
+    sourceRef.current.getFeatures().filter((feature) => feature.getGeometry() instanceof Polygon) as Feature[];
+
+  const syncPolygonRegistry = () => {
+    const current = polygonFeatures();
+    const registry = current.map((feature) => {
+      const geometry = feature.getGeometry() as Polygon;
+      const count = Math.max(0, (geometry.getCoordinates()[0]?.length ?? 1) - 1);
+      let id = String(feature.get("workPolygonId") ?? "");
+      if (!id) {
+        polygonSequenceRef.current += 1;
+        id = `POL-${polygonSequenceRef.current}`;
+        feature.set("workPolygonId", id, true);
+        feature.set("workPolygonName", `Polígono ${polygonSequenceRef.current}`, true);
+      }
+      const existing = (feature.get("vertexNames") as string[] | undefined) ?? [];
+      const names = Array.from({ length: count }, (_, index) =>
+        existing[index] ?? `${id}-V${String(index + 1).padStart(2, "0")}`,
+      );
+      feature.set("vertexNames", names, true);
+      const oldConfrontants = (feature.get("confrontants") as string[] | undefined) ?? [];
+      const oldAltitudes = (feature.get("altitudes") as string[] | undefined) ?? [];
+      const confrontants = Array.from({ length: count }, (_, i) => oldConfrontants[i] ?? "");
+      const altitudes = Array.from({ length: count }, (_, i) => oldAltitudes[i] ?? "");
+      feature.set("confrontants", confrontants, true);
+      feature.set("altitudes", altitudes, true);
+      return {
+        id,
+        name: String(feature.get("workPolygonName") ?? id),
+        vertices: names,
+        confrontants, altitudes,
+        areaHa: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
+        perimeterM: getLength(new LineString(geometry.getCoordinates()[0] ?? []), {
+          projection: "EPSG:3857",
+        }),
+      };
+    });
+    setPolygons(registry);
+    setSelectedPolygonIds((old) => {
+      const retained = old.filter((id) => registry.some((item) => item.id === id));
+      if (retained.length) return retained;
+      return registry.length ? [registry[registry.length - 1].id] : [];
+    });
+  };
+
+  const selectedFeatures = () =>
+    polygonFeatures().filter((feature) =>
+      selectedPolygonIds.includes(String(feature.get("workPolygonId"))),
+    );
+
+  const setPolygonName = (id: string, name: string) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    feature.set("workPolygonName", name, true);
+    syncPolygonRegistry();
+  };
+
+  const renameVertex = (id: string, index: number, name: string) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    const names = [...((feature.get("vertexNames") as string[] | undefined) ?? [])];
+    names[index] = name;
+    feature.set("vertexNames", names, true);
+    syncPolygonRegistry();
+    refreshVertexLabels();
+  };
+
+  const updateParcelVertexData = (
+    id: string, index: number, type: "confrontants" | "altitudes", value: string,
+  ) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    const values = [...((feature.get(type) as string[] | undefined) ?? [])];
+    values[index] = value;
+    feature.set(type, values, true);
+    syncPolygonRegistry();
+  };
+
+  const removeVertex = (id: string, index: number) => {
+    setDocumentError(null);
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    const geometry = feature.getGeometry();
+    if (!(geometry instanceof Polygon)) return;
+    const rings = geometry.getCoordinates();
+    const points = (rings[0] ?? []).slice(0, -1);
+    if (points.length <= 3) {
+      setDocumentError("O polígono precisa manter pelo menos três vértices.");
+      return;
+    }
+    if (rings.length > 1) {
+      setDocumentError("A exclusão de vértices de polígonos com ilhas deve ser feita no editor de geometria.");
+      return;
+    }
+    const next = points.filter((_, i) => i !== index);
+    const candidate = new Polygon([[...next, next[0]]]);
+    if (getArea(candidate, { projection: "EPSG:3857" }) < 0.001) {
+      setDocumentError("A exclusão geraria um polígono sem área. Operação cancelada.");
+      return;
+    }
+    const names = ((feature.get("vertexNames") as string[] | undefined) ?? [])
+      .filter((_, i) => i !== index);
+    feature.set("vertexNames", names, true);
+    for (const property of ["confrontants", "altitudes"]) {
+      const values = ((feature.get(property) as string[] | undefined) ?? [])
+        .filter((_, i) => i !== index);
+      feature.set(property, values, true);
+    }
+    geometry.setCoordinates([[...next, next[0]]]);
+    emitGeometry();
+  };
+
+  const removePolygon = (id: string) => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (feature) sourceRef.current.removeFeature(feature);
+    emitGeometry();
+  };
+
+  const captureMapSituation = async (): Promise<{ raster_b64: string; raster_source: string }> => {
+    const map = mapRef.current;
+    if (!map) throw new Error("O mapa ainda não está pronto para a captura de situação.");
+    const size = map.getSize();
+    if (!size || size[0] <= 0 || size[1] <= 0) {
+      throw new Error("O mapa precisa estar visível antes de gerar a planta.");
+    }
+
+    // A exportação utiliza os canvas raster/vetoriais já renderizados
+    // pelo próprio OpenLayers, nunca uma imagem arbitrária enviada ao servidor.
+    await new Promise<void>((resolve) => {
+      let completed = false;
+      const done = () => {
+        if (completed) return;
+        completed = true;
+        map.un("rendercomplete", done);
+        resolve();
+      };
+      map.once("rendercomplete", done);
+      map.renderSync();
+      window.setTimeout(done, 3000);
+    });
+
+    const output = document.createElement("canvas");
+    const width = Math.min(1600, Math.round(size[0]));
+    const height = Math.min(1200, Math.round(size[1]));
+    output.width = width;
+    output.height = height;
+    const context = output.getContext("2d");
+    if (!context) throw new Error("O navegador não permite capturar a imagem raster.");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, width, height);
+    context.scale(width / size[0], height / size[1]);
+
+    const canvases = Array.from(
+      map.getViewport().querySelectorAll<HTMLCanvasElement>(".ol-layer canvas, canvas.ol-layer")
+    ).filter((canvas) => canvas.width > 0 && canvas.height > 0);
+    if (!canvases.length) throw new Error("Nenhum raster renderizado foi encontrado no mapa.");
+    try {
+      for (const layerCanvas of canvases) {
+        const opacity = Number(layerCanvas.parentElement?.style.opacity || "1");
+        context.save();
+        context.globalAlpha = Number.isFinite(opacity) ? opacity : 1;
+        const rawTransform = layerCanvas.style.transform;
+        const matrix = rawTransform.match(/^matrix\(([^)]+)\)$/);
+        if (matrix) {
+          const numbers = matrix[1].split(",").map(Number);
+          if (numbers.length === 6 && numbers.every(Number.isFinite)) {
+            // Multiplica o transform do canvas pelo redimensionamento do raster.
+            // setTransform() apagava o fator de escala e podia recortar/deslocar a imagem.
+            context.transform(...(numbers as [number, number, number, number, number, number]));
+          }
+        } else {
+          context.translate(layerCanvas.offsetLeft, layerCanvas.offsetTop);
+        }
+        context.drawImage(layerCanvas, 0, 0);
+        context.restore();
+      }
+      const attribution = basemap === "esri-imagery" ? "Esri World Imagery - mapa de referência" :
+        basemap === "esri-topo" ? "Esri World Topographic - mapa de referência" :
+        "OpenStreetMap contributors - base cartográfica";
+      return {
+        raster_b64: output.toDataURL("image/jpeg", 0.88).split(",")[1],
+        raster_source: attribution,
+      };
+    } catch {
+      throw new Error(
+        "A captura do raster foi bloqueada pelo provedor de imagens ou pelo navegador. " +
+        "Selecione uma base autorizada para exportação e tente novamente."
+      );
+    }
+  };
+
+  const documentParcels = () => {
+    const features = selectedFeatures();
+    if (!features.length) throw new Error("Selecione ao menos um polígono.");
+    const parcels = features.map((feature) => ({
+      name: String(feature.get("workPolygonName") ?? feature.get("workPolygonId")),
+      geometry: new GeoJSON().writeGeometryObject(feature.getGeometry()!, {
+        featureProjection: "EPSG:3857",
+        dataProjection: "EPSG:4326",
+        decimals: 9,
+      }),
+      vertex_names: feature.get("vertexNames") as string[],
+      confrontants: feature.get("confrontants") as string[],
+      altitudes_m: ((feature.get("altitudes") as string[] | undefined) ?? []).map((value) =>
+        value?.trim() ? Number(value.replace(",", ".")) : null
+      ),
+    }));
+    return parcels;
+  };
+
+  const exportIndividualPolygon = async (id: string, format: "txt" | "kml" | "shp") => {
+    const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
+    if (!feature) return;
+    setExportBusy(true);
+    setDocumentError(null);
+    try {
+      const payload = {
+        geometry: new GeoJSON().writeGeometryObject(feature.getGeometry()!, {
+          featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
+        }),
+        filename: String(feature.get("workPolygonName") ?? id),
+        vertex_names: feature.get("vertexNames"),
+        format,
+      };
+      const response = await fetch(`${getApiUrl()}/tools/export-polygon`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : "Falha na exportação.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const defaultName = `poligono-${id}.${format === "shp" ? "zip" : format}`;
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? defaultName;
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : "Falha na exportação.");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const refreshVertexLabels = () => {
+    vertexLabelSourceRef.current.clear();
+    for (const feature of polygonFeatures()) {
+      const geometry = feature.getGeometry() as Polygon;
+      const ring = geometry.getCoordinates()[0] ?? [];
+      const names = (feature.get("vertexNames") as string[] | undefined) ?? [];
+      for (const [index, coordinate] of ring.slice(0, -1).entries()) {
+        vertexLabelSourceRef.current.addFeature(new Feature({
+          geometry: new Point(coordinate),
+          vertexName: names[index] ?? `V${String(index + 1).padStart(2, "0")}`,
+        }));
+      }
+    }
+  };
+
+  const updateGeometryMetrics = () => {
+    const geometry = sourceRef.current.getFeatures()[0]?.getGeometry();
+    if (!geometry) {
+      setGeometryMetrics({ areaHectares: null, perimeterMeters: null, vertices: 0 });
+      return;
+    }
+
+    if (geometry instanceof Polygon) {
+      const ring = geometry.getCoordinates()[0] ?? [];
+      setGeometryMetrics({
+        areaHectares: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
+        perimeterMeters: ring.length > 1
+          ? getLength(new LineString(ring), { projection: "EPSG:3857" })
+          : 0,
+        vertices: Math.max(0, ring.length - 1),
+      });
+      return;
+    }
+
+    if (geometry instanceof MultiPolygon) {
+      let area = 0;
+      let perimeter = 0;
+      let vertices = 0;
+      for (const polygonCoordinates of geometry.getCoordinates()) {
+        const polygon = new Polygon(polygonCoordinates);
+        const ring = polygonCoordinates[0] ?? [];
+        area += getArea(polygon, { projection: "EPSG:3857" });
+        if (ring.length > 1) {
+          perimeter += getLength(new LineString(ring), { projection: "EPSG:3857" });
+        }
+        vertices += Math.max(0, ring.length - 1);
+      }
+      setGeometryMetrics({
+        areaHectares: area / 10000,
+        perimeterMeters: perimeter,
+        vertices,
+      });
+      return;
+    }
+
+    setGeometryMetrics({
+      areaHectares: null,
+      perimeterMeters: null,
+      vertices: geometry instanceof Point ? 1 : 0,
+    });
+  };
+
+  const currentGeometryGeoJson = () => {
+    const geometry = sourceRef.current.getFeatures()[0]?.getGeometry();
+    if (!geometry) return null;
+    return new GeoJSON().writeGeometryObject(geometry, {
+      featureProjection: "EPSG:3857",
+      dataProjection: "EPSG:4326",
+      decimals: 9,
+    }) as Record<string, unknown>;
+  };
+
   const emitGeometry = () => {
-    const feature = sourceRef.current.getFeatures()[0];
+    const all = sourceRef.current.getFeatures();
+    const feature = all.find((item) =>
+      selectedPolygonIds.includes(String(item.get("workPolygonId")))
+    ) ?? all[0];
     const geometry = feature?.getGeometry();
     if (!geometry) {
       onGeometryChange(null);
+      syncPolygonRegistry();
+      updateGeometryMetrics();
+      refreshVertexLabels();
       return;
     }
     const output = new GeoJSON().writeGeometryObject(geometry, {
@@ -247,11 +734,30 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       decimals: 8,
     });
     onGeometryChange(output as Record<string, unknown>);
+    syncPolygonRegistry();
+    updateGeometryMetrics();
+    refreshVertexLabels();
   };
+
+  useEffect(() => {
+    const features = sourceRef.current.getFeatures();
+    if (!features.length) return;
+    const primary = features.find((feature) =>
+      selectedPolygonIds.includes(String(feature.get("workPolygonId")))
+    ) ?? features[0];
+    const geometry = primary?.getGeometry();
+    if (!geometry) return;
+    onGeometryChange(new GeoJSON().writeGeometryObject(geometry, {
+      featureProjection: "EPSG:3857",
+      dataProjection: "EPSG:4326",
+      decimals: 8,
+    }) as Record<string, unknown>);
+  }, [selectedPolygonIds]);
 
   const clearIdentifiedFeature = () => {
     identifyAbortRef.current?.abort();
     identifyAbortRef.current = null;
+    setIdentifyLoading(false);
     if (selectedFeatureRef.current) {
       selectedFeatureRef.current.set("isSelected", false);
       selectedFeatureRef.current.changed();
@@ -311,10 +817,19 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         feature.get("feature_id"),
       );
 
+      // O estilo é fixado também na própria feição para que o destaque
+      // não dependa da função de estilo da camada ou da origem do vetor.
+      highlightFeature.setStyle(identifyHighlightStyles);
+
       identifySelectionSourceRef.current.clear();
       identifySelectionSourceRef.current.addFeature(
         highlightFeature,
       );
+      identifySelectionSourceRef.current.changed();
+
+      // Render imediato: o usuário deve enxergar a seleção no mesmo clique,
+      // antes mesmo de os atributos detalhados terminarem de carregar.
+      mapRef.current?.renderSync();
     }
     const { raw, layer, title } = featureIdentity(feature);
     const sourceId = String(raw.source_id ?? "");
@@ -350,6 +865,61 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         if (controller.signal.aborted || selectedFeatureRef.current !== feature)
           return;
         const properties = detail.properties ?? {};
+
+        // Segundo passe determinístico:
+        // substitui qualquer geometria MVT recortada/simplificada
+        // pela geometria integral devolvida pelo PostGIS.
+        if (detail?.geometry) {
+          try {
+            const detailFeature = new GeoJSON().readFeature(
+              {
+                type: "Feature",
+                geometry: detail.geometry,
+                properties: {},
+              },
+              {
+                dataProjection: "EPSG:4674",
+                featureProjection: "EPSG:3857",
+              },
+            ) as Feature;
+
+            const detailGeometry = detailFeature.getGeometry();
+
+            if (detailGeometry) {
+              const persistentHighlight = new Feature({
+                geometry: detailGeometry.clone(),
+              });
+
+              persistentHighlight.setStyle(identifyHighlightStyles);
+              persistentHighlight.set(
+                "isIdentifyHighlight",
+                true,
+              );
+              persistentHighlight.set(
+                "source_id",
+                sourceId,
+              );
+              persistentHighlight.set(
+                "feature_id",
+                featureId,
+              );
+
+              identifySelectionSourceRef.current.clear();
+              identifySelectionSourceRef.current.addFeature(
+                persistentHighlight,
+              );
+              identifySelectionSourceRef.current.changed();
+
+              mapRef.current?.renderSync();
+            }
+          } catch (highlightError) {
+            console.warn(
+              "Não foi possível reforçar o destaque com a geometria completa.",
+              highlightError,
+            );
+          }
+        }
+
         const detailTitle = String(
           properties.name ??
             properties.nome ??
@@ -386,10 +956,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
 
   useEffect(() => {
     if (!mapElement.current || mapRef.current) return;
+    const baseLayer = new TileLayer({ source: new OSM({ maxZoom: 19 }), zIndex: 0 });
+    baseLayerRef.current = baseLayer;
     const map = new Map({
       target: mapElement.current,
       layers: [
-        new TileLayer({ source: new OSM(), zIndex: 0 }),
+        baseLayer,
         new VectorLayer({
           source: officialSourceRef.current,
           zIndex: 2,
@@ -403,13 +975,34 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           zIndex: 3,
           style: subjectStyle,
         }),
+        new VectorLayer({
+          source: vertexLabelSourceRef.current,
+          zIndex: 4,
+          style: (feature) =>
+            new Style({
+              image: new CircleStyle({
+                radius: 4.5,
+                fill: new Fill({ color: "#ffffff" }),
+                stroke: new Stroke({ color: "#0d6847", width: 2 }),
+              }),
+              text: new TextStyle({
+                text: String(feature.get("vertexName") ?? ""),
+                offsetY: -13,
+                font: "700 11px Inter, sans-serif",
+                fill: new Fill({ color: "#0d3f2d" }),
+                stroke: new Stroke({ color: "#ffffff", width: 3 }),
+              }),
+            }),
+        }),
 
         // Camada universal de seleção.
         // Fica acima das bases territoriais e da geometria consultada.
         new VectorLayer({
           source: identifySelectionSourceRef.current,
-          zIndex: 1000,
-          style: selectedOfficialStyle,
+          updateWhileAnimating: true,
+          updateWhileInteracting: true,
+          zIndex: 100000,
+          style: identifyHighlightStyles,
         }),
       ],
       view: new View({
@@ -424,6 +1017,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       if (!identifyActiveRef.current) return;
 
       clearIdentifiedFeature();
+      setIdentifyLoading(true);
+      setIdentifyLoadingMessage("Consultando feições nas camadas ativas…");
 
       const enabledLayers = layersRef.current.filter(
         (layer) => layer.enabled && layer.id,
@@ -516,7 +1111,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
                     dataProjection: "EPSG:4674",
                     featureProjection: "EPSG:3857",
                   },
-                );
+                ) as Feature;
 
                 const properties =
                   item?.properties ?? {};
@@ -597,6 +1192,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             }
 
             if (candidates.length === 1) {
+              setIdentifyLoading(false);
               selectFeatureRef.current(
                 candidates[0].feature,
               );
@@ -604,6 +1200,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             }
 
             if (candidates.length > 1) {
+              setIdentifyLoading(false);
               identifyCandidateHistoryRef.current =
                 candidates;
               setIdentifyCandidates(candidates);
@@ -615,6 +1212,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             error instanceof DOMException &&
             error.name === "AbortError"
           ) {
+            setIdentifyLoading(false);
             return;
           }
 
@@ -622,6 +1220,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
             "Identificação vetorial local indisponível; tentando fallback visual/WMS.",
             error,
           );
+          setIdentifyLoadingMessage("Verificando feições visíveis no mapa…");
         }
       }
 
@@ -641,6 +1240,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         );
 
       if (renderedCandidates.length === 1) {
+        setIdentifyLoading(false);
         selectFeatureRef.current(
           renderedCandidates[0],
         );
@@ -648,6 +1248,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       }
 
       if (renderedCandidates.length > 1) {
+        setIdentifyLoading(false);
         const candidates =
           renderedCandidates.map((feature) => ({
             feature,
@@ -663,16 +1264,35 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
 
       // WMS é somente referência visual. A ferramenta Identificar
       // trabalha exclusivamente com geometrias vetoriais presentes no PostGIS.
+      setIdentifyLoading(false);
       setIdentifiedFeature(null);
     };
-    map.on("singleclick", identifyAtPixel);
+    const identifyListener = (event: Parameters<typeof identifyAtPixel>[0]) => {
+      void identifyAtPixel(event);
+    };
+    map.on("singleclick", identifyListener as never);
     return () => {
-      map.un("singleclick", identifyAtPixel);
+      map.un("singleclick", identifyListener as never);
       identifyAbortRef.current?.abort();
       map.setTarget(undefined);
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    void focusSource(focusRequest.sourceId);
+  }, [focusRequest?.nonce, focusRequest?.sourceId]);
+
+  useEffect(() => {
+    const enabled = layers.filter((layer) => layer.id && layer.enabled);
+    if (enabled.length !== 1 || enabled[0].slug !== "sigef-interno") return;
+    const sourceId = enabled[0].id!;
+    if (autoFocusRef.current === sourceId) return;
+    if ((mapRef.current?.getView().getZoom() ?? 0) >= 9) return;
+    autoFocusRef.current = sourceId;
+    void focusSource(sourceId);
+  }, [layers]);
 
   useEffect(() => {
     identifyActiveRef.current = identifyActive;
@@ -692,6 +1312,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       /sigef|parcela/i.test(layer.name);
 
     const minimumVectorZoom = (layer: (typeof layers)[number]) => {
+      if (layer.slug === "sigef-interno" && (layer.featureCount ?? Infinity) <= 10000) return 6;
       if (isParcelLayer(layer)) return 9;
 
       if (layer.slug === "anm-processos-minerarios") return 7;
@@ -723,16 +1344,18 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
       const existingVectorTile = vectorTileLayersRef.current.get(layer.id);
 
       if (existingVectorTile) {
+        const nextUrl = `${getApiUrl()}/sources/${layer.id}/tiles/${tileUf}/{z}/{x}/{y}.pbf`;
+        const source = existingVectorTile.getSource();
         existingVectorTile.setMinZoom(minimumVectorZoom(layer));
-        existingVectorTile.getSource()?.setUrl(
-          `${getApiUrl()}/sources/${layer.id}/tiles/${tileUf}/{z}/{x}/{y}.pbf`,
-        );
-        existingVectorTile.getSource()?.refresh();
+        // Evita recarregar os mesmos tiles a cada render da interface.
+        if (source?.getUrls()?.[0] !== nextUrl) {
+          source?.setUrl(nextUrl);
+        }
         continue;
       }
 
       const vectorTileSource = new VectorTileSource({
-        format: new MVT({ featureClass: Feature }),
+        format: new MVT({ featureClass: Feature as never }),
         url: `${getApiUrl()}/sources/${layer.id}/tiles/${tileUf}/{z}/{x}/{y}.pbf`,
       });
 
@@ -742,10 +1365,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
         minZoom: minimumVectorZoom(layer),
         declutter: false,
         style: (feature) => {
-          feature.set("displayColor", layer.color);
-          feature.set("catalogName", layer.name);
+          const mutableFeature = feature as unknown as Feature;
+          mutableFeature.set("displayColor", layer.color);
+          mutableFeature.set("catalogName", layer.name);
 
-          return feature.get("isSelected")
+          return mutableFeature.get("isSelected")
             ? selectedOfficialStyle
             : officialStyle(layer.color);
         },
@@ -852,11 +1476,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     if (!drawKind) return;
 
     const draw = new Draw({ source: sourceRef.current, type: drawKind });
-    draw.on("drawstart", () => sourceRef.current.clear());
+    // Mantém os polígonos previamente desenhados, possibilitando loteamentos.
     draw.on("drawend", () => window.setTimeout(emitGeometry, 0));
     map.addInteraction(draw);
     drawRef.current = draw;
-    return () => map.removeInteraction(draw);
+    return () => {
+      map.removeInteraction(draw);
+    };
   }, [drawKind]);
 
   useEffect(() => {
@@ -887,6 +1513,102 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
     };
   }, [modifyActive]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const refreshLayerSnapSource = () => {
+      snapLayerSourceRef.current.clear();
+      if (!snapLayersEnabled) return;
+
+      const extent = map.getView().calculateExtent(map.getSize());
+      let imported = 0;
+      const MAX_VISIBLE_SNAP_FEATURES = 25000;
+
+      for (const feature of officialSourceRef.current.getFeaturesInExtent(extent)) {
+        if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+        const geometry = feature.getGeometry();
+        if (!geometry) continue;
+        snapLayerSourceRef.current.addFeature(
+          new Feature({ geometry: geometry.clone() }),
+        );
+        imported += 1;
+      }
+
+      for (const vectorTileLayer of vectorTileLayersRef.current.values()) {
+        if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+        const visibleFeatures = vectorTileLayer.getFeaturesInExtent(extent);
+        for (const candidate of visibleFeatures) {
+          if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+          const feature = candidate as unknown as Feature;
+          const geometry = feature.getGeometry?.();
+          if (!geometry) continue;
+          snapLayerSourceRef.current.addFeature(
+            new Feature({ geometry: geometry.clone() }),
+          );
+          imported += 1;
+        }
+      }
+    };
+
+    if (snapSubjectRef.current) {
+      map.removeInteraction(snapSubjectRef.current);
+      snapSubjectRef.current = null;
+    }
+    if (snapLayersRef.current) {
+      map.removeInteraction(snapLayersRef.current);
+      snapLayersRef.current = null;
+    }
+
+    refreshLayerSnapSource();
+
+    const subjectSnap = snapSubjectEnabled
+      ? new Snap({
+          source: sourceRef.current,
+          vertex: true,
+          edge: true,
+          intersection: true,
+          pixelTolerance: 14,
+        })
+      : null;
+
+    const layerSnap = snapLayersEnabled
+      ? new Snap({
+          source: snapLayerSourceRef.current,
+          vertex: true,
+          edge: true,
+          intersection: true,
+          pixelTolerance: 14,
+        })
+      : null;
+
+    if (subjectSnap) {
+      map.addInteraction(subjectSnap);
+      snapSubjectRef.current = subjectSnap;
+    }
+    if (layerSnap) {
+      map.addInteraction(layerSnap);
+      snapLayersRef.current = layerSnap;
+    }
+
+    if (snapLayersEnabled) {
+      map.on("moveend", refreshLayerSnapSource);
+      map.on("rendercomplete", refreshLayerSnapSource);
+    }
+
+    return () => {
+      if (snapLayersEnabled) {
+        map.un("moveend", refreshLayerSnapSource);
+        map.un("rendercomplete", refreshLayerSnapSource);
+      }
+      if (subjectSnap) map.removeInteraction(subjectSnap);
+      if (layerSnap) map.removeInteraction(layerSnap);
+      if (snapSubjectRef.current === subjectSnap) snapSubjectRef.current = null;
+      if (snapLayersRef.current === layerSnap) snapLayersRef.current = null;
+      snapLayerSourceRef.current.clear();
+    };
+  }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive, layers, incraUf]);
+
   const returnToIdentifyCandidates = () => {
     identifyAbortRef.current?.abort();
     identifyAbortRef.current = null;
@@ -910,6 +1632,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
 
   const clear = () => {
     sourceRef.current.clear();
+    setPolygons([]);
+    setSelectedPolygonIds([]);
+    vertexLabelSourceRef.current.clear();
+    setGeometryMetrics({ areaHectares: null, perimeterMeters: null, vertices: 0 });
     setDrawKind(null);
     setModifyActive(false);
     setIdentifyActive(false);
@@ -931,25 +1657,270 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
   };
 
   const importFile = async (file: File) => {
-    const text = await file.text();
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    const format =
-      extension === "kml" ? new KML({ extractStyles: false }) : new GeoJSON();
-    const features = format.readFeatures(text, {
-      dataProjection: "EPSG:4326",
-      featureProjection: "EPSG:3857",
-    });
-    if (!features.length) return;
-    sourceRef.current.clear();
-    sourceRef.current.addFeatures([features[0]]);
-    setDrawKind(null);
-    setModifyActive(false);
-    setIdentifyActive(false);
-    const extent = sourceRef.current.getExtent();
-    mapRef.current
-      ?.getView()
-      .fit(extent, { padding: [90, 90, 90, 90], maxZoom: 17, duration: 500 });
-    emitGeometry();
+    setImportError(null);
+    setImportingVector(true);
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      let features: Feature[] = [];
+
+      if (extension === "kml") {
+        const text = await file.text();
+        features = new KML({ extractStyles: false }).readFeatures(text, {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        });
+      } else if (extension === "geojson" || extension === "json") {
+        const text = await file.text();
+        features = new GeoJSON().readFeatures(text, {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        });
+      } else {
+        const body = new FormData();
+        body.append("file", file);
+        const response = await fetch(`${getApiUrl()}/tools/convert-vector`, {
+          method: "POST",
+          credentials: "include",
+          body,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.detail === "string"
+              ? payload.detail
+              : "Não foi possível converter o arquivo vetorial.",
+          );
+        }
+        features = new GeoJSON().readFeatures(payload, {
+          // Coordenadas geográficas SIRGAS2000 do backend usam longitude/latitude.
+          // A renderização web utiliza WGS84 como aproximação; projeção/métricas
+          // documentais e exportação UTM são tratadas no backend com GRS80.
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        });
+      }
+
+      if (!features.length) throw new Error("O arquivo não contém feições utilizáveis.");
+
+      // Cada polígono importado permanece como objeto independente.
+      const separate: Feature[] = [];
+      for (const feature of features) {
+        const geometry = feature.getGeometry();
+        if (geometry instanceof MultiPolygon) {
+          for (const coords of geometry.getCoordinates()) {
+            separate.push(new Feature({ geometry: new Polygon(coords) }));
+          }
+        } else {
+          separate.push(feature);
+        }
+      }
+      sourceRef.current.addFeatures(separate);
+      setDrawKind(null);
+      setModifyActive(false);
+      setIdentifyActive(false);
+      const extent = sourceRef.current.getExtent();
+      mapRef.current?.getView().fit(extent, {
+        padding: [90, 90, 90, 90],
+        maxZoom: 17,
+        duration: 500,
+      });
+      emitGeometry();
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Falha ao importar arquivo.");
+    } finally {
+      setImportingVector(false);
+    }
+  };
+
+  const applyManualCoordinates = () => {
+    setManualError(null);
+    try {
+      const coordinates = parseManualCoordinates(manualText, manualMode);
+      if (coordinates.length === 2) {
+        throw new Error("Para polígono informe ao menos 3 vértices; para ponto informe apenas 1.");
+      }
+      const geometry =
+        coordinates.length === 1
+          ? new Point(fromLonLat(coordinates[0]))
+          : new Polygon([
+              [
+                ...coordinates.map((coordinate) => fromLonLat(coordinate)),
+                fromLonLat(coordinates[0]),
+              ],
+            ]);
+
+      sourceRef.current.addFeature(new Feature({ geometry }));
+      setDrawKind(null);
+      setModifyActive(false);
+      setIdentifyActive(false);
+      mapRef.current?.getView().fit(geometry.getExtent(), {
+        padding: [90, 90, 90, 90],
+        maxZoom: 17,
+        duration: 450,
+      });
+      emitGeometry();
+      setAdvancedPanel(null);
+    } catch (error) {
+      setManualError(error instanceof Error ? error.message : "Coordenadas inválidas.");
+    }
+  };
+
+  const changeBasemap = (value: string) => {
+    const layer = baseLayerRef.current;
+    if (!layer) return;
+    if (value === "esri-imagery") {
+      layer.setSource(
+        new XYZ({
+          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          // Limita as consultas a um nível com cobertura mais ampla.
+          // O OpenLayers amplia o último tile quando o usuário aproxima mais.
+          maxZoom: 19,
+          crossOrigin: "anonymous",
+          attributions: "Tiles © Esri",
+        }),
+      );
+    } else if (value === "esri-topo") {
+      layer.setSource(
+        new XYZ({
+          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+          maxZoom: 19,
+          crossOrigin: "anonymous",
+          attributions: "Tiles © Esri",
+        }),
+      );
+    } else {
+      layer.setSource(new OSM({ maxZoom: 19 }));
+    }
+    setBasemap(value);
+  };
+
+  const generateMemorial = async () => {
+    const geometry = currentGeometryGeoJson();
+    if (!geometry) return;
+    setMemorialLoading(true);
+    setMemorialText("");
+    try {
+      const parcels = documentParcels();
+      const response = await fetch(`${getApiUrl()}/tools/memorial-draft`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parcels,
+          title: memorialTitle,
+          plant_heading: plantHeading,
+          memorial_heading: memorialHeading,
+          owner_name: memorialOwner || null,
+          owner_rg: ownerRg || null,
+          owner_cpf: ownerCpf || null,
+          property_address: propertyAddress || null,
+          include_croqui_warning: croquiNote,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.detail ?? "Não foi possível gerar o memorial.");
+      }
+      setMemorialText(payload.memorial_text ?? "");
+    } catch (error) {
+      setMemorialText(
+        `ERRO: ${error instanceof Error ? error.message : "Falha ao gerar memorial."}`,
+      );
+    } finally {
+      setMemorialLoading(false);
+    }
+  };
+
+  const downloadMemorialDocx = async () => {
+    setMemorialLoading(true);
+    try {
+      const parcels = documentParcels();
+      const response = await fetch(`${getApiUrl()}/tools/memorial/docx`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parcels,
+          title: memorialTitle,
+          memorial_heading: memorialHeading,
+          owner_name: memorialOwner || null,
+          owner_rg: ownerRg || null,
+          owner_cpf: ownerCpf || null,
+          property_address: propertyAddress || null,
+          include_croqui_warning: croquiNote,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(typeof payload?.detail === "string" ? payload.detail : "Falha no DOCX.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "amazonika-memorial.docx";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (error) {
+      setMemorialText(`ERRO: ${error instanceof Error ? error.message : "Falha no Word."}`);
+    } finally {
+      setMemorialLoading(false);
+    }
+  };
+
+  const downloadPlantMemorialPdf = async () => {
+    const geometry = currentGeometryGeoJson();
+    if (!geometry) return;
+    setMemorialLoading(true);
+    try {
+      const parcels = documentParcels();
+      const { raster_b64, raster_source } = await captureMapSituation();
+      const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parcels,
+          title: memorialTitle,
+          plant_heading: plantHeading,
+          memorial_heading: memorialHeading,
+          owner_name: memorialOwner || null,
+          owner_rg: ownerRg || null,
+          owner_cpf: ownerCpf || null,
+          property_address: propertyAddress || null,
+          include_croqui_warning: croquiNote,
+          raster_b64,
+          raster_source,
+          paper_format: paperFormat,
+          orientation: paperOrientation,
+          scale_denominator: scaleChoice === "auto"
+            ? null : scaleChoice === "custom"
+              ? Number(customScale)
+              : Number(scaleChoice),
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.detail ?? "Não foi possível gerar o PDF.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${memorialTitle.trim().replace(/[^a-zA-Z0-9_-]+/g, "-") || "planta-memorial"}-planta-memorial.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setMemorialText(
+        `ERRO: ${error instanceof Error ? error.message : "Falha ao gerar PDF."}`,
+      );
+    } finally {
+      setMemorialLoading(false);
+    }
   };
 
   const activateDraw = (kind: Exclude<DrawKind, null>) => {
@@ -1012,12 +1983,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           <Pencil size={16} />
           <span>Editar</span>
         </button>
-        <label title="Importar KML ou GeoJSON">
+        <label title="Importar KML, GeoJSON, Shapefile ZIP ou GeoPackage">
           <FileUp size={17} />
           <span>Importar</span>
           <input
             type="file"
-            accept=".kml,.geojson,.json,application/geo+json"
+            accept=".kml,.geojson,.json,.zip,.gpkg,application/geo+json,application/zip"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void importFile(file);
@@ -1034,16 +2005,243 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           <span>Limpar</span>
         </button>
       </div>
+      {!hideAdvancedTools && <div className="geo-advanced-tools" aria-label="Ferramentas avançadas">
+        <button className={advancedPanel === "coordinates" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "coordinates" ? null : "coordinates")} title="Inserir coordenadas manualmente"><MapPin size={18} /></button>
+        <button className={snapSubjectEnabled || snapLayersEnabled ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "snap" ? null : "snap")} title="Configurar Snap"><Magnet size={18} /></button>
+        <button className={advancedPanel === "basemap" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "basemap" ? null : "basemap")} title="Mapa base / satélite"><Satellite size={18} /></button>
+        <button className={advancedPanel === "polygons" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "polygons" ? null : "polygons")} title="Polígonos e exportação"><Layers3 size={18} /></button>
+        <button className={advancedPanel === "memorial" ? "active" : ""} disabled={!sourceRef.current.getFeatures().length} onClick={() => setAdvancedPanel((current) => current === "memorial" ? null : "memorial")} title="Gerar memorial descritivo"><Sparkles size={18} /></button>
+      </div>}
+
+      {!hideAdvancedTools && advancedPanel === "coordinates" && (
+        <aside className="geo-advanced-panel coordinates-panel">
+          <header><strong>Inserir coordenadas</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
+          <div className="coordinate-mode-tabs">
+            {(["DD", "DMS", "UTM"] as ManualCoordinateMode[]).map((mode) => (
+              <button key={mode} className={manualMode === mode ? "active" : ""} onClick={() => setManualMode(mode)}>{mode}</button>
+            ))}
+          </div>
+          <small>{manualMode === "DD" ? "Uma linha por vértice: longitude, latitude" : manualMode === "DMS" ? 'Uma linha por vértice: 51 30 00 W ; 0 02 00 N' : "Uma linha por vértice: Este, Norte, Fuso, Hemisfério (ex.: 532685, 137648, 22, N)"}</small>
+          <textarea value={manualText} onChange={(event) => setManualText(event.target.value)} rows={7} placeholder="Cole as coordenadas aqui" />
+          {manualError && <p className="geo-tool-error">{manualError}</p>}
+          <button className="geo-tool-primary" onClick={applyManualCoordinates}>Aplicar no mapa</button>
+        </aside>
+      )}
+
+      {!hideAdvancedTools && advancedPanel === "snap" && (
+        <aside className="geo-advanced-panel snap-panel">
+          <header><strong>Snap / atração magnética</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
+          <label><input type="checkbox" checked={snapSubjectEnabled} onChange={(event) => setSnapSubjectEnabled(event.target.checked)} /><span>Vértices e arestas da geometria em edição</span></label>
+          <label><input type="checkbox" checked={snapLayersEnabled} onChange={(event) => setSnapLayersEnabled(event.target.checked)} /><span>Camadas vetoriais carregadas no mapa</span></label>
+          <small>O Snap pode ser ativado ou desligado a qualquer momento durante desenho e edição.</small>
+        </aside>
+      )}
+
+      {!hideAdvancedTools && advancedPanel === "basemap" && (
+        <aside className="geo-advanced-panel basemap-panel">
+          <header><strong>Mapa base</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
+          <button className={basemap === "osm" ? "active" : ""} onClick={() => changeBasemap("osm")}>OpenStreetMap</button>
+          <button className={basemap === "esri-imagery" ? "active" : ""} onClick={() => changeBasemap("esri-imagery")}>Esri World Imagery</button>
+          <button className={basemap === "esri-topo" ? "active" : ""} onClick={() => changeBasemap("esri-topo")}>Esri World Topographic</button>
+          <small>Google Map Tiles, Azure Maps e outros provedores serão habilitados somente por conexão oficial/configurada.</small>
+        </aside>
+      )}
+
+      {!hideAdvancedTools && advancedPanel === "polygons" && (
+        <aside className="geo-advanced-panel polygons-panel">
+          <header>
+            <strong>Polígonos, vértices e exportação ({polygons.length})</strong>
+            <button onClick={() => setAdvancedPanel(null)} aria-label="Fechar"><X size={17} /></button>
+          </header>
+          <small>Desenhe quantos polígonos desejar. Marque as áreas que entrarão em uma única planta e memorial. Exporte cada uma individualmente em TXT UTM, KML ou Shapefile ZIP.</small>
+          {polygons.map((polygon) => (
+            <div className="work-polygon" key={polygon.id}>
+              <div className="work-polygon-heading">
+                <input
+                  aria-label={`Selecionar ${polygon.name}`}
+                  type="checkbox"
+                  checked={selectedPolygonIds.includes(polygon.id)}
+                  onChange={(event) => setSelectedPolygonIds((current) =>
+                    event.target.checked
+                      ? [...new Set([...current, polygon.id])]
+                      : current.filter((id) => id !== polygon.id)
+                  )}
+                />
+                <input
+                  aria-label="Nome do polígono"
+                  className="work-polygon-name"
+                  value={polygon.name}
+                  onChange={(event) => setPolygonName(polygon.id, event.target.value)}
+                />
+                <button title="Excluir somente este polígono" aria-label="Excluir polígono" onClick={() => removePolygon(polygon.id)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+              <small>{polygon.areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha · {polygon.perimeterM.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m de perímetro · {polygon.vertices.length} vértices</small>
+              <details className="work-vertex-details">
+                <summary>Renomear vértices antes da emissão</summary>
+                <button
+                  onClick={() => {
+                    for (const [index] of polygon.vertices.entries()) {
+                      renameVertex(polygon.id, index, `V${String(index + 1).padStart(2, "0")}`);
+                    }
+                  }}
+                >Padronizar V01, V02…</button>
+                <div className="work-vertex-grid">
+                  {polygon.vertices.map((name, index) => (
+                    <label key={index}>
+                      <span>Vértice {index + 1}</span>
+                      <div className="work-vertex-action">
+                        <input
+                          value={name}
+                          onChange={(event) => renameVertex(polygon.id, index, event.target.value)}
+                        />
+                        <button
+                          type="button"
+                          title={`Excluir vértice ${name}`}
+                          aria-label={`Excluir vértice ${name}`}
+                          onClick={() => removeVertex(polygon.id, index)}
+                        ><Trash2 size={15}/></button>
+                      </div>
+                      <span>Altitude do vértice (m, opcional)</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={polygon.altitudes[index] ?? ""}
+                        onChange={(event) => updateParcelVertexData(
+                          polygon.id, index, "altitudes", event.target.value
+                        )}
+                      />
+                      <span>Confrontante no segmento que começa neste vértice</span>
+                      <input
+                        value={polygon.confrontants[index] ?? ""}
+                        placeholder="Nome do confrontante ou via"
+                        onChange={(event) => updateParcelVertexData(
+                          polygon.id, index, "confrontants", event.target.value
+                        )}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </details>
+              <div className="work-polygon-export">
+                {(["txt", "kml", "shp"] as const).map((format) => (
+                  <button
+                    key={format}
+                    disabled={exportBusy}
+                    onClick={() => void exportIndividualPolygon(polygon.id, format)}
+                  >
+                    <Download size={13} />
+                    {format === "shp" ? "ZIP (SHP)" : format.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {polygons.length === 0 && <p>Desenhe ou importe ao menos um polígono.</p>}
+          {documentError && <p className="geo-tool-error" role="alert">{documentError}</p>}
+        </aside>
+      )}
+
+      {!hideAdvancedTools && advancedPanel === "memorial" && (
+        <aside className="geo-advanced-panel memorial-panel">
+          <header><strong>Planta e memorial</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
+          <label><span>Título da planta</span><input value={plantHeading} onChange={(event) => setPlantHeading(event.target.value)} /></label>
+          <label><span>Título do memorial</span><input value={memorialHeading} onChange={(event) => setMemorialHeading(event.target.value)} /></label>
+          <label><span>Denominação do imóvel/lote</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
+          <label><span>Nome completo do detentor / posseiro</span><input value={memorialOwner} onChange={(event) => setMemorialOwner(event.target.value)} /></label>
+          <label><span>RG do detentor</span><input value={ownerRg} onChange={(event) => setOwnerRg(event.target.value)} /></label>
+          <label><span>CPF do detentor</span><input value={ownerCpf} onChange={(event) => setOwnerCpf(event.target.value)} /></label>
+          <label><span>Endereço/localização do imóvel/lote</span><input value={propertyAddress} onChange={(event) => setPropertyAddress(event.target.value)} /></label>
+          <small>Carimbo técnico: nome completo, RG/CPF, profissão, CREA, visto e ART são preenchidos a partir de Configurações → Meu perfil e carimbo profissional. A ART deve ser conferida em cada emissão.</small>
+          <small><strong>{selectedPolygonIds.length} polígono(s) selecionado(s)</strong>. Para escolher áreas e renomear vértices, abra a ferramenta “Polígonos” na paleta.</small>
+          <label className="work-croqui-toggle">
+            <input type="checkbox" checked={croquiNote} onChange={(event) => setCroquiNote(event.target.checked)} />
+            <span>Inserir ressalva opcional de croqui na planta e no memorial</span>
+          </label>
+          <small>Planta de situação: imagem raster capturada obrigatoriamente do mapa atual. Ajuste o enquadramento e escolha a base antes de gerar o PDF. Fontes e créditos serão registrados.</small>
+          <div className="plant-print-options">
+            <strong>Formato e escala para impressão</strong>
+            <small>Escolha como no SIGEF. A opção automática calcula a melhor escala para o papel selecionado, sem distorcer a geometria.</small>
+            <div className="plant-print-grid">
+              <label>
+                <span>Formato (série A)</span>
+                <select value={paperFormat} onChange={(event) => setPaperFormat(event.target.value as typeof paperFormat)}>
+                  {(["A4", "A3", "A2", "A1", "A0"] as const).map((format) =>
+                    <option key={format} value={format}>{format}</option>
+                  )}
+                </select>
+              </label>
+              <label>
+                <span>Escala nominal</span>
+                <select value={scaleChoice} onChange={(event) => setScaleChoice(event.target.value)}>
+                  <option value="auto">Automática para este formato</option>
+                  {["500", "1000", "1500", "2000", "2500", "5000", "10000", "25000", "50000"].map((scale) =>
+                    <option key={scale} value={scale}>1:{Number(scale).toLocaleString("pt-BR")}</option>
+                  )}
+                  <option value="custom">Outra escala...</option>
+                </select>
+              </label>
+            </div>
+            <label><span>Orientação da folha</span><select
+              value={paperOrientation}
+              onChange={(event) => setPaperOrientation(event.target.value as typeof paperOrientation)}
+            >
+              <option value="paisagem">Paisagem (deitada)</option>
+              <option value="retrato">Retrato (em pé)</option>
+            </select></label>
+            {scaleChoice === "custom" && (
+              <label>
+                <span>Denominador da escala (1:...)</span>
+                <input type="number" min="50" max="1000000" step="1"
+                  value={customScale} onChange={(event) => setCustomScale(event.target.value)} />
+              </label>
+            )}
+            <small>Se a escala não comportar a área no formato selecionado, a geração informará a escala mínima compatível. Imprima o PDF em tamanho real (100%), sem ajustar à página.</small>
+          </div>
+          <div className="memorial-actions">
+            <button className="geo-tool-primary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
+            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadPlantMemorialPdf()}>Gerar Planta + Memorial PDF</button>
+            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadMemorialDocx()}>Baixar memorial em Word (.docx)</button>
+          </div>
+          {memorialText && <textarea className="memorial-output" readOnly value={memorialText} rows={12} />}
+          <small>O PDF usa o modelo institucional salvo em Configurações, com logomarca, responsável, vértices, escala, área e perímetro.</small>
+        </aside>
+      )}
+
+      {sourceRef.current.getFeatures().length > 0 && (
+        <div className="geometry-metrics-card">
+          <Ruler size={16} />
+          <span>{geometryMetrics.areaHectares == null ? "Geometria pontual" : `${geometryMetrics.areaHectares.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha`}</span>
+          {geometryMetrics.perimeterMeters != null && <span>{geometryMetrics.perimeterMeters.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m</span>}
+          <span>{geometryMetrics.vertices} vértice{geometryMetrics.vertices === 1 ? "" : "s"}</span>
+        </div>
+      )}
+
+      {extentMessage && <div className="map-operation-feedback error" role="alert" onClick={() => setExtentMessage(null)}>{extentMessage}</div>}
+      {importingVector && <div className="map-operation-feedback">Importando e convertendo arquivo vetorial…</div>}
+      {importError && <div className="map-operation-feedback error">{importError}</div>}
+
       <div
         className={`official-layer-status ${loadingOfficial ? "loading" : ""}`}
       >
         {loadingOfficial ? "Carregando camadas visíveis…" : officialStatus}
       </div>
+      {identifyLoading && (
+        <div className="identify-request-loading" role="status" aria-live="polite">
+          <span className="identify-request-spinner" aria-hidden="true" />
+          <div>
+            <strong>Aguardando informações</strong>
+            <small>{identifyLoadingMessage}</small>
+          </div>
+        </div>
+      )}
       {identifyActive &&
+        !identifyLoading &&
         !identifiedFeature &&
         identifyCandidates.length === 0 && (
           <div className="identify-hint">
-            Clique sobre uma feição oficial para consultar seus dados
+            Clique sobre uma feição territorial para consultar seus dados
           </div>
         )}
       {identifyCandidates.length > 1 && (
@@ -1112,7 +2310,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf }: GeoMapProps) {
           </header>
           {identifiedFeature.loading ? (
             <div className="feature-info-loading">
-              Consultando atributos completos…
+              <span className="identify-request-spinner" aria-hidden="true" />
+              <div>
+                <strong>Carregando informações</strong>
+                <small>Consultando atributos completos da feição…</small>
+              </div>
             </div>
           ) : (
             <dl>

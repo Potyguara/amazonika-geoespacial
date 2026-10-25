@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
@@ -92,6 +93,43 @@ def login(
 @router.get("/me", response_model=CurrentUserRead)
 def me(user: User = Depends(get_current_user)):
     return user_payload(user)
+
+
+class ProfessionalProfileUpdate(BaseModel):
+    full_name: str = Field(min_length=3, max_length=255)
+    rg: str | None = Field(default=None, max_length=50)
+    cpf: str | None = Field(default=None, max_length=18)
+    profession: str | None = Field(default=None, max_length=150)
+    specialization: str | None = Field(default=None, max_length=255)
+    crea: str | None = Field(default=None, max_length=100)
+    visto: str | None = Field(default=None, max_length=100)
+    incra_code: str | None = Field(default=None, max_length=80)
+    art: str | None = Field(default=None, max_length=120)
+
+
+@router.get("/me/professional-profile")
+def get_professional_profile(user: User = Depends(get_current_user)):
+    return {"full_name": user.full_name, **(user.professional_profile_json or {})}
+
+
+@router.put("/me/professional-profile")
+def update_professional_profile(
+    payload: ProfessionalProfileUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    info = payload.model_dump(exclude={"full_name"})
+    cpf = (info.get("cpf") or "").strip()
+    if cpf and (len("".join(char for char in cpf if char.isdigit())) != 11):
+        raise HTTPException(422, "CPF deve conter 11 dígitos.")
+    user.full_name = payload.full_name.strip()
+    user.professional_profile_json = {
+        key: value.strip() if isinstance(value, str) else value
+        for key, value in info.items()
+    }
+    db.add(user)
+    db.commit()
+    return {"full_name": user.full_name, **user.professional_profile_json}
 
 
 @router.post("/location")

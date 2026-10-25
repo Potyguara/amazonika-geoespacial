@@ -218,3 +218,26 @@ def update_authorized_area(
         "original_filename": area.original_filename,
         "is_active": area.is_active,
     }
+
+
+@router.delete("/authorized-areas/{area_id}", status_code=204)
+def delete_authorized_area(
+    area_id: UUID,
+    db: Session = Depends(get_db),
+):
+    area = db.get(AuthorizedArea, area_id)
+    if not area:
+        raise HTTPException(404, "Área autorizada não encontrada.")
+
+    db.execute(
+        text(
+            """
+            DELETE FROM authorized_area_users
+            WHERE area_id = :area_id
+            """
+        ),
+        {"area_id": area_id},
+    )
+    db.delete(area)
+    db.commit()
+    return None
