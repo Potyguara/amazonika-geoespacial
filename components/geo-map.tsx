@@ -285,6 +285,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
   const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
+  const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A3");
+  const [scaleChoice, setScaleChoice] = useState("auto");
+  const [customScale, setCustomScale] = useState("1500");
   const [ownerRg, setOwnerRg] = useState("");
   const [ownerCpf, setOwnerCpf] = useState("");
   const [propertyAddress, setPropertyAddress] = useState("");
@@ -1887,6 +1890,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           include_croqui_warning: croquiNote,
           raster_b64,
           raster_source,
+          paper_format: paperFormat,
+          scale_denominator: scaleChoice === "auto"
+            ? null : scaleChoice === "custom"
+              ? Number(customScale)
+              : Number(scaleChoice),
         }),
       });
       if (!response.ok) {
@@ -2148,7 +2156,38 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             <span>Inserir ressalva opcional de croqui na planta e no memorial</span>
           </label>
           <small>Planta de situação: imagem raster capturada obrigatoriamente do mapa atual. Ajuste o enquadramento e escolha a base antes de gerar o PDF. Fontes e créditos serão registrados.</small>
-          <small>A prancha selecionará papel A4–A0 e escala de modo automático. Para impressão, utilize tamanho real (100%).</small>
+          <div className="plant-print-options">
+            <strong>Formato e escala para impressão</strong>
+            <small>Escolha como no SIGEF. A opção automática calcula a melhor escala para o papel selecionado, sem distorcer a geometria.</small>
+            <div className="plant-print-grid">
+              <label>
+                <span>Formato (série A)</span>
+                <select value={paperFormat} onChange={(event) => setPaperFormat(event.target.value as typeof paperFormat)}>
+                  {(["A4", "A3", "A2", "A1", "A0"] as const).map((format) =>
+                    <option key={format} value={format}>{format}</option>
+                  )}
+                </select>
+              </label>
+              <label>
+                <span>Escala nominal</span>
+                <select value={scaleChoice} onChange={(event) => setScaleChoice(event.target.value)}>
+                  <option value="auto">Automática para este formato</option>
+                  {["500", "1000", "1500", "2000", "2500", "5000", "10000", "25000", "50000"].map((scale) =>
+                    <option key={scale} value={scale}>1:{Number(scale).toLocaleString("pt-BR")}</option>
+                  )}
+                  <option value="custom">Outra escala...</option>
+                </select>
+              </label>
+            </div>
+            {scaleChoice === "custom" && (
+              <label>
+                <span>Denominador da escala (1:...)</span>
+                <input type="number" min="50" max="1000000" step="1"
+                  value={customScale} onChange={(event) => setCustomScale(event.target.value)} />
+              </label>
+            )}
+            <small>Se a escala não comportar a área no formato selecionado, a geração informará a escala mínima compatível. Imprima o PDF em tamanho real (100%), sem ajustar à página.</small>
+          </div>
           <div className="memorial-actions">
             <button className="geo-tool-primary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
             <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadPlantMemorialPdf()}>Gerar Planta + Memorial PDF</button>
