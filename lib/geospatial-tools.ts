@@ -7,8 +7,8 @@ export type UTMInput = {
   hemisphere: "N" | "S";
 };
 
-const WGS84_A = 6378137;
-const WGS84_ECC_SQ = 0.00669437999014;
+const SIRGAS2000_A = 6378137;
+const SIRGAS2000_ECC_SQ = 0.00669438002290;
 const K0 = 0.9996;
 
 export function dmsToDecimal(
@@ -53,19 +53,19 @@ export function utmToLonLat(input: UTMInput): LonLat {
   let y = northing;
   if (hemisphere === "S") y -= 10000000;
 
-  const eccPrimeSq = WGS84_ECC_SQ / (1 - WGS84_ECC_SQ);
+  const eccPrimeSq = SIRGAS2000_ECC_SQ / (1 - SIRGAS2000_ECC_SQ);
   const m = y / K0;
   const mu =
     m /
-    (WGS84_A *
+    (SIRGAS2000_A *
       (1 -
-        WGS84_ECC_SQ / 4 -
-        (3 * WGS84_ECC_SQ ** 2) / 64 -
-        (5 * WGS84_ECC_SQ ** 3) / 256));
+        SIRGAS2000_ECC_SQ / 4 -
+        (3 * SIRGAS2000_ECC_SQ ** 2) / 64 -
+        (5 * SIRGAS2000_ECC_SQ ** 3) / 256));
 
   const e1 =
-    (1 - Math.sqrt(1 - WGS84_ECC_SQ)) /
-    (1 + Math.sqrt(1 - WGS84_ECC_SQ));
+    (1 - Math.sqrt(1 - SIRGAS2000_ECC_SQ)) /
+    (1 + Math.sqrt(1 - SIRGAS2000_ECC_SQ));
 
   const j1 = (3 * e1) / 2 - (27 * e1 ** 3) / 32;
   const j2 = (21 * e1 ** 2) / 16 - (55 * e1 ** 4) / 32;
@@ -83,12 +83,12 @@ export function utmToLonLat(input: UTMInput): LonLat {
   const cosFp = Math.cos(fp);
   const tanFp = Math.tan(fp);
 
-  const n1 = WGS84_A / Math.sqrt(1 - WGS84_ECC_SQ * sinFp ** 2);
+  const n1 = SIRGAS2000_A / Math.sqrt(1 - SIRGAS2000_ECC_SQ * sinFp ** 2);
   const t1 = tanFp ** 2;
   const c1 = eccPrimeSq * cosFp ** 2;
   const r1 =
-    (WGS84_A * (1 - WGS84_ECC_SQ)) /
-    (1 - WGS84_ECC_SQ * sinFp ** 2) ** 1.5;
+    (SIRGAS2000_A * (1 - SIRGAS2000_ECC_SQ)) /
+    (1 - SIRGAS2000_ECC_SQ * sinFp ** 2) ** 1.5;
   const d = x / (n1 * K0);
 
   const lat =
