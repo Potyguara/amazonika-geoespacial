@@ -555,7 +555,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         if (matrix) {
           const numbers = matrix[1].split(",").map(Number);
           if (numbers.length === 6 && numbers.every(Number.isFinite)) {
-            context.setTransform(...(numbers as [number, number, number, number, number, number]));
+            // Multiplica o transform do canvas pelo redimensionamento do raster.
+            // setTransform() apagava o fator de escala e podia recortar/deslocar a imagem.
+            context.transform(...(numbers as [number, number, number, number, number, number]));
           }
         } else {
           context.translate(layerCanvas.offsetLeft, layerCanvas.offsetTop);
