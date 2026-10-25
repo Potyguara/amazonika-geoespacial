@@ -8,13 +8,19 @@ from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
 from pydantic import BaseModel, Field
 from pyproj import Geod
 from shapely.geometry import shape
 
 from app.core.config import get_settings
 from app.services.auth import require_permission
+from app.services.plant_memorial import (
+    build_plant_memorial_pdf,
+    load_document_template,
+    save_document_logo,
+    save_document_template,
+)
 
 
 router = APIRouter(
@@ -215,3 +221,76 @@ def memorial_draft(payload: MemorialRequest):
         "ai_used": ai_used,
         "calculation_engine": "pyproj.Geod/GRS80",
     }
+
+
+
+class DocumentTemplateUpdate(BaseModel):
+    company_name: str | None = Field(default=None, max_length=255)
+    cnpj: str | None = Field(default=None, max_length=40)
+    address: str | None = Field(default=None, max_length=500)
+    email: str | None = Field(default=None, max_length=320)
+    responsible_name: str | None = Field(default=None, max_length=255)
+    responsible_registration: str | None = Field(default=None, max_length=120)
+    document_footer: str | None = Field(default=None, max_length=500)
+
+
+@router.get("/document-template")
+def get_document_template():
+    return load_document_template()
+
+
+@router.put(
+    "/document-template",
+    dependencies=[Depends(require_permission("users.manage"))],
+)
+def update_document_template(payload: DocumentTemplateUpdate):
+    return save_document_template(payload.model_dump(exclude_none=True))
+
+
+@router.post(
+    "/document-template/logo",
+    dependencies=[Depends(require_permission("users.manage"))],
+)
+def upload_document_logo(file: UploadFile = File(...)):
+    suffix = Path(file.filename or "").suffix.lower()
+    raw = file.file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(413, "A logomarca deve possuir no máximo 5 MB.")
+    try:
+        path = save_document_logo(raw, suffix)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"logo_path": path, "template": load_document_template()}
+
+
+@router.post("/plant-memorial/pdf")
+def plant_memorial_pdf(payload: MemorialRequest):
+    vertices, area_ha, perimeter_m = _polygon_vertices(
+        payload.geometry,
+        payload.vertex_prefix.upper(),
+    )
+    memorial = _openai_memorial(payload, vertices, area_ha, perimeter_m)
+    if memorial is None:
+        memorial = _deterministic_memorial(payload, vertices, area_ha, perimeter_m)
+
+    pdf = build_plant_memorial_pdf(
+        title=payload.title,
+        owner_name=payload.owner_name,
+        responsible_name=payload.responsible_name,
+        area_hectares=area_ha,
+        perimeter_meters=perimeter_m,
+        vertices=vertices,
+        memorial_text=memorial,
+    )
+    safe_name = "".join(
+        char if char.isalnum() or char in {"-", "_"} else "-"
+        for char in payload.title.strip()
+    ).strip("-") or "planta-memorial"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name[:80]}-planta-memorial.pdf"',
+            "Cache-Control": "no-store",
+        },
+    )
