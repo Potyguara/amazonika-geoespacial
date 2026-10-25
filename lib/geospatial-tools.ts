@@ -141,7 +141,7 @@ export function parseManualCoordinates(
         if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) {
           throw new Error("longitude/latitude fora do intervalo válido");
         }
-        return [longitude, latitude];
+        return [longitude, latitude] as LonLat;
       }
 
       if (mode === "UTM") {
