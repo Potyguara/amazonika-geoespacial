@@ -666,6 +666,42 @@ def activate_source_version(source_id:UUID,version_id:UUID,db:Session=Depends(ge
     return version
 
 
+@router.get("/{source_id}/extent")
+def source_current_extent(source_id:UUID,db:Session=Depends(get_db)):
+    """Enquadramento geográfico da versão vetorial ativa (EPSG:4674)."""
+    source=db.get(Source,source_id)
+    if not source:
+        raise HTTPException(404,"Fonte não encontrada.")
+
+    version=db.scalar(
+        select(SourceVersion).where(
+            SourceVersion.source_id==source_id,
+            SourceVersion.is_current.is_(True),
+            SourceVersion.status=="READY",
+        )
+    )
+    if not version:
+        return {"source_id":str(source_id),"feature_count":0,"bbox":None,"crs":"EPSG:4674"}
+
+    bounds=db.execute(text("""
+        WITH bounds AS (
+            SELECT ST_Extent(gf.geom)::geometry AS geom
+            FROM geo_features gf
+            WHERE gf.version_id=:version_id
+        )
+        SELECT ST_XMin(geom),ST_YMin(geom),ST_XMax(geom),ST_YMax(geom)
+        FROM bounds
+    """),{"version_id":version.id}).one()
+
+    bbox=[float(value) for value in bounds] if all(value is not None for value in bounds) else None
+    return {
+        "source_id":str(source_id),
+        "feature_count":version.feature_count,
+        "bbox":bbox,
+        "crs":"EPSG:4674",
+    }
+
+
 @router.get("/{source_id}/tiles/{uf}/{z}/{x}/{y}.pbf")
 def source_vector_tile(
     source_id:UUID,
@@ -723,16 +759,25 @@ def source_vector_tile(
     }
 
     if clean_uf != "all":
-        state_filter = """
-              AND EXISTS (
-                  SELECT 1
-                  FROM state_boundaries sb
-                  WHERE sb.uf=:uf
-                    AND gf.geom && sb.geom
-                    AND ST_Intersects(gf.geom,sb.geom)
-              )
-        """
-        params["uf"]=clean_uf.upper()
+        # A malha de UFs é uma carga estrutural independente dos pacotes.
+        # Em ambientes de homologação novos ela pode estar vazia. Nesse caso
+        # não ocultamos todos os vetores: mantemos o recorte do próprio tile.
+        with db.get_bind().connect() as connection:
+            boundary_available=connection.execute(
+                text("SELECT EXISTS (SELECT 1 FROM state_boundaries WHERE uf=:uf)"),
+                {"uf":clean_uf.upper()},
+            ).scalar_one()
+        if boundary_available:
+            state_filter = """
+                  AND EXISTS (
+                      SELECT 1
+                      FROM state_boundaries sb
+                      WHERE sb.uf=:uf
+                        AND gf.geom && sb.geom
+                        AND ST_Intersects(gf.geom,sb.geom)
+                  )
+            """
+            params["uf"]=clean_uf.upper()
 
     sql=text(f"""
         WITH tile_bounds AS (
