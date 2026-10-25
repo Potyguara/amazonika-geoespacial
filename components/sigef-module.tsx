@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getApiUrl } from "@/lib/api";
-import { Archive, CheckCircle2, Clock3, Database, FileArchive, HardDriveUpload, RefreshCw, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Archive, CheckCircle2, Clock3, Database, FileArchive, HardDriveUpload, MapPinned, RefreshCw, ShieldCheck, TriangleAlert } from "lucide-react";
 
 const API_URL = getApiUrl();
 
@@ -12,6 +12,7 @@ export type SourceVersion = { id:string; source_id:string; reference_date:string
 
 interface SigefModuleProps {
   onVersionChanged?: (version: SourceVersion) => void;
+  onShowOnMap?: (sourceId: string) => void;
 }
 
 function formatDate(value: string | null) {
@@ -28,7 +29,7 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("pt-BR").format(value);
 }
 
-export function SigefModule({ onVersionChanged }: SigefModuleProps) {
+export function SigefModule({ onVersionChanged, onShowOnMap }: SigefModuleProps) {
   const [sources, setSources] = useState<Source[]>([]);
   const [versions, setVersions] = useState<SourceVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +108,17 @@ export function SigefModule({ onVersionChanged }: SigefModuleProps) {
       <div><p className="eyebrow">GESTÃO DO ACERVO INTERNO</p><h2>Módulo SIGEF</h2><p>Controle mensal das parcelas utilizadas nas consultas de sobreposição, com histórico e rastreabilidade das cargas.</p></div>
       <Button className="sigef-refresh" onClick={()=>void load()} disabled={loading}><RefreshCw size={16} className={loading?"spin":""}/> Atualizar</Button>
     </div>
+
+    {currentVersion && sigefSource && onShowOnMap && (
+      <button
+        type="button"
+        className="sigef-view-on-map"
+        onClick={() => onShowOnMap(sigefSource.id)}
+      >
+        <MapPinned size={16} />
+        Ver parcelas importadas no mapa
+      </button>
+    )}
 
     <div className="sigef-summary">
       <article><span className="status-icon blue"><Database size={19}/></span><div><small>VERSÃO ATIVA</small><strong>{currentVersion?formatDate(currentVersion.reference_date):"Sem carga"}</strong></div></article>
