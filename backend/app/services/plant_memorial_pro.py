@@ -314,7 +314,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    plant_heading: str="PLANTA GEORREFERENCIADA",
                    memorial_heading: str="MEMORIAL DESCRITIVO",
                    professional: dict | None=None, qr_url: str | None=None,
-                   paper_format: str | None="A3",
+                   paper_format: str | None="A4",
                    scale_denominator: int | None=None) -> tuple[bytes,str,int]:
     if not raster_b64:
         raise ValueError("É obrigatória a captura raster da planta de situação.")
