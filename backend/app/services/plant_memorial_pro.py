@@ -155,7 +155,7 @@ def _short_table(pdf, parcels, projected, transformer, bounds, max_inline: int):
     pdf.roundRect(left, top-31, right-left, 29, 5, fill=1, stroke=0)
     pdf.setFillColor(WHITE)
     pdf.setFont("Helvetica-Bold", 8.2)
-    for x, header in zip(cols, ["VÉRTICE", "ESTE (m)", "NORTE (m)", "AZIMUTE", "DISTÂNCIA", "LOTE"]):
+    for x, header in zip(cols, ["QUADRO DE COORDENADAS", "ESTE (m)", "NORTE (m)", "AZIMUTE", "DISTÂNCIA", "LOTE"]):
         if x < right-30: pdf.drawString(x, top-21, header)
     ypos = top-45
     pdf.setFont("Helvetica", 8)
