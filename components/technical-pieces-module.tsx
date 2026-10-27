@@ -18,6 +18,7 @@ export type TechnicalPieceSnapshot = {
   elements?: Record<string, boolean>;
   magnetic_declination?: string;
   memorial_edited?: string;
+  generated_pdf_id?: string | null;
   situation?: Record<string, unknown> | null;
 };
 
@@ -53,6 +54,36 @@ export function TechnicalPiecesModule({ onOpen, revision = 0 }: Props) {
       setError(reason instanceof Error ? reason.message : "Erro ao abrir.");
     }
   };
+  const downloadPdf = async (pieceId: string) => {
+    setError("");
+    try {
+      const pieceResponse = await fetch(`${getApiUrl()}/technical-pieces/${pieceId}`, {
+        credentials: "include",
+      });
+      if (!pieceResponse.ok) throw new Error("Peça não encontrada.");
+      const piece = await pieceResponse.json();
+      const documentId = piece.snapshot?.generated_pdf_id;
+      if (!documentId || typeof documentId !== "string") {
+        throw new Error("Ainda não há PDF associado a este rascunho. Abra a peça e gere uma planta.");
+      }
+      const pdfResponse = await fetch(`${getApiUrl()}/tools/documents/${documentId}`, {
+        credentials: "include",
+      });
+      if (!pdfResponse.ok) throw new Error("O arquivo PDF não está mais disponível no servidor.");
+      const blob = await pdfResponse.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${String(piece.title ?? "peca-tecnica").replace(/[^\w-]/g, "-")}.pdf`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha no download.");
+    }
+  };
+
   const remove = async (id: string) => {
     if (!window.confirm("Excluir definitivamente este rascunho?")) return;
     setError("");
@@ -82,6 +113,7 @@ export function TechnicalPiecesModule({ onOpen, revision = 0 }: Props) {
             <small>Rascunho · Atualizado em {piece.updated_at ? new Date(piece.updated_at).toLocaleString("pt-BR") : "—"}</small>
           </div>
           <button className="pecas-primary" onClick={() => void open(piece.id)}>Abrir e editar</button>
+          <button className="pecas-secondary" onClick={() => void downloadPdf(piece.id)}>Baixar último PDF</button>
           <button className="pecas-secondary" onClick={() => void remove(piece.id)}>Excluir</button>
         </article>
       ))}
