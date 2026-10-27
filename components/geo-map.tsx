@@ -2044,7 +2044,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         polygonSequenceRef.current,
         ...features.map((feature) => {
           const id = String(feature.get("workPolygonId") ?? "");
-          return Number(id.match(/^POL-(\\d+)$/)?.[1] ?? 0);
+          return Number(id.match(/^POL-(\d+)$/)?.[1] ?? 0);
         }),
       );
       setSelectedPolygonIds(Array.isArray(snapshot.selected_ids) ? snapshot.selected_ids : []);
