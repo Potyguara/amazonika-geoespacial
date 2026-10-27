@@ -2307,8 +2307,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
       {basemap === "google-satellite" && (
         <aside className="geo-google-attribution" aria-label="Créditos das imagens Google">
-          <img src="https://maps.gstatic.com/mapfiles/api-3/images/google4_hdpi.png" alt="Google Maps"
-            width={80} height={26} />
+          <strong aria-label="Google Maps">Google Maps</strong>
           <span>{googleCopyright || "Google Maps — carregando créditos"}</span>
         </aside>
       )}
