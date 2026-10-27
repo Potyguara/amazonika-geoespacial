@@ -48,6 +48,7 @@ jobs:
             backend/app/services/plant_memorial_v2.py \
             backend/app/services/plant_memorial_pro.py \
             backend/app/services/plant_memorial_v3.py \
+            backend/app/services/plant_label_layout.py \
             backend/app/services/memorial_docx.py \
             backend/app/services/geospatial_export.py \
             backend/app/models/security.py \
@@ -70,3 +71,8 @@ jobs:
         env:
           PYTHONPATH: backend
         run: python -m unittest discover -s backend/tests -p 'test_plant_elements.py' -v
+
+      - name: Validate label collision resolution
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_label_layout.py' -v
