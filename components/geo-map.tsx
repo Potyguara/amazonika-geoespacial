@@ -28,6 +28,7 @@ import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "o
 import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
+import { PecasTecnicasWorkspace, type PecasData } from "@/components/pecas-tecnicas-workspace";
 import { parseManualCoordinates, type ManualCoordinateMode } from "@/lib/geospatial-tools";
 import {
   ArrowLeft,
@@ -56,6 +57,7 @@ interface GeoMapProps {
   focusRequest?: { sourceId: string; nonce: number } | null;
   incraUf: string;
   resetNonce?: number;
+  analysisId?: string | null;
   layers: Array<{
     id?: string;
     slug?: string;
@@ -212,7 +214,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -280,6 +282,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     perimeterMeters: number | null;
     vertices: number;
   }>({ areaHectares: null, perimeterMeters: null, vertices: 0 });
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [memorialLoading, setMemorialLoading] = useState(false);
   const [memorialText, setMemorialText] = useState("");
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
@@ -1870,56 +1873,77 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     }
   };
 
-  const downloadPlantMemorialPdf = async () => {
+  // Serviço PDF único para pré-visualização e download; o mapa continua montado.
+  const buildPlantMemorialPdfBlob = async (): Promise<Blob> => {
     const geometry = currentGeometryGeoJson();
-    if (!geometry) return;
-    setMemorialLoading(true);
-    try {
-      const parcels = documentParcels();
-      const { raster_b64, raster_source } = await captureMapSituation();
-      const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parcels,
-          title: memorialTitle,
-          plant_heading: plantHeading,
-          memorial_heading: memorialHeading,
-          owner_name: memorialOwner || null,
-          owner_rg: ownerRg || null,
-          owner_cpf: ownerCpf || null,
-          property_address: propertyAddress || null,
-          include_croqui_warning: croquiNote,
-          raster_b64,
-          raster_source,
-          paper_format: paperFormat,
-          orientation: paperOrientation,
-          scale_denominator: scaleChoice === "auto"
-            ? null : scaleChoice === "custom"
-              ? Number(customScale)
-              : Number(scaleChoice),
-        }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? "Não foi possível gerar o PDF.");
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${memorialTitle.trim().replace(/[^a-zA-Z0-9_-]+/g, "-") || "planta-memorial"}-planta-memorial.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setMemorialText(
-        `ERRO: ${error instanceof Error ? error.message : "Falha ao gerar PDF."}`,
-      );
-    } finally {
-      setMemorialLoading(false);
+    if (!geometry) throw new Error("Selecione um polígono válido.");
+    const parcels = documentParcels();
+    const { raster_b64, raster_source } = await captureMapSituation();
+    const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parcels,
+        title: memorialTitle,
+        plant_heading: plantHeading,
+        memorial_heading: memorialHeading,
+        owner_name: memorialOwner || null,
+        owner_rg: ownerRg || null,
+        owner_cpf: ownerCpf || null,
+        property_address: propertyAddress || null,
+        include_croqui_warning: croquiNote,
+        raster_b64,
+        raster_source,
+        paper_format: paperFormat,
+        orientation: paperOrientation,
+        scale_denominator: scaleChoice === "auto"
+          ? null : scaleChoice === "custom"
+            ? Number(customScale)
+            : Number(scaleChoice),
+      }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.detail ?? "Não foi possível gerar o PDF.");
+    }
+    return response.blob();
+  };
+
+  const downloadSigefOds = async () => {
+    if (!analysisId) throw new Error("Conclua uma análise espacial antes de exportar o ODS SIGEF.");
+    const response = await fetch(`${getApiUrl()}/analyses/${analysisId}/sigef-ods`, {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.detail ?? "Não foi possível exportar o ODS SIGEF.");
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `SIMULACAO_SIGEF_${analysisId.slice(0, 8)}.ods`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+  };
+
+  const changePecasData = (key: keyof PecasData, value: string | boolean) => {
+    switch (key) {
+      case "title": setMemorialTitle(String(value)); break;
+      case "plantHeading": setPlantHeading(String(value)); break;
+      case "memorialHeading": setMemorialHeading(String(value)); break;
+      case "owner": setMemorialOwner(String(value)); break;
+      case "rg": setOwnerRg(String(value)); break;
+      case "cpf": setOwnerCpf(String(value)); break;
+      case "address": setPropertyAddress(String(value)); break;
+      case "croqui": setCroquiNote(Boolean(value)); break;
+      case "format": setPaperFormat(value as typeof paperFormat); break;
+      case "orientation": setPaperOrientation(value as typeof paperOrientation); break;
+      case "scale": setScaleChoice(String(value)); break;
+      case "customScale": setCustomScale(String(value)); break;
     }
   };
 
@@ -2146,68 +2170,44 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       {!hideAdvancedTools && advancedPanel === "memorial" && (
         <aside className="geo-advanced-panel memorial-panel">
           <header><strong>Planta e memorial</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
-          <label><span>Título da planta</span><input value={plantHeading} onChange={(event) => setPlantHeading(event.target.value)} /></label>
-          <label><span>Título do memorial</span><input value={memorialHeading} onChange={(event) => setMemorialHeading(event.target.value)} /></label>
-          <label><span>Denominação do imóvel/lote</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
-          <label><span>Nome completo do detentor / posseiro</span><input value={memorialOwner} onChange={(event) => setMemorialOwner(event.target.value)} /></label>
-          <label><span>RG do detentor</span><input value={ownerRg} onChange={(event) => setOwnerRg(event.target.value)} /></label>
-          <label><span>CPF do detentor</span><input value={ownerCpf} onChange={(event) => setOwnerCpf(event.target.value)} /></label>
-          <label><span>Endereço/localização do imóvel/lote</span><input value={propertyAddress} onChange={(event) => setPropertyAddress(event.target.value)} /></label>
-          <small>Carimbo técnico: nome completo, RG/CPF, profissão, CREA, visto e ART são preenchidos a partir de Configurações → Meu perfil e carimbo profissional. A ART deve ser conferida em cada emissão.</small>
-          <small><strong>{selectedPolygonIds.length} polígono(s) selecionado(s)</strong>. Para escolher áreas e renomear vértices, abra a ferramenta “Polígonos” na paleta.</small>
-          <label className="work-croqui-toggle">
-            <input type="checkbox" checked={croquiNote} onChange={(event) => setCroquiNote(event.target.checked)} />
-            <span>Inserir ressalva opcional de croqui na planta e no memorial</span>
-          </label>
-          <small>Planta de situação: imagem raster capturada obrigatoriamente do mapa atual. Ajuste o enquadramento e escolha a base antes de gerar o PDF. Fontes e créditos serão registrados.</small>
-          <div className="plant-print-options">
-            <strong>Formato e escala para impressão</strong>
-            <small>Escolha como no SIGEF. A opção automática calcula a melhor escala para o papel selecionado, sem distorcer a geometria.</small>
-            <div className="plant-print-grid">
-              <label>
-                <span>Formato (série A)</span>
-                <select value={paperFormat} onChange={(event) => setPaperFormat(event.target.value as typeof paperFormat)}>
-                  {(["A4", "A3", "A2", "A1", "A0"] as const).map((format) =>
-                    <option key={format} value={format}>{format}</option>
-                  )}
-                </select>
-              </label>
-              <label>
-                <span>Escala nominal</span>
-                <select value={scaleChoice} onChange={(event) => setScaleChoice(event.target.value)}>
-                  <option value="auto">Automática para este formato</option>
-                  {["500", "1000", "1500", "2000", "2500", "5000", "10000", "25000", "50000"].map((scale) =>
-                    <option key={scale} value={scale}>1:{Number(scale).toLocaleString("pt-BR")}</option>
-                  )}
-                  <option value="custom">Outra escala...</option>
-                </select>
-              </label>
-            </div>
-            <label><span>Orientação da folha</span><select
-              value={paperOrientation}
-              onChange={(event) => setPaperOrientation(event.target.value as typeof paperOrientation)}
-            >
-              <option value="paisagem">Paisagem (deitada)</option>
-              <option value="retrato">Retrato (em pé)</option>
-            </select></label>
-            {scaleChoice === "custom" && (
-              <label>
-                <span>Denominador da escala (1:...)</span>
-                <input type="number" min="50" max="1000000" step="1"
-                  value={customScale} onChange={(event) => setCustomScale(event.target.value)} />
-              </label>
-            )}
-            <small>Se a escala não comportar a área no formato selecionado, a geração informará a escala mínima compatível. Imprima o PDF em tamanho real (100%), sem ajustar à página.</small>
-          </div>
+          <p>Elabore as peças técnicas em cinco etapas, com dados, vértices, memorial, conferência do PDF e exportações.</p>
+          <small><strong>{selectedPolygonIds.length} polígono(s) selecionado(s)</strong>. O mapa, as geometrias e os serviços atuais serão preservados.</small>
           <div className="memorial-actions">
-            <button className="geo-tool-primary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
-            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadPlantMemorialPdf()}>Gerar Planta + Memorial PDF</button>
-            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadMemorialDocx()}>Baixar memorial em Word (.docx)</button>
+            <button type="button" className="geo-tool-primary" disabled={!selectedPolygonIds.length}
+              onClick={() => { setAdvancedPanel(null); setWorkspaceOpen(true); }}>
+              Avançar — elaborar peças técnicas
+            </button>
           </div>
-          {memorialText && <textarea className="memorial-output" readOnly value={memorialText} rows={12} />}
-          <small>O PDF usa o modelo institucional salvo em Configurações, com logomarca, responsável, vértices, escala, área e perímetro.</small>
         </aside>
       )}
+
+      <PecasTecnicasWorkspace
+        open={workspaceOpen}
+        onClose={() => setWorkspaceOpen(false)}
+        data={{
+          title: memorialTitle, plantHeading, memorialHeading, owner: memorialOwner,
+          rg: ownerRg, cpf: ownerCpf, address: propertyAddress, croqui: croquiNote,
+          format: paperFormat, orientation: paperOrientation,
+          scale: scaleChoice, customScale,
+        }}
+        onDataChange={changePecasData}
+        polygons={polygons}
+        selectedIds={selectedPolygonIds}
+        onSelect={(id, checked) => setSelectedPolygonIds((current) =>
+          checked ? [...new Set([...current, id])] : current.filter((item) => item !== id)
+        )}
+        onRenamePolygon={setPolygonName}
+        onRenameVertex={renameVertex}
+        onConfrontant={(id, index, value) => updateParcelVertexData(id, index, "confrontants", value)}
+        memorialText={memorialText}
+        memorialLoading={memorialLoading}
+        onGenerateMemorial={generateMemorial}
+        onBuildPdf={buildPlantMemorialPdfBlob}
+        onDownloadDocx={downloadMemorialDocx}
+        onExportPolygon={exportIndividualPolygon}
+        onDownloadSigef={downloadSigefOds}
+        sigefAvailable={Boolean(analysisId)}
+      />
 
       {sourceRef.current.getFeatures().length > 0 && (
         <div className="geometry-metrics-card">
