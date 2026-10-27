@@ -387,11 +387,11 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
                 paragraph.drawOn(pdf,x+14,cursor-height)
                 cursor-=height+1
         panel_h=box_top-box_bottom
-        split=box_bottom+panel_h*0.53
+        split=box_bottom+panel_h*0.62
         owner_lines=[owner or "Não informado"]
         if owner_rg:owner_lines.append(f"RG: {owner_rg}")
         if owner_cpf:owner_lines.append(f"CPF: {owner_cpf}")
-        signature_group("PROPRIETÁRIO / DETENTOR",owner_lines,box_top-27, panel_h*0.42)
+        signature_group("PROPRIETÁRIO / DETENTOR",owner_lines,box_top-27, panel_h*0.30)
         rt_lines=[
             professional.get("full_name") or "Não informado",
             professional.get("profession") or "",
