@@ -103,6 +103,7 @@ class MemorialRequest(BaseModel):
     responsible_name: str | None = Field(default=None, max_length=255)
     vertex_prefix: str = Field(default="V", min_length=1, max_length=8)
     professional_override: ProfessionalDocumentOverride | None = None
+    edited_memorial: str | None = Field(default=None, max_length=100000)
     plant_elements: PlantElements = Field(default_factory=PlantElements)
     magnetic_declination_degrees: float | None = Field(default=None, ge=-30, le=30)
 
@@ -434,6 +435,7 @@ def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_use
             property_address=payload.property_address,
             professional=profile,
             include_warning=payload.include_croqui_warning,
+            edited_memorial=payload.edited_memorial,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -516,6 +518,7 @@ def plant_memorial_pdf(
             paper_format=payload.paper_format,
             scale_denominator=payload.scale_denominator,
             orientation=payload.orientation,
+            edited_memorial=payload.edited_memorial,
             plant_elements=payload.plant_elements.model_dump(),
             magnetic_declination_degrees=payload.magnetic_declination_degrees,
         )
