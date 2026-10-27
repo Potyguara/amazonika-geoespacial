@@ -45,6 +45,22 @@ class GoogleTilesTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             google_tiles.google_tiles_tile(zoom=-1, x=0, y=0, user=None)
 
+    def test_viewport_uses_documented_tile_prefix(self):
+        from unittest.mock import MagicMock
+        response = MagicMock()
+        response.read.return_value = b'{"copyright":"Imagery credit"}'
+        response.headers.get.return_value = "application/json"
+        response.__enter__.return_value = response
+        with patch.object(google_tiles, "_key", return_value="dummy"), \
+             patch.object(google_tiles, "urlopen", return_value=response) as request:
+            data, mime = google_tiles._fetch_google("viewport", {
+                "session": "placeholder", "zoom": 10,
+                "north": 1, "south": 0, "east": 1, "west": 0,
+            })
+        self.assertEqual(json.loads(data)["copyright"], "Imagery credit")
+        self.assertIn("tile.googleapis.com/tile/v1/viewport?", request.call_args.args[0].full_url)
+        self.assertEqual(mime, "application/json")
+
     def test_attribution_viewport_validation(self):
         with self.assertRaises(HTTPException):
             google_tiles.google_tiles_attribution(
