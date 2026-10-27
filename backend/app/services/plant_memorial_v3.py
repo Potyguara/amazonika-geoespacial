@@ -409,7 +409,7 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
 
 
 def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
-                  address, heading, professional, croqui, stamp):
+                  address, heading, professional, croqui, stamp, edited_memorial=None):
     w,h=A4; margin=43
     body=ParagraphStyle(
         "memorial",fontName="Helvetica",fontSize=9.4,leading=14,
@@ -454,6 +454,17 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
             next_page()
         p.drawOn(pdf,margin,y-height)
         y-=height+space
+    # Texto aprovado pelo usuário tem precedência sobre a versão automática.
+    # A edição não altera cálculos geométricos ou o carimbo da primeira folha.
+    if edited_memorial is not None:
+        for line in edited_memorial.splitlines():
+            value=line.strip()
+            if not value:
+                y-=5
+                continue
+            paragraph(value, bold=value.isupper() and len(value)<110, space=4)
+        foot()
+        return
     # Tabela compacta de identificação e metragem.
     meta=[
         f"IMÓVEL: {property_name}",
@@ -511,7 +522,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    scale_denominator: int | None=None,
                    orientation: str = "paisagem",
                    plant_elements: dict | None = None,
-                   magnetic_declination_degrees: float | None = None) -> tuple[bytes,str,int]:
+                   magnetic_declination_degrees: float | None = None,
+                   edited_memorial: str | None = None) -> tuple[bytes,str,int]:
     elements = plant_elements or {}
     enabled = lambda key: elements.get(key, True)
     if enabled("situation") and not raster_b64:
@@ -663,7 +675,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     pdf.showPage()
     _memorial_pdf(
         pdf,parcels,title,owner_name,owner_rg,owner_cpf,property_address,
-        memorial_heading,professional,croqui,stamp,
+        memorial_heading,professional,croqui,stamp,edited_memorial,
     )
     pdf.save()
     return data.getvalue(),fmt,scale
