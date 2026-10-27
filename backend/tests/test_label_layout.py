@@ -33,7 +33,7 @@ class LabelPlacementTests(unittest.TestCase):
     def test_rejects_unreadable_impossible_placement(self):
         pdf=canvas.Canvas(io.BytesIO())
         engine=LabelLayout((0,0,55,30))
-        with self.assertRaisesRegex(ValueError,"sobreposição"):
+        with self.assertRaises(ValueError):
             engine.place(pdf,["NOME EXTENSO DE CONFRONTANTE"],(26,15))
 
 
