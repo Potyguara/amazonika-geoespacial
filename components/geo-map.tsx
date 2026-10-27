@@ -327,6 +327,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   const [memorialLoading, setMemorialLoading] = useState(false);
   const [memorialText, setMemorialText] = useState("");
+  const [editedMemorial, setEditedMemorial] = useState<string | null>(null);
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
   const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
@@ -1903,6 +1904,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           property_address: propertyAddress || null,
           include_croqui_warning: croquiNote,
           professional_override: documentProfessional,
+          edited_memorial: editedMemorial,
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -1937,6 +1939,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           property_address: propertyAddress || null,
           include_croqui_warning: croquiNote,
           professional_override: documentProfessional,
+          edited_memorial: editedMemorial,
         }),
       });
       if (!response.ok) {
@@ -1986,6 +1989,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         property_address: propertyAddress || null,
         include_croqui_warning: croquiNote,
         professional_override: documentProfessional,
+        edited_memorial: editedMemorial,
         raster_b64,
         raster_source,
         paper_format: paperFormat,
@@ -2064,6 +2068,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setMagneticDeclination(String(snapshot.magnetic_declination ?? ""));
       setSituationSnapshot((snapshot.situation ?? null) as SituationSnapshot | null);
       setLoadedMemorialDraft(String(snapshot.memorial_edited ?? ""));
+      setEditedMemorial(snapshot.memorial_edited ? String(snapshot.memorial_edited) : null);
       setCurrentPieceId(restorePiece.id);
       setMemorialText("");
       emitGeometry();
@@ -2375,6 +2380,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         onExportPolygon={exportIndividualPolygon}
         onDownloadSigef={downloadSigefOds}
         onSavePiece={saveCurrentPiece}
+        onSaveMemorial={setEditedMemorial}
         loadedPieceId={currentPieceId}
         loadedMemorialDraft={loadedMemorialDraft}
         sigefAvailable={Boolean(analysisId)}
