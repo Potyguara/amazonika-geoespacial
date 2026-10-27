@@ -6,3 +6,5 @@ from app.models.auth import User, Role, Permission, UserSession
 from app.models.security import AuthorizedArea, AuditLog
 
 from app.models.report import ReportEmission
+
+from app.models.technical_piece import TechnicalPiece
