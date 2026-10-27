@@ -41,6 +41,7 @@ type Props = {
   onConfrontant: (id: string, index: number, value: string) => void;
   memorialText: string;
   memorialLoading: boolean;
+  externalError?: string | null;
   onGenerateMemorial: () => Promise<void>;
   onBuildPdf: () => Promise<Blob>;
   onDownloadDocx: () => Promise<void>;
@@ -67,7 +68,7 @@ function downloadBlob(blob: Blob, filename: string) {
 export function PecasTecnicasWorkspace({
   open, onClose, data, onDataChange, polygons, selectedIds, onSelect,
   onRenamePolygon, onRenameVertex, onConfrontant, memorialText,
-  memorialLoading, onGenerateMemorial, onBuildPdf, onDownloadDocx,
+  memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
 }: Props) {
   const [stage, setStage] = useState(0);
@@ -332,7 +333,8 @@ export function PecasTecnicasWorkspace({
                 ))}
               </div>
             ))}
-            {actionError && <p className="pecas-warning" role="alert">{actionError}</p>}
+            {(actionError || externalError) && <p className="pecas-warning" role="alert">{actionError || externalError}</p>}
+            {!pdfReady && <p className="pecas-note">O PDF precisa ser conferido novamente na etapa Planta antes da exportação.</p>}
           </div>
         )}
       </main>
