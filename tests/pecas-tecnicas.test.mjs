@@ -20,7 +20,7 @@ test("planta de situação tem captura própria e proporção fixa no PDF", asyn
   assert.match(mini, /map\.getViewport\(\)/);
   assert.match(mini, /result\.toDataURL\("image\/jpeg"/);
   assert.match(mini, /geometry_key: geoKeyRef\.current/);
-  assert.match(pdf, /frame_height=min\(available_raster_h,frame_width\*0\.75\)/);
+  assert.match(pdf, /frame_height = frame_width\*0\.75/);
   assert.match(pdf, /preserveAspectRatio=True,anchor="c"/);
 });
 
