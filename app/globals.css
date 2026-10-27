@@ -6337,3 +6337,65 @@ input {
  .pecas-footer>div { width:100%; justify-content:space-between; }
  .pecas-pdf-frame { height:52vh; }
 }
+
+/* Homologação: editor de dados com mapa lateral e controles técnicos da prancha. */
+.pecas-data-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr);
+  max-width: 1450px;
+  align-items: start;
+  gap: 16px;
+  margin: 0 auto;
+}
+.pecas-data-layout > .pecas-card { width: 100%; margin: 0; }
+.pecas-situation-pane {
+  border: 1px solid #d9e7df;
+  border-radius: 13px;
+  padding: 16px;
+  background: #fff;
+  box-shadow: 0 5px 24px #163a2110;
+  min-width: 0;
+  position: sticky;
+  top: 0;
+}
+.pecas-situation-pane h3 { color: #174b35; font-size: 16px; margin: 0 0 5px; }
+.pecas-situation-pane p { color: #66786d; font-size: 12px; margin: 4px 0 12px; }
+.pecas-situation-map {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 260px;
+  border: 1px solid #abc7b9;
+  background: #e8ede8;
+  overflow: hidden;
+  border-radius: 8px;
+  cursor: grab;
+}
+.pecas-situation-map:active { cursor: grabbing; }
+.pecas-situation-actions { display: flex; flex-wrap: wrap; gap: 5px; margin: 12px 0; }
+.pecas-situation-actions > select,
+.pecas-situation-actions > button {
+  font: 600 12px inherit; font-size: 12px;
+  border: 1px solid #cedfd3; border-radius: 6px;
+  background: #fff; color: #174b35; padding: 8px;
+  cursor: pointer;
+}
+.pecas-capture { width: 100%; }
+.pecas-rt-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 25px; }
+.pecas-rt-heading h3 { margin: 0; }
+.pecas-advanced { margin: 17px 0; border: 1px solid #c9dcd1; border-radius: 9px; background: #f8fbf8; padding: 12px 16px; }
+.pecas-advanced summary { cursor: pointer; font-weight: 750; color: #0a6142; font-size: 14px; }
+.pecas-advanced > p { margin: 12px 0; }
+.pecas-advanced > .pecas-field { margin: 14px 0; max-width: 450px; }
+.pecas-advanced > .pecas-secondary { margin-top: 15px; }
+.pecas-options-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px 16px; margin: 17px 0; }
+.pecas-options-grid .pecas-check { white-space: normal; align-items: flex-start; }
+@media (max-width: 1000px) {
+  .pecas-data-layout { grid-template-columns: minmax(0, 1fr); }
+  .pecas-situation-pane { position: static; }
+  .pecas-options-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 580px) {
+  .pecas-options-grid { grid-template-columns: 1fr; }
+  .pecas-situation-map { min-height: 215px; }
+  .pecas-rt-heading { flex-wrap: wrap; }
+}
