@@ -496,6 +496,11 @@ export function PecasTecnicasWorkspace({
           </div>
         )}
       </main>
+      {(actionError || (externalError && stage !== 4)) && (
+        <p role="alert" className="pecas-warning pecas-workspace-alert">
+          {actionError || externalError}
+        </p>
+      )}
       <footer className="pecas-footer">
         <span>{selectedIds.length} polígono(s) selecionado(s) · Etapa {stage + 1} de 5 {savedPieceNotice && "· " + savedPieceNotice}</span>
         <div>
