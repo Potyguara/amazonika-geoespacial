@@ -4,12 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import Map from "ol/Map";
 import View from "ol/View";
 import GeoJSON from "ol/format/GeoJSON";
+import Feature from "ol/Feature";
+import Point from "ol/geom/Point";
+import Polygon from "ol/geom/Polygon";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import OSM from "ol/source/OSM";
 import XYZ from "ol/source/XYZ";
-import { Fill, Stroke, Style } from "ol/style";
+import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "ol/style";
 
 export type SituationSnapshot = {
   raster_b64: string;
@@ -26,6 +29,8 @@ type Props = {
   geometryKey: string;
   saved: SituationSnapshot | null;
   onSave: (snapshot: SituationSnapshot) => void;
+  vertexNames?: string[][];
+  showVertices?: boolean;
 };
 
 const polygonStyle = new Style({
@@ -33,10 +38,12 @@ const polygonStyle = new Style({
   stroke: new Stroke({ color: "#00b782", width: 3 }),
 });
 
-export function SituationMapPreview({ geometry, geometryKey, saved, onSave }: Props) {
+export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vertexNames = [], showVertices = false }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
+  const vertexSourceRef = useRef(new VectorSource());
+  const vertexNamesKey = JSON.stringify(vertexNames);
   const [basemap, setBasemap] = useState<"osm" | "satellite">(saved?.basemap ?? "satellite");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -67,7 +74,24 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave }: Pr
     const useSaved = saved?.geometry_key === geometryKey;
     const map = new Map({
       target: container.current,
-      layers: [base, new VectorLayer({ source, style: polygonStyle })],
+      layers: [
+        base, new VectorLayer({ source, style: polygonStyle }),
+        new VectorLayer({
+          source: vertexSourceRef.current,
+          style: (feature) => new Style({
+            image: new CircleStyle({
+              radius: 4, fill: new Fill({ color: "#fff" }),
+              stroke: new Stroke({ color: "#087c50", width: 2 }),
+            }),
+            text: new TextStyle({
+              text: String(feature.get("label") ?? ""), offsetY: -13,
+              font: "700 11px sans-serif",
+              fill: new Fill({ color: "#0a5137" }),
+              stroke: new Stroke({ color: "#fff", width: 3 }),
+            }),
+          }),
+        }),
+      ],
       view: new View({
         center: useSaved && saved ? saved.center : midpoint,
         zoom: useSaved && saved ? saved.zoom : 12,
@@ -102,6 +126,25 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave }: Pr
       : new OSM({ maxZoom: 19, crossOrigin: "anonymous" });
     baseRef.current?.setSource(source);
   }, [basemap, geometryKey]);
+
+  useEffect(() => {
+    const labelsSource = vertexSourceRef.current;
+    labelsSource.clear();
+    if (!showVertices) return;
+    const features = new GeoJSON().readFeatures(geometry, {
+      dataProjection: "EPSG:4326", featureProjection: "EPSG:3857",
+    });
+    for (const [polygonIndex, feature] of features.entries()) {
+      const shape = feature.getGeometry();
+      if (!(shape instanceof Polygon)) continue;
+      for (const [index, coordinate] of (shape.getCoordinates()[0] ?? []).slice(0, -1).entries()) {
+        labelsSource.addFeature(new Feature({
+          geometry: new Point(coordinate),
+          label: vertexNames[polygonIndex]?.[index] ?? `V${index+1}`,
+        }));
+      }
+    }
+  }, [geometryKey, vertexNamesKey, showVertices]);
 
   const fit = () => {
     const map = mapRef.current;
