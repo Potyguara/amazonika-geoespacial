@@ -2193,6 +2193,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         onDataChange={changePecasData}
         polygons={polygons}
         selectedIds={selectedPolygonIds}
+        rasterKey={JSON.stringify([mapRef.current?.getView().getCenter(), mapRef.current?.getView().getZoom(), basemap])}
         onSelect={(id, checked) => setSelectedPolygonIds((current) =>
           checked ? [...new Set([...current, id])] : current.filter((item) => item !== id)
         )}
