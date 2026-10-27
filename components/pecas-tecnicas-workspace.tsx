@@ -165,7 +165,7 @@ export function PecasTecnicasWorkspace({
   });
   const pdfKey = JSON.stringify({
     commonKey, format: data.format, orientation: data.orientation,
-    scale: data.scale, customScale: data.customScale, rasterKey, elements, declination, situationKey, situationToken: situationSaved?.token,
+    scale: data.scale, customScale: data.customScale, rasterKey, elements, declination, situationKey, situationToken: situationSaved?.token, memorialRevision: memorialSaved ? editableMemorial : null,
   });
   const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
 
