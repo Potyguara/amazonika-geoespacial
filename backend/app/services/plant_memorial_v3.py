@@ -160,23 +160,30 @@ def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point, viewport, 
     pdf.setFont("Helvetica-Bold",7.0)
     distance = f"{_br_number(row['distance'],2)} m"
     azimuth = _azimuth_minutes(row["azimuth"])
-    # Distância e azimute em posições diferentes ao longo do mesmo lado.
-    # Para lados muito curtos, abrevia a fonte, mas não altera os valores.
-    for text, position, offset in ((distance,.28,9),(azimuth,.73,9)):
-        if (text == distance and not show_distance) or (text == azimuth and not show_azimuth):
-            continue
-        if stringWidth(text,"Helvetica-Bold",7) > length*.46:
-            offset += 10
-        tx = x0+dx*position+nx*offset
-        ty = y0+dy*position+ny*offset
+    # Azimute e distância juntos, em duas linhas paralelas ao segmento.
+    # A composição compacta reduz interferência com rótulos e confrontantes.
+    labels = []
+    if show_azimuth:
+        labels.append("Az. " + azimuth)
+    if show_distance:
+        labels.append("Dist. " + distance)
+    if labels:
+        font = 6.7
+        max_width = length * 0.88
+        while font > 5.5 and any(stringWidth(t, "Helvetica-Bold", font) > max_width for t in labels):
+            font -= 0.2
         pdf.saveState()
-        pdf.translate(tx,ty)
+        pdf.translate(mx + nx*10, my + ny*10)
         pdf.rotate(angle)
+        pdf.setFont("Helvetica-Bold", font)
+        widths = [stringWidth(t, "Helvetica-Bold", font) for t in labels]
+        boxw = max(widths) + 7
+        boxh = len(labels) * (font + 2) + 3
         pdf.setFillColor(colors.white)
-        ww=stringWidth(text,"Helvetica-Bold",7)
-        pdf.rect(-ww/2-2,-2,ww+4,11,fill=1,stroke=0)
+        pdf.rect(-boxw/2, -3, boxw, boxh, stroke=0, fill=1)
         pdf.setFillColor(DARK)
-        pdf.drawCentredString(0,0,text)
+        for idx, label in enumerate(labels):
+            pdf.drawCentredString(0, boxh - font - 2 - idx*(font + 2), label)
         pdf.restoreState()
     if show_confrontants and confrontant.strip():
         ctext = confrontant.strip()
