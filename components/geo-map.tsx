@@ -28,7 +28,8 @@ import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "o
 import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
-import { PecasTecnicasWorkspace, type PecasData } from "@/components/pecas-tecnicas-workspace";
+import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile } from "@/components/pecas-tecnicas-workspace";
+import type { SituationSnapshot } from "@/components/situation-map-preview";
 import { parseManualCoordinates, type ManualCoordinateMode } from "@/lib/geospatial-tools";
 import {
   ArrowLeft,
@@ -283,6 +284,41 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     vertices: number;
   }>({ areaHectares: null, perimeterMeters: null, vertices: 0 });
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [documentProfessional, setDocumentProfessional] = useState<ProfessionalDocumentProfile | null>(null);
+  const [documentProfessionalLoading, setDocumentProfessionalLoading] = useState(false);
+  const [documentProfessionalError, setDocumentProfessionalError] = useState("");
+  const documentProfessionalEdited = useRef(false);
+  const [reloadProfessional, setReloadProfessional] = useState(0);
+  const [situationSnapshot, setSituationSnapshot] = useState<SituationSnapshot | null>(null);
+  const [plantElements, setPlantElements] = useState<PlantElementFlags>({ ...DEFAULT_PLANT_ELEMENTS });
+  const [magneticDeclination, setMagneticDeclination] = useState("");
+  useEffect(() => {
+    if (!workspaceOpen) return;
+    let active = true;
+    setDocumentProfessionalLoading(true);
+    setDocumentProfessionalError("");
+    void fetch(`${getApiUrl()}/auth/me/professional-profile`, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Não foi possível consultar o cadastro do responsável técnico.");
+        return response.json();
+      })
+      .then((profile) => {
+        if (!active || documentProfessionalEdited.current) return;
+        const fields = ["full_name", "rg", "cpf", "profession", "specialization", "crea", "visto", "incra_code", "art"] as const;
+        const draft = {} as ProfessionalDocumentProfile;
+        for (const key of fields) draft[key] = String(profile[key] ?? "");
+        setDocumentProfessional(draft);
+      })
+      .catch((error) => { if (active) setDocumentProfessionalError(error instanceof Error ? error.message : "Erro ao consultar perfil técnico."); })
+      .finally(() => { if (active) setDocumentProfessionalLoading(false); });
+    return () => { active = false; };
+  }, [workspaceOpen, reloadProfessional]);
+
+  const refreshDocumentProfessional = () => {
+    documentProfessionalEdited.current = false;
+    setReloadProfessional((previous) => previous + 1);
+  };
+
   const [memorialLoading, setMemorialLoading] = useState(false);
   const [memorialText, setMemorialText] = useState("");
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
@@ -1818,6 +1854,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           owner_cpf: ownerCpf || null,
           property_address: propertyAddress || null,
           include_croqui_warning: croquiNote,
+          professional_override: documentProfessional,
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -1851,6 +1888,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           owner_cpf: ownerCpf || null,
           property_address: propertyAddress || null,
           include_croqui_warning: croquiNote,
+          professional_override: documentProfessional,
         }),
       });
       if (!response.ok) {
@@ -1878,7 +1916,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const geometry = currentGeometryGeoJson();
     if (!geometry) throw new Error("Selecione um polígono válido.");
     const parcels = documentParcels();
-    const { raster_b64, raster_source } = await captureMapSituation();
+
+    const geometryKey = JSON.stringify(new GeoJSON().writeFeaturesObject(selectedFeatures(), {
+      featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8,
+    }));
+    const capture = situationSnapshot?.geometry_key === geometryKey
+      ? situationSnapshot : await captureMapSituation();
+    const { raster_b64, raster_source } = capture;
     const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
       method: "POST",
       credentials: "include",
@@ -1893,10 +1937,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         owner_cpf: ownerCpf || null,
         property_address: propertyAddress || null,
         include_croqui_warning: croquiNote,
+        professional_override: documentProfessional,
         raster_b64,
         raster_source,
         paper_format: paperFormat,
         orientation: paperOrientation,
+        plant_elements: plantElements,
+        magnetic_declination_degrees: plantElements.magnetic_declination && magneticDeclination.trim()
+          ? Number(magneticDeclination) : null,
         scale_denominator: scaleChoice === "auto"
           ? null : scaleChoice === "custom"
             ? Number(customScale)
@@ -2193,7 +2241,29 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         onDataChange={changePecasData}
         polygons={polygons}
         selectedIds={selectedPolygonIds}
-        rasterKey={JSON.stringify([mapRef.current?.getView().getCenter(), mapRef.current?.getView().getZoom(), basemap])}
+        rtProfile={documentProfessional}
+        rtLoading={documentProfessionalLoading}
+        rtError={documentProfessionalError}
+        onRtChange={(key, value) => {
+          documentProfessionalEdited.current = true;
+          setDocumentProfessional((previous) => previous ? { ...previous, [key]: value } : previous);
+        }}
+        onRtReload={refreshDocumentProfessional}
+        situationGeometry={new GeoJSON().writeFeaturesObject(selectedFeatures(), {
+          featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8,
+        }) as unknown as Record<string, unknown>}
+        situationKey={JSON.stringify(new GeoJSON().writeFeaturesObject(selectedFeatures(), {
+          featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8,
+        }))}
+        situationSaved={situationSnapshot}
+        onSaveSituation={setSituationSnapshot}
+        elements={plantElements}
+        onToggleElement={(key: PlantElementKey, checked: boolean) =>
+          setPlantElements((previous) => ({ ...previous, [key]: checked }))
+        }
+        declination={magneticDeclination}
+        onDeclinationChange={setMagneticDeclination}
+        rasterKey={JSON.stringify([mapRef.current?.getView().getCenter(), mapRef.current?.getView().getZoom(), basemap, situationSnapshot?.token])}
         onSelect={(id, checked) => setSelectedPolygonIds((current) =>
           checked ? [...new Set([...current, id])] : current.filter((item) => item !== id)
         )}
