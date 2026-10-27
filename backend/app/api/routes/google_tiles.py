@@ -36,7 +36,9 @@ def _key() -> str:
 
 def _fetch_google(path: str, params: dict, payload: dict | None = None):
     key = _key()
-    url = "https://tile.googleapis.com/v1/" + path + "?" + urlencode({**params, "key": key})
+    # O endpoint de viewport usa /tile/v1/, diferente de createSession e 2dtiles.
+    base_path = "tile/v1" if path == "viewport" else "v1"
+    url = "https://tile.googleapis.com/" + base_path + "/" + path + "?" + urlencode({**params, "key": key})
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = Request(url, data=data, headers={"Content-Type": "application/json",
                                           "User-Agent": "Amazonika-Geoespacial/1.0"},
