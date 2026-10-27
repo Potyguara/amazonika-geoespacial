@@ -30,6 +30,7 @@ import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
 import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile } from "@/components/pecas-tecnicas-workspace";
 import type { SituationSnapshot } from "@/components/situation-map-preview";
+import type { TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
 import { parseManualCoordinates, type ManualCoordinateMode } from "@/lib/geospatial-tools";
 import {
   ArrowLeft,
@@ -59,6 +60,8 @@ interface GeoMapProps {
   incraUf: string;
   resetNonce?: number;
   analysisId?: string | null;
+  restorePiece?: { id: string; snapshot: TechnicalPieceSnapshot; nonce: number } | null;
+  onPieceSaved?: () => void;
   layers: Array<{
     id?: string;
     slug?: string;
@@ -215,7 +218,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, restorePiece = null, onPieceSaved }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -292,6 +295,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [situationSnapshot, setSituationSnapshot] = useState<SituationSnapshot | null>(null);
   const [plantElements, setPlantElements] = useState<PlantElementFlags>({ ...DEFAULT_PLANT_ELEMENTS });
   const [magneticDeclination, setMagneticDeclination] = useState("");
+  const [currentPieceId, setCurrentPieceId] = useState<string | null>(null);
+  const [loadedMemorialDraft, setLoadedMemorialDraft] = useState<string | null>(null);
+  const restoreNonceRef = useRef(0);
   useEffect(() => {
     if (!workspaceOpen) return;
     let active = true;
@@ -644,6 +650,41 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       ),
     }));
     return parcels;
+  };
+
+  const saveCurrentPiece = async (editedMemorial: string) => {
+    const features = new GeoJSON().writeFeaturesObject(polygonFeatures(), {
+      featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
+    });
+    const snapshot = {
+      features,
+      selected_ids: selectedPolygonIds,
+      data: {
+        title: memorialTitle, plantHeading, memorialHeading,
+        owner: memorialOwner, rg: ownerRg, cpf: ownerCpf,
+        address: propertyAddress, croqui: croquiNote,
+        format: paperFormat, orientation: paperOrientation,
+        scale: scaleChoice, customScale,
+      },
+      professional: documentProfessional,
+      elements: plantElements,
+      magnetic_declination: magneticDeclination,
+      memorial_edited: editedMemorial,
+      situation: situationSnapshot,
+    };
+    const url = currentPieceId
+      ? `${getApiUrl()}/technical-pieces/${currentPieceId}`
+      : `${getApiUrl()}/technical-pieces`;
+    const response = await fetch(url, {
+      method: currentPieceId ? "PUT" : "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: memorialTitle || "Imóvel sem nome", snapshot }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.detail ?? "Não foi possível salvar a peça.");
+    setCurrentPieceId(result.id);
+    onPieceSaved?.();
   };
 
   const exportIndividualPolygon = async (id: string, format: "txt" | "kml" | "shp") => {
@@ -1985,6 +2026,58 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     window.setTimeout(() => URL.revokeObjectURL(url), 3000);
   };
 
+  useEffect(() => {
+    if (!restorePiece || restorePiece.nonce === restoreNonceRef.current) return;
+    const snapshot = restorePiece.snapshot;
+    const data = snapshot.data ?? {};
+    try {
+      const features = new GeoJSON().readFeatures(snapshot.features ?? {
+        type: "FeatureCollection", features: [],
+      }, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
+      sourceRef.current.clear();
+      sourceRef.current.addFeatures(features as Feature[]);
+      polygonSequenceRef.current = Math.max(
+        polygonSequenceRef.current,
+        ...features.map((feature) => {
+          const id = String(feature.get("workPolygonId") ?? "");
+          return Number(id.match(/^POL-(\\d+)$/)?.[1] ?? 0);
+        }),
+      );
+      setSelectedPolygonIds(Array.isArray(snapshot.selected_ids) ? snapshot.selected_ids : []);
+      setMemorialTitle(String(data.title ?? "Área analisada"));
+      setPlantHeading(String(data.plantHeading ?? "PLANTA GEORREFERENCIADA"));
+      setMemorialHeading(String(data.memorialHeading ?? "MEMORIAL DESCRITIVO"));
+      setMemorialOwner(String(data.owner ?? ""));
+      setOwnerRg(String(data.rg ?? ""));
+      setOwnerCpf(String(data.cpf ?? ""));
+      setPropertyAddress(String(data.address ?? ""));
+      setCroquiNote(Boolean(data.croqui));
+      setPaperFormat((data.format as typeof paperFormat) ?? "A4");
+      setPaperOrientation((data.orientation as typeof paperOrientation) ?? "paisagem");
+      setScaleChoice(String(data.scale ?? "auto"));
+      setCustomScale(String(data.customScale ?? "1500"));
+      if (snapshot.professional) {
+        setDocumentProfessional(snapshot.professional as ProfessionalDocumentProfile);
+        documentProfessionalEdited.current = true;
+      }
+      if (snapshot.elements) setPlantElements(snapshot.elements as PlantElementFlags);
+      setMagneticDeclination(String(snapshot.magnetic_declination ?? ""));
+      setSituationSnapshot((snapshot.situation ?? null) as SituationSnapshot | null);
+      setLoadedMemorialDraft(String(snapshot.memorial_edited ?? ""));
+      setCurrentPieceId(restorePiece.id);
+      setMemorialText("");
+      emitGeometry();
+      const extent = sourceRef.current.getExtent();
+      if (extent.every(Number.isFinite)) mapRef.current?.getView().fit(extent, {
+        padding: [75, 75, 75, 75], maxZoom: 16,
+      });
+      setWorkspaceOpen(true);
+      restoreNonceRef.current = restorePiece.nonce;
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : "Não foi possível restaurar a peça.");
+    }
+  }, [restorePiece?.nonce]);
+
   const changePecasData = (key: keyof PecasData, value: string | boolean) => {
     switch (key) {
       case "title": setMemorialTitle(String(value)); break;
@@ -2281,6 +2374,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         onDownloadDocx={downloadMemorialDocx}
         onExportPolygon={exportIndividualPolygon}
         onDownloadSigef={downloadSigefOds}
+        onSavePiece={saveCurrentPiece}
+        loadedPieceId={currentPieceId}
+        loadedMemorialDraft={loadedMemorialDraft}
         sigefAvailable={Boolean(analysisId)}
       />
 
