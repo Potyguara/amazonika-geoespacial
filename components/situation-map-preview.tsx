@@ -10,7 +10,6 @@ import VectorSource from "ol/source/Vector";
 import OSM from "ol/source/OSM";
 import XYZ from "ol/source/XYZ";
 import { Fill, Stroke, Style } from "ol/style";
-import { boundingExtent } from "ol/extent";
 
 export type SituationSnapshot = {
   raster_b64: string;
