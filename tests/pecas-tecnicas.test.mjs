@@ -35,7 +35,7 @@ test("opções avançadas são enviadas ao gerador e modificam os elementos", as
   assert.match(api, /class PlantElements\(BaseModel\)/);
   assert.match(pdf, /if enabled\("grid"\)/);
   assert.match(pdf, /if enabled\("coordinates"\)/);
-  assert.match(pdf, /if not enabled\("vertex_labels"\)/);
+  assert.match(pdf, /if enabled\("vertex_labels"\)/);
 });
 
 test("pré-visualização usa blob real e invalida alterações de elementos e enquadramento", async () => {
