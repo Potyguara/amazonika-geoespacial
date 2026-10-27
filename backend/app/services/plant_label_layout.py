@@ -57,6 +57,31 @@ class LabelLayout:
         lines = [str(s) for s in lines if str(s).strip()]
         if not lines:
             return True
+        # Preserve o nome completo do confrontante, quebrando em linhas
+        # antes de tentar posicionamento ou líder de chamada.
+        max_text_width=max(40.,self.bounds.w*0.38)
+        wrapped=[]
+        for line in lines:
+            if stringWidth(line,font,minimum)<=max_text_width:
+                wrapped.append(line)
+                continue
+            words=line.split()
+            current=""
+            for word in words:
+                if stringWidth(word,font,minimum)>max_text_width:
+                    raise ValueError(
+                        "Rótulo contém palavra maior que o espaço cartográfico disponível. "
+                        "Utilize folha maior ou abreviação técnica validada."
+                    )
+                candidate=(current+" "+word).strip()
+                if current and stringWidth(candidate,font,minimum)>max_text_width:
+                    wrapped.append(current)
+                    current=word
+                else:
+                    current=candidate
+            if current:
+                wrapped.append(current)
+        lines=wrapped
         ax,ay = anchor
         if abs(angle)>90:
             angle = (angle+180)%360
