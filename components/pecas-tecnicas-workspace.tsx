@@ -35,6 +35,7 @@ type Props = {
   onDataChange: (key: keyof PecasData, value: string | boolean) => void;
   polygons: PecasPolygon[];
   selectedIds: string[];
+  rasterKey: string;
   onSelect: (id: string, checked: boolean) => void;
   onRenamePolygon: (id: string, name: string) => void;
   onRenameVertex: (id: string, index: number, name: string) => void;
@@ -66,7 +67,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function PecasTecnicasWorkspace({
-  open, onClose, data, onDataChange, polygons, selectedIds, onSelect,
+  open, onClose, data, onDataChange, polygons, selectedIds, rasterKey, onSelect,
   onRenamePolygon, onRenameVertex, onConfrontant, memorialText,
   memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
@@ -96,7 +97,7 @@ export function PecasTecnicasWorkspace({
   });
   const pdfKey = JSON.stringify({
     commonKey, format: data.format, orientation: data.orientation,
-    scale: data.scale, customScale: data.customScale,
+    scale: data.scale, customScale: data.customScale, rasterKey,
   });
   const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
 
