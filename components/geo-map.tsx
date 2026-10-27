@@ -478,6 +478,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     polygonFeatures().filter((feature) =>
       selectedPolygonIds.includes(String(feature.get("workPolygonId"))),
     );
+  // Identidade geométrica: nomes/confrontantes não invalidam o recorte escolhido.
+  const situationGeoJson = () => new GeoJSON().writeFeaturesObject(
+    selectedFeatures().map((feature) => new Feature({
+      geometry: feature.getGeometry()!.clone(),
+    })),
+    { featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8 },
+  );
 
   const setPolygonName = (id: string, name: string) => {
     const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
@@ -1917,11 +1924,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     if (!geometry) throw new Error("Selecione um polígono válido.");
     const parcels = documentParcels();
 
-    const geometryKey = JSON.stringify(new GeoJSON().writeFeaturesObject(selectedFeatures(), {
-      featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8,
-    }));
-    const capture = situationSnapshot?.geometry_key === geometryKey
-      ? situationSnapshot : await captureMapSituation();
+    const geometryKey = JSON.stringify(situationGeoJson());
+    if (situationSnapshot && situationSnapshot.geometry_key !== geometryKey) {
+      throw new Error("A geometria selecionada mudou. Volte à etapa Dados do imóvel e registre novamente o enquadramento da Planta de Situação.");
+    }
+    const capture = situationSnapshot ?? await captureMapSituation();
     const { raster_b64, raster_source } = capture;
     const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
       method: "POST",
@@ -2249,12 +2256,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           setDocumentProfessional((previous) => previous ? { ...previous, [key]: value } : previous);
         }}
         onRtReload={refreshDocumentProfessional}
-        situationGeometry={new GeoJSON().writeFeaturesObject(selectedFeatures(), {
-          featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8,
-        }) as unknown as Record<string, unknown>}
-        situationKey={JSON.stringify(new GeoJSON().writeFeaturesObject(selectedFeatures(), {
-          featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8,
-        }))}
+        situationGeometry={situationGeoJson() as unknown as Record<string, unknown>}
+        situationKey={JSON.stringify(situationGeoJson())}
         situationSaved={situationSnapshot}
         onSaveSituation={setSituationSnapshot}
         elements={plantElements}
