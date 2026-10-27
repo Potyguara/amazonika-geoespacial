@@ -1032,7 +1032,7 @@ export default function Home() {
             </div>
           )}
         </header>
-        {activeView === "map" && (
+        <div style={{ display: activeView === "map" ? "contents" : "none" }}>
           <>
             <div className="status-strip">
               <div>
@@ -1392,7 +1392,7 @@ export default function Home() {
               </section>
             </div>
           </>
-        )}
+        </div>
         {activeView === "sigef" && (
           <SigefModule
             onVersionChanged={(version) => setSigefCurrent(version)}
