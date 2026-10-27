@@ -69,8 +69,8 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave }: Pr
       target: container.current,
       layers: [base, new VectorLayer({ source, style: polygonStyle })],
       view: new View({
-        center: useSaved ? saved.center : midpoint,
-        zoom: useSaved ? saved.zoom : 12,
+        center: useSaved && saved ? saved.center : midpoint,
+        zoom: useSaved && saved ? saved.zoom : 12,
         maxZoom: 19,
       }),
       controls: [],
