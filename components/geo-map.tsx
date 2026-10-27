@@ -278,6 +278,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [manualText, setManualText] = useState("");
   const [manualError, setManualError] = useState<string | null>(null);
   const [basemap, setBasemap] = useState("osm");
+  const [googleTilesEnabled, setGoogleTilesEnabled] = useState(false);
+  const [googleCopyright, setGoogleCopyright] = useState("");
+  const [googleBasemapError, setGoogleBasemapError] = useState("");
   const [extentMessage, setExtentMessage] = useState<string | null>(null);
   const [importingVector, setImportingVector] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -1855,29 +1858,98 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     }
   };
 
-  const changeBasemap = (value: string) => {
+  useEffect(() => {
+    let active = true;
+    void fetch(`${getApiUrl()}/google-tiles/status`, { credentials: "include" })
+      .then((response) => response.ok ? response.json() : { enabled: false })
+      .then((data) => { if (active) setGoogleTilesEnabled(Boolean(data.enabled)); })
+      .catch(() => { if (active) setGoogleTilesEnabled(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (basemap !== "google-satellite") {
+      setGoogleCopyright("");
+      return;
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    const updateAttribution = () => {
+      const size = map.getSize();
+      if (!size) return;
+      const extent = map.getView().calculateExtent(size);
+      const sw = toLonLat([extent[0], extent[1]]);
+      const ne = toLonLat([extent[2], extent[3]]);
+      const south = Math.max(-89.999, Math.min(89.999, sw[1]));
+      const north = Math.max(-89.999, Math.min(89.999, ne[1]));
+      const west = Math.max(-179.999, Math.min(179.999, sw[0]));
+      const east = Math.max(-179.999, Math.min(179.999, ne[0]));
+      if (south >= north || west >= east) return;
+      controller?.abort();
+      controller = new AbortController();
+      const params = new URLSearchParams({
+        north: String(north), south: String(south),
+        east: String(east), west: String(west),
+        zoom: String(Math.max(0, Math.min(22, Math.round(map.getView().getZoom() ?? 0)))),
+      });
+      void fetch(`${getApiUrl()}/google-tiles/attribution?${params}`, {
+        credentials: "include", signal: controller.signal,
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("Atribuição indisponível");
+        return response.json();
+      }).then((data) => {
+        if (!cancelled) setGoogleCopyright(String(data.copyright ?? ""));
+      }).catch((error) => {
+        if (!cancelled && error?.name !== "AbortError") setGoogleCopyright("Atribuição temporariamente indisponível");
+      });
+    };
+    map.on("moveend", updateAttribution);
+    updateAttribution();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      map.un("moveend", updateAttribution);
+    };
+  }, [basemap]);
+
+  const changeBasemap = async (value: string) => {
     const layer = baseLayerRef.current;
     if (!layer) return;
+    setGoogleBasemapError("");
+    if (value === "google-satellite") {
+      if (!googleTilesEnabled) {
+        setGoogleBasemapError("Integração Google não habilitada na API deste ambiente.");
+        return;
+      }
+      try {
+        const response = await fetch(`${getApiUrl()}/google-tiles/session`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("Sessão Google Map Tiles indisponível. Confira a API e a chave no servidor.");
+        layer.setSource(new XYZ({
+          url: `${getApiUrl()}/google-tiles/tiles/{z}/{x}/{y}`,
+          maxZoom: 20,
+          crossOrigin: "use-credentials",
+          attributions: "Google Maps",
+        }));
+        setBasemap(value);
+      } catch (error) {
+        setGoogleBasemapError(error instanceof Error ? error.message : "Erro na conexão Google.");
+      }
+      return;
+    }
     if (value === "esri-imagery") {
-      layer.setSource(
-        new XYZ({
-          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          // Limita as consultas a um nível com cobertura mais ampla.
-          // O OpenLayers amplia o último tile quando o usuário aproxima mais.
-          maxZoom: 19,
-          crossOrigin: "anonymous",
-          attributions: "Tiles © Esri",
-        }),
-      );
+      layer.setSource(new XYZ({
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        maxZoom: 19, crossOrigin: "anonymous", attributions: "Tiles © Esri",
+      }));
     } else if (value === "esri-topo") {
-      layer.setSource(
-        new XYZ({
-          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
-          maxZoom: 19,
-          crossOrigin: "anonymous",
-          attributions: "Tiles © Esri",
-        }),
-      );
+      layer.setSource(new XYZ({
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+        maxZoom: 19, crossOrigin: "anonymous", attributions: "Tiles © Esri",
+      }));
     } else {
       layer.setSource(new OSM({ maxZoom: 19 }));
     }
@@ -2224,10 +2296,22 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <button className={basemap === "osm" ? "active" : ""} onClick={() => changeBasemap("osm")}>OpenStreetMap</button>
           <button className={basemap === "esri-imagery" ? "active" : ""} onClick={() => changeBasemap("esri-imagery")}>Esri World Imagery</button>
           <button className={basemap === "esri-topo" ? "active" : ""} onClick={() => changeBasemap("esri-topo")}>Esri World Topographic</button>
-          <small>Google Map Tiles, Azure Maps e outros provedores serão habilitados somente por conexão oficial/configurada.</small>
+          <button disabled={!googleTilesEnabled} className={basemap === "google-satellite" ? "active" : ""}
+            onClick={() => void changeBasemap("google-satellite")}>
+            Google Satélite {googleTilesEnabled ? "(visualização)" : "(aguardando configuração)"}
+          </button>
+          {googleBasemapError && <small role="alert">{googleBasemapError}</small>}
+          <small>Google Satélite é apenas para visualização online, sem captura ou exportação PDF.</small>
         </aside>
       )}
 
+      {basemap === "google-satellite" && (
+        <aside className="geo-google-attribution" aria-label="Créditos das imagens Google">
+          <img src="https://maps.gstatic.com/mapfiles/api-3/images/google4_hdpi.png" alt="Google Maps"
+            width={80} height={26} />
+          <span>{googleCopyright || "Google Maps — carregando créditos"}</span>
+        </aside>
+      )}
       {!hideAdvancedTools && advancedPanel === "polygons" && (
         <aside className="geo-advanced-panel polygons-panel">
           <header>
