@@ -44,3 +44,43 @@ test("pré-visualização usa blob real e invalida alterações de elementos e e
   assert.match(ui, /rasterKey, elements, declination, situationKey, situationToken/);
   assert.match(ui, /lastPdfKey\.current === pdfKey/);
 });
+
+test("peças técnicas persistem por usuário e podem ser reabertas", async () => {
+  const routes = await read("backend/app/api/routes/technical_pieces.py");
+  const model = await read("backend/app/models/technical_piece.py");
+  const page = await read("app/page.tsx");
+  const map = await read("components/geo-map.tsx");
+  assert.match(routes, /TechnicalPiece.user_id == user.id/);
+  assert.match(routes, /@router.post\(""/);
+  assert.match(routes, /@router.put\("\/\{piece_id\}"/);
+  assert.match(model, /__tablename__ = "technical_pieces"/);
+  assert.match(page, /Peças Técnicas/);
+  assert.match(page, /restorePiece=\{restorePiece\}/);
+  assert.match(map, /setWorkspaceOpen\(true\)/);
+});
+
+test("memorial revisado é encaminhado para DOCX e PDF", async () => {
+  const api = await read("backend/app/api/routes/tools.py");
+  const docx = await read("backend/app/services/memorial_docx.py");
+  const pdf = await read("backend/app/services/plant_memorial_v3.py");
+  const map = await read("components/geo-map.tsx");
+  assert.match(api, /edited_memorial: str \| None/);
+  assert.match(docx, /edited_memorial: str \| None/);
+  assert.match(pdf, /if edited_memorial is not None:/);
+  assert.match(map, /edited_memorial: editedMemorial/);
+});
+
+test("mapa geoespacial permanece montado ao trocar de menu", async () => {
+  const page = await read("app/page.tsx");
+  assert.match(page, /display: activeView === "map" \? "contents" : "none"/);
+  assert.match(page, /<TechnicalPiecesModule/);
+});
+
+test("quadro de assinaturas e azimutes compactos estão na prancha", async () => {
+  const pdf = await read("backend/app/services/plant_memorial_v3.py");
+  assert.match(pdf, /QUADRO DE ASSINATURAS/);
+  assert.match(pdf, /PROPRIETÁRIO \/ DETENTOR/);
+  assert.match(pdf, /RESPONSÁVEL TÉCNICO/);
+  assert.match(pdf, /Az\. " \+ azimuth/);
+  assert.match(pdf, /Dist\. " \+ distance/);
+});
