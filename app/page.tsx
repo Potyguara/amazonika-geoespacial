@@ -193,6 +193,7 @@ export default function Home() {
   );
   const [apiOnline, setApiOnline] = useState(false);
   const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [catalogOwnerId, setCatalogOwnerId] = useState<string | null>(null);
   const [subjectGeometry, setSubjectGeometry] = useState<Record<
     string,
     unknown
@@ -410,7 +411,7 @@ export default function Home() {
   }, [authUser?.id]);
 
   useEffect(() => {
-    if (!authUser || !catalogLoaded) return;
+    if (!authUser || !catalogLoaded || catalogOwnerId !== authUser.id) return;
     try {
       const flags = Object.fromEntries(catalog.map((layer,index) => [
         String(layer.id ?? layer.slug ?? layer.name), Boolean(enabled[index]),
@@ -418,7 +419,7 @@ export default function Home() {
       localStorage.setItem(`amazonika:layers:${authUser.id}`,
         JSON.stringify({ uf: incraUf, flags }));
     } catch { /* Bloqueio de armazenamento não impede funcionamento do mapa. */ }
-  }, [authUser?.id, catalogLoaded, catalog, enabled, incraUf]);
+  }, [authUser?.id, catalogLoaded, catalogOwnerId, catalog, enabled, incraUf]);
 
   const setLayerEnabled = (index: number, checked: boolean) => {
     const layer = catalog[index];
@@ -530,6 +531,7 @@ export default function Home() {
               const key = String(source.id ?? source.slug ?? source.name);
               return typeof overrides[key] === "boolean" ? overrides[key] : source.is_active;
             }));
+            setCatalogOwnerId(authUser?.id ?? null);
             setCatalogLoaded(true);
           }
           const sigef = sources.find(
