@@ -1233,6 +1233,7 @@ export default function Home() {
                   />
                 )}
                 <GeoMap
+                  analysisId={analysis?.status === "COMPLETED" ? analysis.analysis_id : null}
                   incraUf={incraUf}
                   resetNonce={analysisResetNonce}
                   hideAdvancedTools={layerManagerOpen || analysisSessionOpen}
