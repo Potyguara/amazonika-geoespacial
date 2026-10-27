@@ -81,6 +81,6 @@ test("quadro de assinaturas e azimutes compactos estão na prancha", async () =>
   assert.match(pdf, /QUADRO DE ASSINATURAS/);
   assert.match(pdf, /PROPRIETÁRIO \/ DETENTOR/);
   assert.match(pdf, /RESPONSÁVEL TÉCNICO/);
-  assert.match(pdf, /Az\. " \+ _azimuth_minutes/);
-  assert.match(pdf, /Dist\. " \+ _br_number/);
+  assert.match(pdf, /lines\.append\("Az\. "\+_azimuth_minutes/);
+  assert.match(pdf, /lines\.append\("Dist\. "\+_br_number/);
 });
