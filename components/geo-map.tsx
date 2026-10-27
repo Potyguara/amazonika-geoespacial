@@ -296,6 +296,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [plantElements, setPlantElements] = useState<PlantElementFlags>({ ...DEFAULT_PLANT_ELEMENTS });
   const [magneticDeclination, setMagneticDeclination] = useState("");
   const [currentPieceId, setCurrentPieceId] = useState<string | null>(null);
+  const [lastGeneratedPdfId, setLastGeneratedPdfId] = useState<string | null>(null);
   const [loadedMemorialDraft, setLoadedMemorialDraft] = useState<string | null>(null);
   const restoreNonceRef = useRef(0);
   useEffect(() => {
@@ -670,7 +671,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       professional: documentProfessional,
       elements: plantElements,
       magnetic_declination: magneticDeclination,
-      memorial_edited: editedMemorial,
+      memorial_edited: editedMemorial.trim() ? editedMemorial : null,
+      generated_pdf_id: lastGeneratedPdfId,
       situation: situationSnapshot,
     };
     const url = currentPieceId
@@ -2007,6 +2009,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       const payload = await response.json().catch(() => null);
       throw new Error(payload?.detail ?? "Não foi possível gerar o PDF.");
     }
+    setLastGeneratedPdfId(response.headers.get("X-Document-Id"));
     return response.blob();
   };
 
@@ -2070,6 +2073,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setLoadedMemorialDraft(String(snapshot.memorial_edited ?? ""));
       setEditedMemorial(snapshot.memorial_edited ? String(snapshot.memorial_edited) : null);
       setCurrentPieceId(restorePiece.id);
+      setLastGeneratedPdfId(typeof snapshot.generated_pdf_id === "string" ? snapshot.generated_pdf_id : null);
       setMemorialText("");
       emitGeometry();
       const extent = sourceRef.current.getExtent();
