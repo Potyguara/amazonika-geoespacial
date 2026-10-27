@@ -396,6 +396,7 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
             professional.get("full_name") or "Não informado",
             professional.get("profession") or "",
             professional.get("specialization") or "",
+            " | ".join(f"{k.upper()}: {professional[k]}" for k in ("cpf","rg") if professional.get(k)),
             " | ".join(str(professional.get(k)) for k in ("crea","visto","incra_code")
                        if professional.get(k)),
             f"ART: {professional['art']}" if professional.get("art") else "",
