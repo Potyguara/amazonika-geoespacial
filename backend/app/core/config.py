@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:4173"
     storage_dir: Path = Path("./storage/uploads")
     public_base_url: str = "http://localhost:3000"
+    google_maps_api_key: str | None = None
+    google_map_tiles_enabled: bool = False
     openai_api_key: str | None = None
     openai_model: str = "gpt-6-luna"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
