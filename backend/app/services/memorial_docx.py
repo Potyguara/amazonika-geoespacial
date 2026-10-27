@@ -52,6 +52,7 @@ def build_memorial_docx(
     *, parcels: list[Parcel], title: str, memorial_heading: str,
     owner_name: str | None, owner_rg: str | None, owner_cpf: str | None,
     property_address: str | None, professional: dict, include_warning: bool,
+    edited_memorial: str | None = None,
 ) -> bytes:
     config = load_document_template()
     doc = Document()
@@ -135,15 +136,18 @@ def build_memorial_docx(
         v.font.size = Pt(10)
         v.font.color.rgb = RGBColor(255, 255, 255)
 
-    narrative = build_joint_memorial(
-        parcels, title=title, owner=owner_name,
-        responsible=professional.get("full_name"), croqui=False,
-        owner_rg=owner_rg, owner_cpf=owner_cpf,
-        property_address=property_address,
-        memorial_heading=memorial_heading, professional=professional,
-    )
-    start = narrative.find("DESCRIÇÃO DO PERÍMETRO")
-    stop = narrative.find("________________________________________")
+    if edited_memorial is not None:
+        narrative = edited_memorial
+    else:
+        narrative = build_joint_memorial(
+            parcels, title=title, owner=owner_name,
+            responsible=professional.get("full_name"), croqui=False,
+            owner_rg=owner_rg, owner_cpf=owner_cpf,
+            property_address=property_address,
+            memorial_heading=memorial_heading, professional=professional,
+        )
+    start = narrative.find("DESCRIÇÃO DO PERÍMETRO") if edited_memorial is None else 0
+    stop = narrative.find("________________________________________") if edited_memorial is None else -1
     lines = narrative[max(0, start):stop if stop >= 0 else None].splitlines()
     for line in lines:
         line = line.strip()
