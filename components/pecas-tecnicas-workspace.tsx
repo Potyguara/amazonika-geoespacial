@@ -100,6 +100,7 @@ type Props = {
   declination: string;
   onDeclinationChange: (value: string) => void;
   onSavePiece: (memorialDraft: string) => Promise<void>;
+  onSaveMemorial: (text: string | null) => void;
   loadedMemorialDraft?: string | null;
   loadedPieceId?: string | null;
 };
@@ -127,7 +128,7 @@ export function PecasTecnicasWorkspace({
   rtProfile, rtLoading, rtError, onRtChange, onRtReload,
   situationGeometry, situationKey, situationSaved, onSaveSituation,
   elements, onToggleElement, declination, onDeclinationChange,
-  onSavePiece, loadedMemorialDraft, loadedPieceId,
+  onSavePiece, onSaveMemorial, loadedMemorialDraft, loadedPieceId,
 }: Props) {
   const [stage, setStage] = useState(0);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -379,14 +380,14 @@ export function PecasTecnicasWorkspace({
               aria-label="Memorial descritivo editável" />
             <div className="pecas-situation-actions">
               <button type="button" className="pecas-primary"
-                onClick={() => { setMemorialDirty(false); setMemorialSaved(true); }}
+                onClick={() => { onSaveMemorial(editableMemorial); setMemorialDirty(false); setMemorialSaved(true); }}
                 disabled={!editableMemorial.trim()}>Salvar alterações do rascunho</button>
               <button type="button" className="pecas-secondary"
-                onClick={() => { setMemorialDirty(false); setEditableMemorial(memorialText); setMemorialSaved(false); }}>Restaurar texto automático</button>
+                onClick={() => { onSaveMemorial(null); setMemorialDirty(false); setEditableMemorial(memorialText); setMemorialSaved(false); }}>Restaurar texto automático</button>
               <button type="button" className="pecas-secondary" disabled={memorialLoading}
-                onClick={() => { setMemorialDirty(false); void onGenerateMemorial(); }}>Regenerar memorial</button>
+                onClick={() => { onSaveMemorial(null); setMemorialDirty(false); void onGenerateMemorial(); }}>Regenerar memorial</button>
             </div>
-            {memorialSaved && <p role="status">Texto mantido no rascunho. Use “Salvar peça” para gravá-lo no servidor. A exportação documental do texto revisado ainda requer integração.</p>}
+            {memorialSaved && <p role="status">Memorial revisado aplicado às próximas exportações PDF e DOCX. Use “Salvar peça” para guardar o trabalho no servidor.</p>}
           </div>
         )}
 
@@ -491,6 +492,7 @@ export function PecasTecnicasWorkspace({
         <div>
           <button className="pecas-secondary" type="button" disabled={actionBusy}
             onClick={() => void runAction(async () => {
+              onSaveMemorial(editableMemorial);
               await onSavePiece(editableMemorial);
               setSavedPieceNotice("Rascunho salvo no servidor");
             })}>Salvar peça</button>
