@@ -56,7 +56,7 @@ def _columns(width):
     return list(zip(starts, widths))
 
 
-def _layout(projected, *, vertex_count, paper, orientation, scale):
+def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordinates=True):
     fmt = (paper or "A4").upper()
     if fmt not in PAPERS:
         raise ValueError("Formato inválido. Escolha A4, A3, A2, A1 ou A0.")
@@ -69,8 +69,8 @@ def _layout(projected, *, vertex_count, paper, orientation, scale):
     available_width = map_right - map_left
     row_h = 13 if fmt in ("A4", "A3") else 14
     title_h = 23
-    table_h = title_h + (vertex_count + 1) * row_h + 7
-    map_bottom = 42 + table_h + 13
+    table_h = title_h + (vertex_count + 1) * row_h + 7 if show_coordinates else 0
+    map_bottom = 42 + table_h + (13 if show_coordinates else 0)
     map_top = h - 88
     map_w = available_width
     map_h = map_top - map_bottom
@@ -135,7 +135,7 @@ def _cell(pdf, x, y_top, width, heading, value, max_height=40):
     return y_top-max_height
 
 
-def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point, viewport):
+def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point, viewport, *, show_azimuth=True, show_distance=True, show_confrontants=True):
     x0,y0 = p0
     x1,y1 = p1
     dx,dy = x1-x0,y1-y0
@@ -163,6 +163,8 @@ def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point, viewport):
     # Distância e azimute em posições diferentes ao longo do mesmo lado.
     # Para lados muito curtos, abrevia a fonte, mas não altera os valores.
     for text, position, offset in ((distance,.28,9),(azimuth,.73,9)):
+        if (text == distance and not show_distance) or (text == azimuth and not show_azimuth):
+            continue
         if stringWidth(text,"Helvetica-Bold",7) > length*.46:
             offset += 10
         tx = x0+dx*position+nx*offset
@@ -176,7 +178,7 @@ def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point, viewport):
         pdf.setFillColor(DARK)
         pdf.drawCentredString(0,0,text)
         pdf.restoreState()
-    if confrontant.strip():
+    if show_confrontants and confrontant.strip():
         ctext = confrontant.strip()
         if len(ctext)>45:
             ctext = ctext[:42]+"…"
@@ -290,7 +292,7 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
 
 def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
            address, area, perimeter, zone, hemi, professional, image,
-           image_source, stamp):
+           image_source, stamp, show_situation=True, show_technical_stamp=True):
     pdf.setStrokeColor(RULE);pdf.rect(x,limit,width,top-limit,stroke=1,fill=0)
     pdf.setFillColor(GREEN);pdf.rect(x,top-32,width,32,fill=1,stroke=0)
     pdf.setFillColor(colors.white);pdf.setFont("Helvetica-Bold",10)
@@ -303,12 +305,15 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
         ("LOCALIZAÇÃO",address or "Não informada"),
         ("ÁREA E PERÍMETRO",f"{_br_number(area,4)} ha  |  {_br_number(perimeter,2)} m"),
         ("DATUM / FUSO",f"SIRGAS 2000 — UTM {zone}{hemi}"),
-        ("RESPONSÁVEL TÉCNICO",professional.get("full_name") or "Não informado"),
-        ("CREA / VISTO / ART"," | ".join(
-             str(professional.get(k) or "") for k in ("crea","visto","art")
-             if professional.get(k)) or "Não informado"),
     ]
-    available=(top-32)-(limit+138)
+    if show_technical_stamp:
+        fields.extend([
+            ("RESPONSÁVEL TÉCNICO",professional.get("full_name") or "Não informado"),
+            ("CREA / VISTO / ART"," | ".join(
+                str(professional.get(k) or "") for k in ("crea","visto","art")
+                if professional.get(k)) or "Não informado"),
+        ])
+    available=(top-32)-(limit+(138 if show_situation else 30))
     heights=[]
     for heading,value in fields:
         measure=Paragraph(
@@ -324,18 +329,22 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
         )
     for (heading,value),cell_h in zip(fields,heights):
         y=_cell(pdf,x,y,width,heading,value,cell_h)
-    # Raster dentro de moldura, sem título 'raster do mapa'.
-    raster_bottom=limit+29
-    raster_h=y-raster_bottom-17
-    if raster_h<65:
-        raise ValueError("Falta espaço para a Planta de Situação; escolha papel maior.")
-    pdf.setFont("Helvetica-Bold",8)
-    pdf.setFillColor(GREEN)
-    pdf.drawString(x+8,y-12,"PLANTA DE SITUAÇÃO")
-    pdf.setStrokeColor(RULE)
-    pdf.rect(x+7,raster_bottom,width-14,raster_h,stroke=1,fill=0)
-    pdf.drawImage(image,x+10,raster_bottom+3,width-20,raster_h-6,
-                  preserveAspectRatio=True,anchor="c")
+    # Quadro 4:3 sem distorção, qualquer que seja o formato da folha.
+    if show_situation:
+        raster_bottom=limit+29
+        available_raster_h=y-raster_bottom-17
+        if available_raster_h<65:
+            raise ValueError("Falta espaço para a Planta de Situação; escolha papel maior.")
+        frame_width=width-14
+        frame_height=min(available_raster_h,frame_width*0.75)
+        frame_bottom=raster_bottom+(available_raster_h-frame_height)/2
+        pdf.setFont("Helvetica-Bold",8)
+        pdf.setFillColor(GREEN)
+        pdf.drawString(x+8,y-12,"PLANTA DE SITUAÇÃO")
+        pdf.setStrokeColor(RULE)
+        pdf.rect(x+7,frame_bottom,frame_width,frame_height,stroke=1,fill=0)
+        pdf.drawImage(image,x+10,frame_bottom+3,frame_width-6,frame_height-6,
+                      preserveAspectRatio=True,anchor="c")
     pdf.setFont("Helvetica",6.4)
     pdf.setFillColor(DARK)
     pdf.drawString(x+7,limit+16,(image_source or "Base de referência")[:47])
@@ -443,15 +452,21 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    professional: dict | None=None, qr_url: str | None=None,
                    paper_format: str | None="A4",
                    scale_denominator: int | None=None,
-                   orientation: str = "paisagem") -> tuple[bytes,str,int]:
-    if not raster_b64:
+                   orientation: str = "paisagem",
+                   plant_elements: dict | None = None,
+                   magnetic_declination_degrees: float | None = None) -> tuple[bytes,str,int]:
+    elements = plant_elements or {}
+    enabled = lambda key: elements.get(key, True)
+    if enabled("situation") and not raster_b64:
         raise ValueError("A Planta de Situação exige imagem raster capturada do mapa.")
+    if elements.get("magnetic_declination", False) and magnetic_declination_degrees is None:
+        raise ValueError("Informe a declinação magnética antes de exibi-la.")
     if not parcels:
         raise ValueError("Selecione ao menos um polígono.")
     professional=dict(professional or {})
     if responsible_name and not professional.get("full_name"):
         professional["full_name"]=responsible_name
-    raster=_raster_reader(raster_b64)
+    raster=_raster_reader(raster_b64) if raster_b64 else None
     stamp=datetime.now(ZoneInfo("America/Belem")).strftime(
         "%d/%m/%Y %H:%M:%S - Horário de Belém"
     )
@@ -471,6 +486,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     fmt,w,h,side,bounds,viewport,table_rect,scale=_layout(
         projected,vertex_count=count,paper=paper_format,
         orientation=orientation,scale=scale_denominator,
+        show_coordinates=enabled("coordinates"),
     )
     x0,y0,x1,y1=bounds
     vx,vy,vw,vh=viewport
@@ -484,14 +500,19 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     pdf.setTitle(f"{plant_heading} — {title}")
     pdf.setStrokeColor(DARK);pdf.setLineWidth(.8)
     pdf.rect(23,23,w-46,h-46,fill=0,stroke=1)
-    pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",13)
-    pdf.drawCentredString((38+side-15)/2,h-43,plant_heading[:65].upper())
-    pdf.setFillColor(DARK);pdf.setFont("Helvetica-Bold",10)
-    pdf.drawCentredString((38+side-15)/2,h-59,title[:70].upper())
+    if enabled("title"):
+        pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",13)
+        pdf.drawCentredString((38+side-15)/2,h-43,plant_heading[:65].upper())
+        pdf.setFillColor(DARK);pdf.setFont("Helvetica-Bold",10)
+        pdf.drawCentredString((38+side-15)/2,h-59,title[:70].upper())
     pdf.setStrokeColor(RULE)
     pdf.line(38,h-69,side-15,h-69)
     # Grade contida rigorosamente na moldura cartográfica.
-    _grid(pdf,viewport,bounds,xy,zone,hemi)
+    if enabled("grid"):
+        _grid(pdf,viewport,bounds,xy,zone,hemi)
+    else:
+        pdf.setStrokeColor(RULE)
+        pdf.rect(*viewport,fill=0,stroke=1)
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -516,7 +537,12 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         for i,point in enumerate(points):
             _azimuth_and_distance(pdf,point,points[(i+1)%len(points)],
                                   parcel.segments[i],parcel.confrontants[i],
-                                  (cx,cy),viewport)
+                                  (cx,cy),viewport,
+                                  show_azimuth=enabled("azimuths"),
+                                  show_distance=enabled("distances"),
+                                  show_confrontants=enabled("confrontants"))
+            if not enabled("vertex_labels"):
+                continue
             x,y=point
             pdf.saveState();_clip_rect(pdf,*viewport)
             pdf.setFont("Helvetica-Bold",7)
@@ -528,16 +554,32 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             pdf.rect(lx-2,ly-2,txtw+4,10,fill=1,stroke=0)
             pdf.setFillColor(DARK);pdf.drawString(lx,ly,label)
             pdf.restoreState()
-    # Norte permanece dentro da grade, sem invadir os rótulos externos.
-    pdf.setStrokeColor(GREEN);pdf.setLineWidth(1.5)
-    nx,ny=vx+18,vy+vh-18
-    pdf.line(nx,ny-22,nx,ny)
-    pdf.line(nx,ny,nx-5,ny-7);pdf.line(nx,ny,nx+5,ny-7)
-    pdf.setFont("Helvetica-Bold",8);pdf.drawCentredString(nx,ny+5,"N")
-    pdf.setFillColor(DARK);pdf.setFont("Helvetica",7.5)
-    pdf.drawString(vx,vy-13,f"ESCALA 1:{scale:,}  |  FOLHA {fmt} ({orientation})")
-    # Quadro de coordenadas *na mesma folha*, independente do volume.
-    _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
+    if enabled("north"):
+        pdf.setStrokeColor(GREEN);pdf.setLineWidth(1.5)
+        nx,ny=vx+18,vy+vh-18
+        pdf.line(nx,ny-22,nx,ny)
+        pdf.line(nx,ny,nx-5,ny-7);pdf.line(nx,ny,nx+5,ny-7)
+        pdf.setFont("Helvetica-Bold",8);pdf.drawCentredString(nx,ny+5,"N")
+    if enabled("scale_text"):
+        pdf.setFillColor(DARK);pdf.setFont("Helvetica",7.5)
+        pdf.drawString(vx,vy-13,f"ESCALA 1:{scale:,}  |  FOLHA {fmt} ({orientation})")
+    if elements.get("scale_bar", False):
+        bar_pt=min(vw*0.3,100)
+        bar_m=bar_pt/_pt_per_meter(scale)
+        pdf.saveState()
+        pdf.setFillColor(GREEN);pdf.setStrokeColor(GREEN)
+        pdf.rect(vx+vw-bar_pt-12,vy+8,bar_pt/2,5,stroke=1,fill=1)
+        pdf.setFillColor(colors.white)
+        pdf.rect(vx+vw-bar_pt/2-12,vy+8,bar_pt/2,5,stroke=1,fill=1)
+        pdf.setFont("Helvetica",6.5);pdf.setFillColor(DARK)
+        pdf.drawRightString(vx+vw-12,vy+17,f"{bar_m:.1f} m")
+        pdf.restoreState()
+    if elements.get("magnetic_declination", False):
+        pdf.setFont("Helvetica",6.6);pdf.setFillColor(DARK)
+        pdf.drawString(vx+4,vy+6,
+            f"Declinação magnética informada: {magnetic_declination_degrees:+.2f}°")
+    if enabled("coordinates"):
+        _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
     # Coluna direita em células separadas com situação cartográfica.
     panel_x=side+7
     _panel(
@@ -548,6 +590,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         perimeter=sum(p.perimeter for p in parcels),
         zone=zone,hemi=hemi,professional=professional,
         image=raster,image_source=raster_source,stamp=stamp,
+        show_situation=enabled("situation"),
+        show_technical_stamp=enabled("technical_stamp"),
     )
     if croqui:
         warning=Paragraph(
