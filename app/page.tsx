@@ -192,6 +192,7 @@ export default function Home() {
     fallbackLayers.map((layer) => layer.active),
   );
   const [apiOnline, setApiOnline] = useState(false);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
   const [subjectGeometry, setSubjectGeometry] = useState<Record<
     string,
     unknown
@@ -396,6 +397,29 @@ export default function Home() {
     };
   }, [authUser, locationRetryNonce]);
 
+  // Preferências de visualização são isoladas pelo ID do usuário logado.
+  // Persistimos apenas identificadores e switches, nunca credenciais.
+  useEffect(() => {
+    if (!authUser) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`amazonika:layers:${authUser.id}`) ?? "null");
+      if (saved?.uf && BRAZIL_STATES.some((state) => state.value === saved.uf)) {
+        setIncraUf(saved.uf);
+      }
+    } catch { /* Preferências locais indisponíveis; usa padrões. */ }
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!authUser || !catalogLoaded) return;
+    try {
+      const flags = Object.fromEntries(catalog.map((layer,index) => [
+        String(layer.id ?? layer.slug ?? layer.name), Boolean(enabled[index]),
+      ]));
+      localStorage.setItem(`amazonika:layers:${authUser.id}`,
+        JSON.stringify({ uf: incraUf, flags }));
+    } catch { /* Bloqueio de armazenamento não impede funcionamento do mapa. */ }
+  }, [authUser?.id, catalogLoaded, catalog, enabled, incraUf]);
+
   const setLayerEnabled = (index: number, checked: boolean) => {
     const layer = catalog[index];
     if (!layer || layerUiTransition) return;
@@ -497,7 +521,16 @@ export default function Home() {
                   : undefined,
               })),
             );
-            setEnabled(sources.map((source) => source.is_active));
+            let overrides: Record<string, boolean> = {};
+            try {
+              const prefs = JSON.parse(localStorage.getItem(`amazonika:layers:${authUser?.id}`) ?? "null");
+              if (prefs?.flags && typeof prefs.flags === "object") overrides = prefs.flags;
+            } catch { /* usa visibilidade definida pelo catálogo */ }
+            setEnabled(sources.map((source) => {
+              const key = String(source.id ?? source.slug ?? source.name);
+              return typeof overrides[key] === "boolean" ? overrides[key] : source.is_active;
+            }));
+            setCatalogLoaded(true);
           }
           const sigef = sources.find(
             (source) => source.slug === "sigef-interno",
