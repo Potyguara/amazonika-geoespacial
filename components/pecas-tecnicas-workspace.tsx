@@ -99,6 +99,9 @@ type Props = {
   onToggleElement: (key: PlantElementKey, checked: boolean) => void;
   declination: string;
   onDeclinationChange: (value: string) => void;
+  onSavePiece: (memorialDraft: string) => Promise<void>;
+  loadedMemorialDraft?: string | null;
+  loadedPieceId?: string | null;
 };
 
 const stages = ["Dados do imóvel", "Áreas e vértices", "Memorial", "Planta", "Exportar"];
@@ -124,6 +127,7 @@ export function PecasTecnicasWorkspace({
   rtProfile, rtLoading, rtError, onRtChange, onRtReload,
   situationGeometry, situationKey, situationSaved, onSaveSituation,
   elements, onToggleElement, declination, onDeclinationChange,
+  onSavePiece, loadedMemorialDraft, loadedPieceId,
 }: Props) {
   const [stage, setStage] = useState(0);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -135,6 +139,13 @@ export function PecasTecnicasWorkspace({
   const [editableMemorial, setEditableMemorial] = useState("");
   const [memorialSaved, setMemorialSaved] = useState(false);
   const [memorialDirty, setMemorialDirty] = useState(false);
+  const [savedPieceNotice, setSavedPieceNotice] = useState("");
+  useEffect(() => {
+    if (!loadedPieceId || loadedMemorialDraft == null) return;
+    setEditableMemorial(loadedMemorialDraft);
+    setMemorialDirty(true);
+    setMemorialSaved(true);
+  }, [loadedPieceId, loadedMemorialDraft]);
   const lastMemorialKey = useRef("");
   const lastPdfKey = useRef("");
   const urlRef = useRef<string | null>(null);
@@ -375,7 +386,7 @@ export function PecasTecnicasWorkspace({
               <button type="button" className="pecas-secondary" disabled={memorialLoading}
                 onClick={() => { setMemorialDirty(false); void onGenerateMemorial(); }}>Regenerar memorial</button>
             </div>
-            {memorialSaved && <p role="status">Revisão mantida nesta sessão. A exportação ainda utiliza o memorial calculado pelo servidor.</p>}
+            {memorialSaved && <p role="status">Texto mantido no rascunho. Use “Salvar peça” para gravá-lo no servidor. A exportação documental do texto revisado ainda requer integração.</p>}
           </div>
         )}
 
@@ -476,8 +487,13 @@ export function PecasTecnicasWorkspace({
         )}
       </main>
       <footer className="pecas-footer">
-        <span>{selectedIds.length} polígono(s) selecionado(s) · Etapa {stage + 1} de 5</span>
+        <span>{selectedIds.length} polígono(s) selecionado(s) · Etapa {stage + 1} de 5 {savedPieceNotice && "· " + savedPieceNotice}</span>
         <div>
+          <button className="pecas-secondary" type="button" disabled={actionBusy}
+            onClick={() => void runAction(async () => {
+              await onSavePiece(editableMemorial);
+              setSavedPieceNotice("Rascunho salvo no servidor");
+            })}>Salvar peça</button>
           <button className="pecas-secondary" type="button" onClick={() => stage === 0 ? onClose() : setStage(stage - 1)}>
             <ArrowLeft size={16} /> {stage === 0 ? "Mapa" : "Voltar"}
           </button>
