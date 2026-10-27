@@ -252,12 +252,10 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
         for (offset,col_width),value in zip(cols,row):
             if not _fit_text(pdf,value,col_width-6,
                              "Helvetica",min(font_size,7.3),FONT_MIN):
-                # Nome longo deve ser editado pelo usuário antes da emissão.
-                if offset == 0.:
-                    raise ValueError(
-                        f"Código de vértice '{value}' não cabe na tabela; "
-                        "reduza seu comprimento ou escolha papel maior."
-                    )
+                raise ValueError(
+                    f"O texto '{value}' não cabe na coluna do quadro de coordenadas "
+                    "com fonte legível. Escolha uma folha maior ou simplifique o dado."
+                )
             pdf.drawString(left+offset+3,y+3,value)
     pdf.restoreState()
 
