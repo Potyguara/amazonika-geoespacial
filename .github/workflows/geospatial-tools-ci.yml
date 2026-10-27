@@ -41,6 +41,7 @@ jobs:
           python -m py_compile \
             backend/app/api/routes/tools.py \
             backend/app/api/routes/technical_pieces.py \
+            backend/app/api/routes/google_tiles.py \
             backend/app/models/technical_piece.py \
             backend/app/api/routes/users.py \
             backend/app/api/routes/security.py \
@@ -76,3 +77,8 @@ jobs:
         env:
           PYTHONPATH: backend
         run: python -m unittest discover -s backend/tests -p 'test_label_layout.py' -v
+
+      - name: Verify Google Tiles gateway without external traffic
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_google_tiles.py' -v
