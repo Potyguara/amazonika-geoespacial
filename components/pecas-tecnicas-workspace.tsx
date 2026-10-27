@@ -146,6 +146,14 @@ export function PecasTecnicasWorkspace({
     setEditableMemorial(loadedMemorialDraft);
     setMemorialDirty(true);
     setMemorialSaved(true);
+    setStage(0);
+    setPdfBlob(null);
+    setPdfUrl(null);
+    lastPdfKey.current = "";
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
   }, [loadedPieceId, loadedMemorialDraft]);
   const lastMemorialKey = useRef("");
   const lastPdfKey = useRef("");
