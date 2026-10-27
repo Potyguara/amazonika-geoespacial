@@ -80,6 +80,10 @@ export function PecasTecnicasWorkspace({
   const lastMemorialKey = useRef("");
   const lastPdfKey = useRef("");
   const urlRef = useRef<string | null>(null);
+  const memorialCallbackRef = useRef(onGenerateMemorial);
+  const pdfCallbackRef = useRef(onBuildPdf);
+  memorialCallbackRef.current = onGenerateMemorial;
+  pdfCallbackRef.current = onBuildPdf;
 
   const chosen = polygons.filter((polygon) => selectedIds.includes(polygon.id));
   const commonKey = JSON.stringify({
@@ -93,18 +97,19 @@ export function PecasTecnicasWorkspace({
     commonKey, format: data.format, orientation: data.orientation,
     scale: data.scale, customScale: data.customScale,
   });
+  const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
 
   useEffect(() => {
     if (!open || stage !== 2 || !chosen.length || commonKey === lastMemorialKey.current) return;
     lastMemorialKey.current = commonKey;
-    void onGenerateMemorial();
-    // Callback is owned by the mounted map; regeneration is guarded by the input fingerprint.
-  }, [open, stage, commonKey]);
+    void memorialCallbackRef.current();
+  }, [open, stage, commonKey, chosen.length]);
 
   useEffect(() => {
     if (!open || stage !== 3 || !chosen.length || pdfKey === lastPdfKey.current) return;
     lastPdfKey.current = pdfKey;
     let cancelled = false;
+    let finished = false;
     setPdfBusy(true);
     setPdfError("");
     setPdfBlob(null);
@@ -115,8 +120,9 @@ export function PecasTecnicasWorkspace({
     }
     void (async () => {
       try {
-        const blob = await onBuildPdf();
+        const blob = await pdfCallbackRef.current();
         if (cancelled) return;
+        finished = true;
         const url = URL.createObjectURL(blob);
         urlRef.current = url;
         setPdfBlob(blob);
@@ -130,8 +136,11 @@ export function PecasTecnicasWorkspace({
         if (!cancelled) setPdfBusy(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [open, stage, pdfKey]);
+    return () => {
+      cancelled = true;
+      if (!finished) lastPdfKey.current = ""; // Retentativa ao retornar à etapa.
+    };
+  }, [open, stage, pdfKey, chosen.length]);
 
   useEffect(() => () => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -176,7 +185,7 @@ export function PecasTecnicasWorkspace({
           <button type="button" key={name} aria-current={index === stage ? "step" : undefined}
             className={index === stage ? "active" : index < stage ? "done" : ""}
             onClick={() => setStage(index)}
-            disabled={index > 1 && selectedIds.length === 0}
+            disabled={(index > 1 && selectedIds.length === 0) || (index === 4 && !pdfReady)}
           >
             <span className="pecas-step-number">{index < stage ? <Check size={14} /> : index + 1}</span>
             {name}
@@ -300,7 +309,7 @@ export function PecasTecnicasWorkspace({
             <h3>5. Conferência e exportação</h3>
             <p>Documentos gerados pelos serviços existentes. As exportações vetoriais são feitas individualmente por polígono.</p>
             <div className="pecas-export-grid">
-              <button disabled={!pdfBlob || actionBusy} onClick={() => { if (pdfBlob) downloadBlob(pdfBlob, `${fileSlug(data.title)}-planta-memorial.pdf`); }}>
+              <button disabled={!pdfReady || actionBusy} onClick={() => { if (pdfReady && pdfBlob) downloadBlob(pdfBlob, `${fileSlug(data.title)}-planta-memorial.pdf`); }}>
                 <Download size={17} /> Planta + Memorial (PDF)
               </button>
               <button disabled={actionBusy} onClick={() => void runAction(onDownloadDocx)}>
@@ -334,7 +343,7 @@ export function PecasTecnicasWorkspace({
             <ArrowLeft size={16} /> {stage === 0 ? "Mapa" : "Voltar"}
           </button>
           {stage < 4 && <button className="pecas-primary" type="button"
-            disabled={selectedIds.length === 0 || (stage === 3 && (!pdfBlob || pdfBusy))}
+            disabled={selectedIds.length === 0 || (stage === 3 && (!pdfReady || pdfBusy))}
             onClick={() => setStage(stage + 1)}>
             Avançar <ArrowRight size={16} />
           </button>}
