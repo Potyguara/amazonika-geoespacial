@@ -132,6 +132,9 @@ export function PecasTecnicasWorkspace({
   const [pdfError, setPdfError] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+  const [editableMemorial, setEditableMemorial] = useState("");
+  const [memorialSaved, setMemorialSaved] = useState(false);
+  const [memorialDirty, setMemorialDirty] = useState(false);
   const lastMemorialKey = useRef("");
   const lastPdfKey = useRef("");
   const urlRef = useRef<string | null>(null);
@@ -200,6 +203,12 @@ export function PecasTecnicasWorkspace({
   useEffect(() => () => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
   }, []);
+
+  useEffect(() => {
+    if (memorialDirty) return;
+    setEditableMemorial(memorialText);
+    setMemorialSaved(false);
+  }, [memorialText, memorialDirty]);
 
   if (!open) return null;
 
@@ -305,7 +314,8 @@ export function PecasTecnicasWorkspace({
         )}
 
         {stage === 1 && (
-          <div className="pecas-card">
+          <div className="pecas-data-layout">
+            <div className="pecas-card">
             <h3>2. Áreas, vértices e confrontações</h3>
             <p>Selecione as parcelas que comporão as peças. Os polígonos continuam sendo os mesmos do mapa, sem cópias ou alteração automática da geometria.</p>
             {polygons.map((polygon) => (
@@ -342,18 +352,30 @@ export function PecasTecnicasWorkspace({
               </article>
             ))}
             {!polygons.length && <p className="pecas-warning">Não há polígono no mapa. Volte ao mapa para desenhar ou importar uma área.</p>}
+            </div>
+            <SituationMapPreview geometry={situationGeometry} geometryKey={situationKey}
+              saved={situationSaved} onSave={onSaveSituation} />
           </div>
         )}
 
         {stage === 2 && (
           <div className="pecas-card pecas-large">
             <h3>3. Memorial descritivo</h3>
-            <p>O memorial é gerado automaticamente com os dados da etapa anterior. Para alterar os vértices ou confrontações, volte à etapa 2.</p>
-            {memorialLoading ? <p className="pecas-busy">Gerando memorial…</p> :
-              <textarea className="pecas-memorial" value={memorialText}
-                readOnly aria-label="Memorial descritivo gerado" />}
-            <button type="button" className="pecas-secondary" disabled={memorialLoading}
-              onClick={() => void onGenerateMemorial()}>Atualizar memorial</button>
+            <p>Edite livremente o texto e salve a revisão. A edição será mantida neste rascunho; a emissão documental será integrada após validação da persistência.</p>
+            {memorialLoading && <p className="pecas-busy">Gerando memorial…</p>}
+            <textarea className="pecas-memorial" value={editableMemorial}
+              onChange={(event) => { setEditableMemorial(event.target.value); setMemorialDirty(true); setMemorialSaved(false); }}
+              aria-label="Memorial descritivo editável" />
+            <div className="pecas-situation-actions">
+              <button type="button" className="pecas-primary"
+                onClick={() => { setMemorialDirty(false); setMemorialSaved(true); }}
+                disabled={!editableMemorial.trim()}>Salvar alterações do rascunho</button>
+              <button type="button" className="pecas-secondary"
+                onClick={() => { setMemorialDirty(false); setEditableMemorial(memorialText); setMemorialSaved(false); }}>Restaurar texto automático</button>
+              <button type="button" className="pecas-secondary" disabled={memorialLoading}
+                onClick={() => { setMemorialDirty(false); void onGenerateMemorial(); }}>Regenerar memorial</button>
+            </div>
+            {memorialSaved && <p role="status">Revisão mantida nesta sessão. A exportação ainda utiliza o memorial calculado pelo servidor.</p>}
           </div>
         )}
 
