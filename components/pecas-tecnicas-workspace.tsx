@@ -492,8 +492,8 @@ export function PecasTecnicasWorkspace({
         <div>
           <button className="pecas-secondary" type="button" disabled={actionBusy}
             onClick={() => void runAction(async () => {
-              onSaveMemorial(editableMemorial);
-              await onSavePiece(editableMemorial);
+              onSaveMemorial(editableMemorial.trim() ? editableMemorial : null);
+              await onSavePiece(editableMemorial.trim() ? editableMemorial : "");
               setSavedPieceNotice("Rascunho salvo no servidor");
             })}>Salvar peça</button>
           <button className="pecas-secondary" type="button" onClick={() => stage === 0 ? onClose() : setStage(stage - 1)}>
