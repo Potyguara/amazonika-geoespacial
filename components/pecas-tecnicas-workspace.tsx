@@ -366,7 +366,8 @@ export function PecasTecnicasWorkspace({
             {!polygons.length && <p className="pecas-warning">Não há polígono no mapa. Volte ao mapa para desenhar ou importar uma área.</p>}
             </div>
             <SituationMapPreview geometry={situationGeometry} geometryKey={situationKey}
-              saved={situationSaved} onSave={onSaveSituation} />
+              saved={situationSaved} onSave={onSaveSituation}
+              showVertices vertexNames={chosen.map((polygon) => polygon.vertices)} />
           </div>
         )}
 
