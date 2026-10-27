@@ -411,7 +411,7 @@ export function PecasTecnicasWorkspace({
                 Restaurar elementos padrão
               </button>
             </details>
-            {pdfBusy && <p className="pecas-busy">Gerando o PDF para conferência…</p>
+            {pdfBusy && <p className="pecas-busy">Gerando o PDF para conferência…</p>}
             {pdfError && <p role="alert" className="pecas-warning">{pdfError} <button type="button" onClick={() => { lastPdfKey.current = ""; setStage(2); }}>Voltar para tentar novamente</button></p>}
             {pdfUrl && !pdfBusy && (
               <iframe className="pecas-pdf-frame" title="Pré-visualização da planta e memorial"
