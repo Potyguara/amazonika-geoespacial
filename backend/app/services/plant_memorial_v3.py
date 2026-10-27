@@ -20,6 +20,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
+from app.services.plant_label_layout import LabelLayout, Box
 from app.services.plant_memorial_v2 import (
     DISCLAIMER, Parcel, _dms, _azimuth_minutes, _br_number,
     _raster_reader, build_joint_memorial,
@@ -135,111 +136,75 @@ def _cell(pdf, x, y_top, width, heading, value, max_height=40):
     return y_top-max_height
 
 
-def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point, viewport, *, show_azimuth=True, show_distance=True, show_confrontants=True):
-    x0,y0 = p0
-    x1,y1 = p1
-    dx,dy = x1-x0,y1-y0
-    length = math.hypot(dx,dy)
-    if length < 1:
-        return
-    angle = math.degrees(math.atan2(dy,dx))
-    ux,uy = dx/length,dy/length
-    nx,ny = -uy,ux
-    mx,my = (x0+x1)/2,(y0+y1)/2
-    # Texto do confrontante para o lado interno da poligonal.
-    cx,cy = inner_point
-    if (cx-mx)*nx + (cy-my)*ny < 0:
-        nx,ny = -nx,-ny
-    # Textos permanecem legíveis, sem ficar de cabeça para baixo.
-    if abs(angle) > 90:
-        angle = (angle+180) % 360
-        ux,uy = -ux,-uy
-    pdf.saveState()
-    _clip_rect(pdf,*viewport)
-    pdf.setFillColor(INK)
-    pdf.setFont("Helvetica-Bold",7.0)
-    distance = f"{_br_number(row['distance'],2)} m"
-    azimuth = _azimuth_minutes(row["azimuth"])
-    # Azimute e distância juntos, em duas linhas paralelas ao segmento.
-    # A composição compacta reduz interferência com rótulos e confrontantes.
-    labels = []
-    if show_azimuth:
-        labels.append("Az. " + azimuth)
-    if show_distance:
-        labels.append("Dist. " + distance)
-    if labels:
-        font = 6.7
-        max_width = length * 0.88
-        while font > 5.5 and any(stringWidth(t, "Helvetica-Bold", font) > max_width for t in labels):
-            font -= 0.2
-        pdf.saveState()
-        pdf.translate(mx + nx*10, my + ny*10)
-        pdf.rotate(angle)
-        pdf.setFont("Helvetica-Bold", font)
-        widths = [stringWidth(t, "Helvetica-Bold", font) for t in labels]
-        boxw = max(widths) + 7
-        boxh = len(labels) * (font + 2) + 3
-        pdf.setFillColor(colors.white)
-        pdf.rect(-boxw/2, -3, boxw, boxh, stroke=0, fill=1)
-        pdf.setFillColor(DARK)
-        for idx, label in enumerate(labels):
-            pdf.drawCentredString(0, boxh - font - 2 - idx*(font + 2), label)
-        pdf.restoreState()
+def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point,
+                          viewport, *, layout=None, show_azimuth=True,
+                          show_distance=True, show_confrontants=True):
+    x0,y0=p0
+    x1,y1=p1
+    dx,dy=x1-x0,y1-y0
+    length=math.hypot(dx,dy)
+    if length<1: return
+    angle=math.degrees(math.atan2(dy,dx))
+    nx,ny=-dy/length,dx/length
+    mx,my=(x0+x1)/2,(y0+y1)/2
+    cx,cy=inner_point
+    if (cx-mx)*nx+(cy-my)*ny>0: nx,ny=-nx,-ny
+    manager=layout if layout is not None else LabelLayout(viewport)
+    lines=[]
+    if show_azimuth: lines.append("Az. "+_azimuth_minutes(row["azimuth"]))
+    if show_distance: lines.append("Dist. "+_br_number(row["distance"],2)+" m")
+    if lines:
+        manager.place(pdf,lines,(mx,my),angle=angle,
+                      offsets=[(nx*13,ny*13),(-nx*13,-ny*13),
+                               (nx*23,ny*23),(-nx*23,-ny*23),
+                               (nx*34,ny*34),(-nx*34,-ny*34)],
+                      desired=7.1,minimum=6.0)
     if show_confrontants and confrontant.strip():
-        ctext = confrontant.strip()
-        if len(ctext)>45:
-            ctext = ctext[:42]+"…"
-        font = 7.0
-        pdf.setFont("Helvetica-Bold",font)
-        while font>5.8 and stringWidth(ctext,"Helvetica-Bold",font)>length*.95:
-            font -= .3
-        tx = mx+nx*27
-        ty = my+ny*27
-        pdf.saveState()
-        pdf.translate(tx,ty)
-        pdf.rotate(angle)
-        pdf.setFont("Helvetica-Bold",font)
-        ww=stringWidth(ctext,"Helvetica-Bold",font)
-        pdf.setFillColor(colors.white)
-        pdf.rect(-ww/2-2,-2,ww+4,font+4,fill=1,stroke=0)
-        pdf.setFillColor(GREEN)
-        pdf.drawCentredString(0,0,ctext)
-        pdf.restoreState()
-    pdf.restoreState()
+        manager.place(pdf,[confrontant.strip()],(mx,my),
+                      angle=angle,color=GREEN,
+                      offsets=[(nx*31,ny*31),(nx*45,ny*45),
+                               (-nx*31,-ny*31),(-nx*45,-ny*45)],
+                      desired=7.2,minimum=6.0)
 
 
 def _grid(pdf, viewport, bounds, xy, zone, hemi):
-    left,bottom,width,height = viewport
-    x0,y0,x1,y1 = bounds
+    left,bottom,width,height=viewport
+    x0,y0,x1,y1=bounds
     span=max(x1-x0,y1-y0,1)
     step=10**math.floor(math.log10(max(span/5,1)))
     if span/step>8: step*=2
     if span/step<3: step/=2
+    while step*abs(xy(x0+1,y0)[0]-xy(x0,y0)[0]) < 55: step*=2
     pdf.saveState()
     _clip_rect(pdf,left,bottom,width,height)
-    pdf.setStrokeColor(GRID)
-    pdf.setLineWidth(.5)
-    pdf.setFont("Helvetica",6)
-    pdf.setFillColor(GREEN)
+    pdf.setStrokeColor(GRID);pdf.setLineWidth(.5)
+    pdf.setFont("Helvetica",6.1)
+    last_x=-1e10;last_y=-1e10
     for i in range(100):
         east=math.floor(x0/step)*step+i*step
-        if east>x1+step: break
+        if east>x1+step:break
         x=xy(east,y0)[0]
-        if left<=x<=left+width:
-            pdf.line(x,bottom,x,bottom+height)
-            pdf.drawCentredString(x, bottom+6, f"{east:,.0f}")
+        if left+4<=x<=left+width-4:
+            pdf.setStrokeColor(GRID);pdf.line(x,bottom+14,x,bottom+height)
+            label=f"{east:,.0f}"
+            w=stringWidth(label,"Helvetica",6.1)
+            if x-last_x>=w+12 and x-w/2>=left+4 and x+w/2<=left+width-4:
+                pdf.setFillColor(GREEN);pdf.drawCentredString(x,bottom+4,label)
+                last_x=x
     for i in range(100):
         north=math.floor(y0/step)*step+i*step
-        if north>y1+step: break
+        if north>y1+step:break
         y=xy(x0,north)[1]
-        if bottom<=y<=bottom+height:
-            pdf.line(left,y,left+width,y)
-            pdf.drawString(left+4,y+2,f"{north:,.0f}")
+        if bottom+4<=y<=bottom+height-4:
+            pdf.setStrokeColor(GRID);pdf.line(left+48,y,left+width,y)
+            if y-last_y>=13:
+                pdf.setFillColor(GREEN);pdf.drawString(left+3,y-2,f"{north:,.0f}")
+                last_y=y
     pdf.restoreState()
-    pdf.setStrokeColor(RULE)
-    pdf.rect(left,bottom,width,height,fill=0,stroke=1)
+    pdf.setStrokeColor(RULE);pdf.rect(left,bottom,width,height,fill=0,stroke=1)
     pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",7)
-    pdf.drawString(left+4,bottom+height+5, f"GRADE UTM  |  SIRGAS 2000  |  FUSO {zone}{hemi}")
+    pdf.drawString(left+4,bottom+height+5,
+                   f"GRADE UTM  |  SIRGAS 2000  |  FUSO {zone}{hemi}")
 
 
 def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
@@ -584,6 +549,11 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     else:
         pdf.setStrokeColor(RULE)
         pdf.rect(*viewport,fill=0,stroke=1)
+    label_layout=LabelLayout(viewport)
+    label_layout.reserved.append(Box(vx,vy,50,vh))
+    label_layout.reserved.append(Box(vx,vy,vw,16))
+    if enabled("north"):
+        label_layout.reserved.append(Box(vx+7,vy+vh-55,26,48))
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -605,26 +575,19 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             pdf.setStrokeColor(DARK)
             pdf.circle(x,y,2.7,fill=1,stroke=1)
         pdf.restoreState()
+        if enabled("vertex_labels"):
+            for i,(x,y) in enumerate(points):
+                label_layout.place(pdf,[parcel.names[i]],(x,y),
+                    desired=7.2,minimum=6.0,
+                    offsets=[(12,13),(-12,13),(12,-13),(-12,-13),
+                             (22,7),(-22,7)])
         for i,point in enumerate(points):
-            _azimuth_and_distance(pdf,point,points[(i+1)%len(points)],
-                                  parcel.segments[i],parcel.confrontants[i],
-                                  (cx,cy),viewport,
-                                  show_azimuth=enabled("azimuths"),
-                                  show_distance=enabled("distances"),
-                                  show_confrontants=enabled("confrontants"))
-            if not enabled("vertex_labels"):
-                continue
-            x,y=point
-            pdf.saveState();_clip_rect(pdf,*viewport)
-            pdf.setFont("Helvetica-Bold",7)
-            label=parcel.names[i]
-            txtw=stringWidth(label,"Helvetica-Bold",7)
-            lx=max(vx+4,min(vx+vw-txtw-5,x+5))
-            ly=max(vy+5,min(vy+vh-13,y+8))
-            pdf.setFillColor(colors.white)
-            pdf.rect(lx-2,ly-2,txtw+4,10,fill=1,stroke=0)
-            pdf.setFillColor(DARK);pdf.drawString(lx,ly,label)
-            pdf.restoreState()
+            _azimuth_and_distance(
+                pdf,point,points[(i+1)%len(points)],
+                parcel.segments[i],parcel.confrontants[i],(cx,cy),viewport,
+                layout=label_layout,show_azimuth=enabled("azimuths"),
+                show_distance=enabled("distances"),
+                show_confrontants=enabled("confrontants"))
     if enabled("north"):
         pdf.setStrokeColor(GREEN);pdf.setLineWidth(1.5)
         nx,ny=vx+18,vy+vh-18
