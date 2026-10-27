@@ -143,7 +143,7 @@ class LabelLayout:
             pdf.setLineWidth(.45)
             pdf.line(ax,ay,edge_x,edge_y)
             pdf.setFillColor(colors.white)
-            pdf.circle(ax,1.3,stroke=1,fill=1)
+            pdf.circle(ax,ay,1.3,stroke=1,fill=1)
             pdf.rect(box.x,box.y,box.w,box.h,stroke=1,fill=1)
             pdf.setFillColor(color or colors.HexColor("#23342A"))
             pdf.setFont(font,size)
