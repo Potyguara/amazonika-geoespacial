@@ -2,6 +2,43 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
+import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
+
+export type ProfessionalDocumentProfile = {
+  full_name: string;
+  rg: string;
+  cpf: string;
+  profession: string;
+  specialization: string;
+  crea: string;
+  visto: string;
+  incra_code: string;
+  art: string;
+};
+
+export const PLANT_OPTIONS = [
+  ["title", "Título e identificação da planta"],
+  ["grid", "Grade UTM georreferenciada"],
+  ["north", "Seta do norte / orientação"],
+  ["scale_text", "Escala numérica (1:...)"],
+  ["scale_bar", "Escala gráfica"],
+  ["vertex_labels", "Rótulos dos vértices"],
+  ["azimuths", "Azimutes dos segmentos"],
+  ["distances", "Distâncias dos segmentos"],
+  ["confrontants", "Rótulos de confrontantes"],
+  ["coordinates", "Quadro de coordenadas"],
+  ["situation", "Planta de situação"],
+  ["technical_stamp", "Carimbo do responsável técnico"],
+  ["magnetic_declination", "Declinação magnética informada"],
+] as const;
+export type PlantElementKey = (typeof PLANT_OPTIONS)[number][0];
+export type PlantElementFlags = Record<PlantElementKey, boolean>;
+export const DEFAULT_PLANT_ELEMENTS: PlantElementFlags = {
+  title: true, grid: true, north: true, scale_text: true,
+  scale_bar: false, vertex_labels: true, azimuths: true,
+  distances: true, confrontants: true, coordinates: true,
+  situation: true, technical_stamp: true, magnetic_declination: false,
+};
 
 export type PecasPolygon = {
   id: string;
@@ -49,6 +86,19 @@ type Props = {
   onExportPolygon: (id: string, format: "txt" | "kml" | "shp") => Promise<void>;
   onDownloadSigef: () => Promise<void>;
   sigefAvailable: boolean;
+  rtProfile: ProfessionalDocumentProfile | null;
+  rtLoading: boolean;
+  rtError: string;
+  onRtChange: (key: keyof ProfessionalDocumentProfile, value: string) => void;
+  onRtReload: () => void;
+  situationGeometry: Record<string, unknown>;
+  situationKey: string;
+  situationSaved: SituationSnapshot | null;
+  onSaveSituation: (snapshot: SituationSnapshot) => void;
+  elements: PlantElementFlags;
+  onToggleElement: (key: PlantElementKey, checked: boolean) => void;
+  declination: string;
+  onDeclinationChange: (value: string) => void;
 };
 
 const stages = ["Dados do imóvel", "Áreas e vértices", "Memorial", "Planta", "Exportar"];
@@ -71,6 +121,9 @@ export function PecasTecnicasWorkspace({
   onRenamePolygon, onRenameVertex, onConfrontant, memorialText,
   memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
+  rtProfile, rtLoading, rtError, onRtChange, onRtReload,
+  situationGeometry, situationKey, situationSaved, onSaveSituation,
+  elements, onToggleElement, declination, onDeclinationChange,
 }: Props) {
   const [stage, setStage] = useState(0);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -93,11 +146,11 @@ export function PecasTecnicasWorkspace({
     polygons: chosen,
     title: data.title, plantHeading: data.plantHeading,
     memorialHeading: data.memorialHeading, owner: data.owner,
-    rg: data.rg, cpf: data.cpf, address: data.address, croqui: data.croqui,
+    rg: data.rg, cpf: data.cpf, address: data.address, croqui: data.croqui, rtProfile,
   });
   const pdfKey = JSON.stringify({
     commonKey, format: data.format, orientation: data.orientation,
-    scale: data.scale, customScale: data.customScale, rasterKey,
+    scale: data.scale, customScale: data.customScale, rasterKey, elements, declination, situationKey, situationToken: situationSaved?.token,
   });
   const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
 
@@ -196,22 +249,58 @@ export function PecasTecnicasWorkspace({
       </nav>
       <main className="pecas-main">
         {stage === 0 && (
-          <div className="pecas-card">
-            <h3>1. Identificação do imóvel</h3>
-            <p>Os dados serão utilizados no memorial e no carimbo da planta. Os dados do responsável técnico permanecem nas configurações do perfil profissional.</p>
-            <div className="pecas-form-grid">
-              {field("Denominação do imóvel ou lote", "title", "Ex.: Fazenda Boa Vista")}
-              {field("Nome completo do detentor / posseiro", "owner")}
-              {field("RG do detentor", "rg")}
-              {field("CPF do detentor", "cpf")}
-              {field("Localização / endereço do imóvel", "address")}
-              {field("Título da planta", "plantHeading")}
-              {field("Título do memorial", "memorialHeading")}
+          <div className="pecas-data-layout">
+            <div className="pecas-card">
+              <h3>1. Identificação do imóvel</h3>
+              <p>As informações abaixo compõem a planta e o memorial. As correções do responsável técnico valem somente para esta peça.</p>
+              <div className="pecas-form-grid">
+                {field("Denominação do imóvel ou lote", "title", "Ex.: Fazenda Boa Vista")}
+                {field("Nome completo do detentor / posseiro", "owner")}
+                {field("RG do detentor", "rg")}
+                {field("CPF do detentor", "cpf")}
+                {field("Localização / endereço do imóvel", "address")}
+                {field("Título da planta", "plantHeading")}
+                {field("Título do memorial", "memorialHeading")}
+              </div>
+              <label className="pecas-check">
+                <input type="checkbox" checked={data.croqui} onChange={(e) => onDataChange("croqui", e.target.checked)} />
+                Inserir ressalva opcional de croqui nos documentos
+              </label>
+              <div className="pecas-rt-heading">
+                <h3>Responsável técnico</h3>
+                <button className="pecas-secondary" type="button" onClick={onRtReload}
+                  disabled={rtLoading}>Recarregar cadastro</button>
+              </div>
+              <p>Pré-preenchido do perfil profissional. Alterações não atualizam o cadastro original.</p>
+              {rtLoading && <p>Consultando cadastro do RT…</p>}
+              {rtError && <p className="pecas-warning" role="alert">{rtError}</p>}
+              {rtProfile && (
+                <div className="pecas-form-grid">
+                  {([
+                    ["full_name", "Nome completo"],
+                    ["profession", "Título profissional"],
+                    ["specialization", "Especialização"],
+                    ["crea", "CREA / CAU"],
+                    ["visto", "Visto"],
+                    ["incra_code", "Credenciamento INCRA"],
+                    ["art", "ART específica da peça"],
+                    ["rg", "RG do RT"],
+                    ["cpf", "CPF do RT"],
+                  ] as const).map(([key, label]) => (
+                    <label className="pecas-field" key={key}>
+                      <span>{label}</span>
+                      <input value={rtProfile[key]} onChange={(e) => onRtChange(key, e.target.value)} />
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
-            <label className="pecas-check">
-              <input type="checkbox" checked={data.croqui} onChange={(e) => onDataChange("croqui", e.target.checked)} />
-              Inserir ressalva opcional de croqui nos documentos
-            </label>
+            <SituationMapPreview
+              geometry={situationGeometry}
+              geometryKey={situationKey}
+              saved={situationSaved}
+              onSave={onSaveSituation}
+            />
           </div>
         )}
 
@@ -297,7 +386,32 @@ export function PecasTecnicasWorkspace({
                   onChange={(e) => onDataChange("customScale", e.target.value)} />
               </label>}
             </div>
-            {pdfBusy && <p className="pecas-busy">Gerando o PDF para conferência…</p>}
+            <details className="pecas-advanced">
+              <summary>Configurações avançadas dos elementos da planta</summary>
+              <p>Marque os elementos que devem aparecer na prancha. As alterações atualizam o PDF de pré-visualização.</p>
+              <div className="pecas-options-grid">
+                {PLANT_OPTIONS.map(([key, label]) => (
+                  <label className="pecas-check" key={key}>
+                    <input type="checkbox" checked={elements[key]}
+                      onChange={(event) => onToggleElement(key, event.target.checked)} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              {elements.magnetic_declination && (
+                <label className="pecas-field">
+                  <span>Declinação magnética (graus decimais com sinal, informada pelo profissional)</span>
+                  <input type="number" min={-30} max={30} step="0.01"
+                    value={declination} onChange={(event) => onDeclinationChange(event.target.value)} />
+                  <small>Não é calculada automaticamente; conferir fonte e data de referência antes da emissão.</small>
+                </label>
+              )}
+              <button type="button" className="pecas-secondary"
+                onClick={() => PLANT_OPTIONS.forEach(([key]) => onToggleElement(key, DEFAULT_PLANT_ELEMENTS[key]))}>
+                Restaurar elementos padrão
+              </button>
+            </details>
+            {pdfBusy && <p className="pecas-busy">Gerando o PDF para conferência…</p>
             {pdfError && <p role="alert" className="pecas-warning">{pdfError} <button type="button" onClick={() => { lastPdfKey.current = ""; setStage(2); }}>Voltar para tentar novamente</button></p>}
             {pdfUrl && !pdfBusy && (
               <iframe className="pecas-pdf-frame" title="Pré-visualização da planta e memorial"
