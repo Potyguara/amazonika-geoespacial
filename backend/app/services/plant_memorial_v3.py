@@ -383,7 +383,8 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
                                    leading=font+1.5,alignment=1,textColor=DARK),
                 )
                 _,height=paragraph.wrap(inner_width,150)
-                if cursor-height < baseline-area_height:break
+                if cursor-height < baseline-area_height:
+                    raise ValueError("Os dados do quadro de assinaturas não cabem nesta folha. Selecione formato maior.")
                 paragraph.drawOn(pdf,x+14,cursor-height)
                 cursor-=height+1
         panel_h=box_top-box_bottom
