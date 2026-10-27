@@ -1867,7 +1867,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (error) {
-      setMemorialText(`ERRO: ${error instanceof Error ? error.message : "Falha no Word."}`);
+      throw new Error(error instanceof Error ? error.message : "Falha no Word.");
     } finally {
       setMemorialLoading(false);
     }
@@ -2201,6 +2201,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         onConfrontant={(id, index, value) => updateParcelVertexData(id, index, "confrontants", value)}
         memorialText={memorialText}
         memorialLoading={memorialLoading}
+        externalError={documentError}
         onGenerateMemorial={generateMemorial}
         onBuildPdf={buildPlantMemorialPdfBlob}
         onDownloadDocx={downloadMemorialDocx}
