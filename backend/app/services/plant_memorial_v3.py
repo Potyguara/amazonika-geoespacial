@@ -300,62 +300,112 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
 def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
            address, area, perimeter, zone, hemi, professional, image,
            image_source, stamp, show_situation=True, show_technical_stamp=True):
-    pdf.setStrokeColor(RULE);pdf.rect(x,limit,width,top-limit,stroke=1,fill=0)
-    pdf.setFillColor(GREEN);pdf.rect(x,top-32,width,32,fill=1,stroke=0)
-    pdf.setFillColor(colors.white);pdf.setFont("Helvetica-Bold",10)
-    pdf.drawCentredString(x+width/2,top-20,"IDENTIFICAÇÃO DO IMÓVEL")
-    y=top-32
-    fields=[
-        ("IMÓVEL",title),
-        ("DETENTOR/POSSEIRO",owner or "Não informado"),
-        ("CPF / RG", " | ".join(x for x in (owner_cpf,owner_rg) if x) or "Não informado"),
-        ("LOCALIZAÇÃO",address or "Não informada"),
-        ("ÁREA E PERÍMETRO",f"{_br_number(area,4)} ha  |  {_br_number(perimeter,2)} m"),
-        ("DATUM / FUSO",f"SIRGAS 2000 — UTM {zone}{hemi}"),
+    """Coluna direita: identificação, situação contígua, assinaturas em blocos."""
+    pdf.setStrokeColor(RULE)
+    pdf.rect(x, limit, width, top-limit, stroke=1, fill=0)
+    pdf.setFillColor(GREEN)
+    pdf.rect(x, top-29, width, 29, fill=1, stroke=0)
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", min(9, max(6, width/22)))
+    pdf.drawCentredString(x+width/2, top-19, "IDENTIFICAÇÃO DO IMÓVEL")
+    y = top-29
+    fields = [
+        ("IMÓVEL", title),
+        ("DETENTOR/POSSEIRO", owner or "Não informado"),
+        ("CPF / RG", " | ".join(v for v in (owner_cpf,owner_rg) if v) or "Não informado"),
+        ("LOCALIZAÇÃO", address or "Não informada"),
+        ("ÁREA E PERÍMETRO", f"{_br_number(area,4)} ha | {_br_number(perimeter,2)} m"),
+        ("DATUM / FUSO", f"SIRGAS 2000 - UTM {zone}{hemi}"),
     ]
-    if show_technical_stamp:
-        fields.extend([
-            ("RESPONSÁVEL TÉCNICO",professional.get("full_name") or "Não informado"),
-            ("CREA / VISTO / ART"," | ".join(
-                str(professional.get(k) or "") for k in ("crea","visto","art")
-                if professional.get(k)) or "Não informado"),
-        ])
-    available=(top-32)-(limit+(138 if show_situation else 30))
-    heights=[]
+    reserved = (148 if show_technical_stamp else 20) + (105 if show_situation else 0)
+    available = y - limit - reserved
+    measured = []
     for heading,value in fields:
-        measure=Paragraph(
+        paragraph = Paragraph(
             escape(str(value or "Não informado")),
-            ParagraphStyle("cellMeasure",fontName="Helvetica",fontSize=7.6,leading=9.5),
+            ParagraphStyle("panelMeasure", fontName="Helvetica", fontSize=7.2, leading=9),
         )
-        _,text_height=measure.wrap(max(35,width-15),500)
-        heights.append(max(27,text_height+19))
-    if sum(heights)>available:
-        raise ValueError(
-            "Os dados cadastrais não cabem na coluna de identificação. "
-            "Use papel maior ou reduza o texto dos campos."
-        )
-    for (heading,value),cell_h in zip(fields,heights):
-        y=_cell(pdf,x,y,width,heading,value,cell_h)
-    # Quadro 4:3 sem distorção, qualquer que seja o formato da folha.
+        _, height = paragraph.wrap(max(35,width-15),500)
+        measured.append(max(26,height+18))
+    if sum(measured) > available:
+        raise ValueError("A identificação excede a prancha. Escolha folha maior ou reduza textos.")
+    for (heading,value),cell_h in zip(fields,measured):
+        y = _cell(pdf,x,y,width,heading,value,cell_h)
+
     if show_situation:
-        raster_bottom=limit+29
-        available_raster_h=y-raster_bottom-17
-        if available_raster_h<65:
-            raise ValueError("Falta espaço para a Planta de Situação; escolha papel maior.")
-        frame_width=width-14
-        frame_height=min(available_raster_h,frame_width*0.75)
-        frame_bottom=raster_bottom+(available_raster_h-frame_height)/2
-        pdf.setFont("Helvetica-Bold",8)
+        # A moldura começa imediatamente abaixo de seu título;
+        # nunca centralizar o quadro dentro do espaço total da coluna.
+        heading_y = y-12
+        pdf.setFont("Helvetica-Bold", 8)
         pdf.setFillColor(GREEN)
-        pdf.drawString(x+8,y-12,"PLANTA DE SITUAÇÃO")
+        pdf.drawString(x+8,heading_y,"PLANTA DE SITUAÇÃO")
+        frame_top = heading_y-8
+        frame_width = width-14
+        frame_height = frame_width*0.75
+        frame_bottom = frame_top-frame_height
+        if frame_bottom < limit+(135 if show_technical_stamp else 22):
+            raise ValueError("Não há espaço para situação e assinaturas. Escolha papel maior.")
         pdf.setStrokeColor(RULE)
         pdf.rect(x+7,frame_bottom,frame_width,frame_height,stroke=1,fill=0)
-        pdf.drawImage(image,x+10,frame_bottom+3,frame_width-6,frame_height-6,
-                      preserveAspectRatio=True,anchor="c")
-    pdf.setFont("Helvetica",6.4)
+        if image is not None:
+            pdf.drawImage(image,x+10,frame_bottom+3,frame_width-6,frame_height-6,
+                          preserveAspectRatio=True,anchor="c")
+        pdf.setFont("Helvetica",5.6)
+        pdf.setFillColor(DARK)
+        pdf.drawString(x+8,frame_bottom-10,(image_source or "Base cartográfica")[:50])
+        y=frame_bottom-15
+
+    if show_technical_stamp:
+        # Assinaturas sem desenhos de assinatura ou validação digital fictícia.
+        box_top=y-5
+        box_bottom=limit+23
+        if box_top-box_bottom < 110:
+            raise ValueError("Espaço insuficiente para o quadro de assinaturas.")
+        pdf.setStrokeColor(RULE)
+        pdf.rect(x+7,box_bottom,width-14,box_top-box_bottom,stroke=1,fill=0)
+        pdf.setFont("Helvetica-Bold",8)
+        pdf.setFillColor(GREEN)
+        pdf.drawString(x+11,box_top-12,"QUADRO DE ASSINATURAS")
+        inner_width=width-28
+        def signature_group(label, lines, baseline, area_height):
+            pdf.setFont("Helvetica-Bold",6.5)
+            pdf.setFillColor(DARK)
+            pdf.drawString(x+13,baseline,label)
+            pdf.setStrokeColor(RULE)
+            pdf.line(x+13,baseline-5,x+width-13,baseline-5)
+            cursor=baseline-16
+            for index,line in enumerate(lines):
+                if not line:continue
+                font=6.7 if index==0 else 6.1
+                paragraph=Paragraph(
+                    escape(str(line)),
+                    ParagraphStyle("signature",fontName="Helvetica",fontSize=font,
+                                   leading=font+1.5,alignment=1,textColor=DARK),
+                )
+                _,height=paragraph.wrap(inner_width,150)
+                if cursor-height < baseline-area_height:break
+                paragraph.drawOn(pdf,x+14,cursor-height)
+                cursor-=height+1
+        panel_h=box_top-box_bottom
+        split=box_bottom+panel_h*0.53
+        owner_lines=[owner or "Não informado"]
+        if owner_rg:owner_lines.append(f"RG: {owner_rg}")
+        if owner_cpf:owner_lines.append(f"CPF: {owner_cpf}")
+        signature_group("PROPRIETÁRIO / DETENTOR",owner_lines,box_top-27, panel_h*0.42)
+        rt_lines=[
+            professional.get("full_name") or "Não informado",
+            professional.get("profession") or "",
+            professional.get("specialization") or "",
+            " | ".join(str(professional.get(k)) for k in ("crea","visto","incra_code")
+                       if professional.get(k)),
+            f"ART: {professional['art']}" if professional.get("art") else "",
+        ]
+        pdf.line(x+7,split,x+width-7,split)
+        signature_group("RESPONSÁVEL TÉCNICO",rt_lines,split-13,split-box_bottom-12)
+
     pdf.setFillColor(DARK)
-    pdf.drawString(x+7,limit+16,(image_source or "Base de referência")[:47])
-    pdf.drawString(x+7,limit+5,stamp[:60])
+    pdf.setFont("Helvetica",5.6)
+    pdf.drawString(x+7,limit+7,stamp[:55])
 
 
 def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
