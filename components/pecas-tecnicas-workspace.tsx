@@ -99,6 +99,8 @@ type Props = {
   onToggleElement: (key: PlantElementKey, checked: boolean) => void;
   declination: string;
   onDeclinationChange: (value: string) => void;
+  surveyDate: string;
+  onSurveyDateChange: (value: string) => void;
   onSavePiece: (memorialDraft: string) => Promise<void>;
   onSaveMemorial: (text: string | null) => void;
   loadedMemorialDraft?: string | null;
@@ -128,6 +130,7 @@ export function PecasTecnicasWorkspace({
   rtProfile, rtLoading, rtError, onRtChange, onRtReload,
   situationGeometry, situationKey, situationSaved, onSaveSituation,
   elements, onToggleElement, declination, onDeclinationChange,
+  surveyDate, onSurveyDateChange,
   onSavePiece, onSaveMemorial, loadedMemorialDraft, loadedPieceId,
 }: Props) {
   const [stage, setStage] = useState(0);
@@ -174,7 +177,7 @@ export function PecasTecnicasWorkspace({
   });
   const pdfKey = JSON.stringify({
     commonKey, format: data.format, orientation: data.orientation,
-    scale: data.scale, customScale: data.customScale, rasterKey, elements, declination, situationKey, situationToken: situationSaved?.token, memorialRevision: memorialSaved ? editableMemorial : null,
+    scale: data.scale, customScale: data.customScale, rasterKey, elements, declination, surveyDate, situationKey, situationToken: situationSaved?.token, memorialRevision: memorialSaved ? editableMemorial : null,
   });
   const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
 
@@ -453,12 +456,17 @@ export function PecasTecnicasWorkspace({
                   </label>
                 ))}
               </div>
+              <label className="pecas-field">
+                <span>Data do levantamento (opcional)</span>
+                <input type="date" value={surveyDate} onChange={(event) => onSurveyDateChange(event.target.value)} />
+                <small>Sem preenchimento: usa a data de elaboração da planta. O cálculo WMM2025 cobre 2025 a 2029.</small>
+              </label>
               {elements.magnetic_declination && (
                 <label className="pecas-field">
-                  <span>Declinação magnética (graus decimais com sinal, informada pelo profissional)</span>
+                  <span>Declinação magnética manual (graus decimais com sinal; opcional)</span>
                   <input type="number" min={-30} max={30} step="0.01"
                     value={declination} onChange={(event) => onDeclinationChange(event.target.value)} />
-                  <small>Não é calculada automaticamente; conferir fonte e data de referência antes da emissão.</small>
+                  <small>Se ficar vazio, o sistema calcula pelo modelo WMM2025 no vértice mais ao norte, usando a data de referência.</small>
                 </label>
               )}
               <button type="button" className="pecas-secondary"
