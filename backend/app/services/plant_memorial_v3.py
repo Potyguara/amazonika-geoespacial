@@ -574,12 +574,11 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         orientation_box=next((box for box in candidates
                               if box.inside(Box(*viewport),pad=0)
                               and not box.intersects(occupied,gap=3)),None)
-        if orientation_box is None:
-            raise ValueError(
-                "O quadro de orientação não cabe sem encobrir o polígono. "
-                "Use papel maior, ajuste a escala ou desative o quadro de orientação."
-            )
-        label_layout.reserved.append(orientation_box)
+        if orientation_box is not None:
+            label_layout.reserved.append(orientation_box)
+        # Quando o perímetro ocupa toda a moldura, cria-se uma folha de
+        # orientação em vez de cobrir a geometria ou perder a informação.
+        orientation_appendix = orientation_box is None
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -638,7 +637,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.drawRightString(bx+bar_pt,by-9,f"{bar_m:.1f} m")
         pdf.restoreState()
 
-    if orientation_on:
+    if orientation_on and orientation_box is not None:
         # Para cálculo da convergência, utiliza-se o ponto geográfico
         # mais ao norte (maior latitude) de todas as parcelas.
         from pyproj import Proj
@@ -736,6 +735,53 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             raise ValueError("A observação de croqui não cabe no rodapé deste formato.")
         warning.drawOn(pdf,38,40-warning_height)
     pdf.showPage()
+    if orientation_on and orientation_box is None:
+        # Prancha auxiliar de orientação, quando não cabe dentro do mapa.
+        from pyproj import Proj
+        lon,lat=max(all_vertices,key=lambda pt:pt[1])
+        gamma=float(Proj(crs).get_factors(lon,lat).meridian_convergence)
+        decl=None
+        model_source="Não informada"
+        if elements.get("magnetic_declination",False):
+            if magnetic_declination_degrees is not None:
+                decl=magnetic_declination_degrees
+                model_source="Informada pelo responsável técnico"
+            else:
+                from pygeomag import GeoMag
+                from calendar import isleap
+                days=366 if isleap(reference_dt.year) else 365
+                year=reference_dt.year+(reference_dt.timetuple().tm_yday-1)/days
+                if not 2025 <= year < 2030:
+                    raise ValueError("WMM2025 exige data de 2025 a 2029.")
+                decl=float(GeoMag(coefficients_file="wmm/WMM_2025.COF").calculate(
+                    glat=lat,glon=lon,alt=0,time=year).d)
+                model_source="WMM2025 | altitude de referência: 0 km"
+        pdf.setPageSize(A4)
+        aw,ah=A4
+        pdf.setFillColor(GREEN)
+        pdf.setFont("Helvetica-Bold",16)
+        pdf.drawCentredString(aw/2,ah-68,"ORIENTAÇÃO CARTOGRÁFICA")
+        pdf.setFillColor(DARK)
+        pdf.setFont("Helvetica",10)
+        pdf.drawCentredString(aw/2,ah-93,f"Referência: SIRGAS 2000 | {reference_dt.strftime('%d/%m/%Y')}")
+        center_x,center_y=aw/2,ah/2-20
+        pdf.setStrokeColor(GREEN);pdf.setLineWidth(1.5)
+        for angle,length in [(0,150),(gamma,142)]+([(decl,132)] if decl is not None else []):
+            angle_rad=math.radians(angle)
+            ex=center_x+math.sin(angle_rad)*length
+            ey=center_y+math.cos(angle_rad)*length
+            pdf.line(center_x,center_y,ex,ey)
+        pdf.setFillColor(DARK);pdf.setFont("Helvetica",10)
+        for i,line in enumerate([
+            f"NG - Norte Geográfico | NQ - Norte da Quadrícula | NM - Norte Magnético",
+            f"Ponto mais ao norte: latitude {lat:+.8f}°, longitude {lon:+.8f}°",
+            f"Convergência meridiana: {gamma:+.6f}°",
+            f"Declinação magnética: {decl:+.6f}°" if decl is not None else
+                "Declinação magnética: não selecionada",
+            f"Fonte: {model_source}",
+        ]):
+            pdf.drawCentredString(aw/2,175-i*20,line)
+        pdf.showPage()
     _memorial_pdf(
         pdf,parcels,title,owner_name,owner_rg,owner_cpf,property_address,
         memorial_heading,professional,croqui,stamp,edited_memorial,
