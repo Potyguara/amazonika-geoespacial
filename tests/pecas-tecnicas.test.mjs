@@ -119,3 +119,12 @@ test("cálculo WMM2025 usa data de referência e vértice mais ao norte", async 
   assert.match(api, /survey_date/);
   assert.match(workspace, /type="date"/);
 });
+
+test("rosa dos ventos e declinação compartilham a faixa superior da primeira prancha", async () => {
+  const pdf = await read("backend/app/services/plant_memorial_v3.py");
+  assert.match(pdf, /panel_frame\(left_x,"ROSA DOS VENTOS"\)/);
+  assert.match(pdf, /panel_frame\(right_x,"DECLINAÇÃO MAGNÉTICA"\)/);
+  assert.match(pdf, /panel_h=79\./);
+  assert.match(pdf, /map_top = h - 172/);
+  assert.doesNotMatch(pdf, /if orientation_on and orientation_box is None:/);
+});
