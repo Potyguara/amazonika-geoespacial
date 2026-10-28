@@ -634,7 +634,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.drawCentredString(ox+ow/2,oy+oh-11,"ORIENTAÇÃO")
         pdf.setFont("Helvetica",5.7)
         pdf.setFillColor(DARK)
-        pdf.drawCentredString(ox+ow/2,oy+oh-21,"SIRGAS 2000 | Ponto mais ao norte")
+        pdf.drawCentredString(ox+ow/2,oy+oh-21,
+            "SIRGAS 2000 | "+datetime.now(ZoneInfo("America/Belem")).strftime("%d/%m/%Y"))
         def angle_arrow(base_x,base_y,degrees,length,label):
             radians=math.radians(degrees)
             tip_x=base_x+math.sin(radians)*length
