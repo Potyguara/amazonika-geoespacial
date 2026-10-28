@@ -106,6 +106,7 @@ class MemorialRequest(BaseModel):
     edited_memorial: str | None = Field(default=None, max_length=100000)
     plant_elements: PlantElements = Field(default_factory=PlantElements)
     magnetic_declination_degrees: float | None = Field(default=None, ge=-30, le=30)
+    survey_date: str | None = Field(default=None, pattern=r"^\\d{4}-\\d{2}-\\d{2}$")
 
 
 def _format_dms(value: float, axis: str) -> str:
@@ -521,6 +522,7 @@ def plant_memorial_pdf(
             edited_memorial=payload.edited_memorial,
             plant_elements=payload.plant_elements.model_dump(),
             magnetic_declination_degrees=payload.magnetic_declination_degrees,
+            survey_date=payload.survey_date,
         )
         folder = _generated_documents_dir()
         stem = document_id.hex
