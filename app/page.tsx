@@ -25,6 +25,8 @@ import {
   Database,
   Eye,
   EyeOff,
+  ChevronDown,
+  ChevronUp,
   FileSearch,
   FileText,
   Layers3,
@@ -35,7 +37,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Search,
   ScanSearch,
   Settings,
   ShieldCheck,
@@ -222,6 +223,7 @@ export default function Home() {
   };
   const [layerManagerOpen, setLayerManagerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showStatusStrip, setShowStatusStrip] = useState(false);
   const [layerPanelCollapsed, setLayerPanelCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileLayerPanelOpen, setMobileLayerPanelOpen] = useState(false);
@@ -945,7 +947,7 @@ export default function Home() {
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
         <div className="brand">
-          <div className="brand-mark">A</div>
+          <img className="amazonika-brand-logo" src="/amazonika-logo.png" alt="Logomarca Amazônika Engenharia" />
           <div>
             <strong>AMAZÔNIKA</strong>
             <span>GEOESPACIAL</span>
@@ -996,7 +998,7 @@ export default function Home() {
             className={activeView === "settings" ? "nav-active" : ""}
             onClick={() => { setActiveView("settings"); setMobileSidebarOpen(false); }}
           >
-            <Settings size={18} /> Configurações
+            <Settings size={19} /><span className="sr-only">Configurações</span>
           </button>
           <div className="user-card authenticated-user-card">
             <div className="avatar">
@@ -1062,13 +1064,12 @@ export default function Home() {
           </div>
           {activeView === "map" && (
             <div className="top-actions">
-              <div className="search-box">
-                <Search size={17} />
-                <input
-                  aria-label="Pesquisar projeto"
-                  placeholder="Buscar projeto ou imóvel"
-                />
-              </div>
+              <button type="button" className="status-toggle" aria-expanded={showStatusStrip}
+                onClick={() => setShowStatusStrip(current => !current)}
+                title={showStatusStrip ? "Ocultar indicadores" : "Mostrar indicadores"}>
+                {showStatusStrip ? <ChevronUp size={17}/> : <ChevronDown size={17}/>}
+                {showStatusStrip ? "Ocultar indicadores" : "Mostrar indicadores"}
+              </button>
               <Button className="mobile-layers-button" onClick={() => setLayerManagerOpen(true)}>
                 <Layers3 size={17} /> Camadas
               </Button>
@@ -1080,7 +1081,7 @@ export default function Home() {
         </header>
         <div style={{ display: activeView === "map" ? "contents" : "none" }}>
           <>
-            <div className="status-strip">
+            {showStatusStrip && <div className="status-strip">
               <div>
                 <span
                   className={`status-icon ${apiOnline ? "green" : "amber"}`}
@@ -1128,7 +1129,7 @@ export default function Home() {
                   </small>
                 </p>
               </div>
-            </div>
+            </div>}
             <div className={`map-layout ${layerPanelCollapsed ? "layer-panel-collapsed" : ""} ${mobileLayerPanelOpen ? "mobile-layer-panel-open" : ""}`}>
               <section className="layer-panel">
                 <div className="panel-heading">
