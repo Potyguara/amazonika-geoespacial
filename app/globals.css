@@ -6423,3 +6423,6 @@ input {
 }
 .geo-google-attribution img { object-fit: contain; flex: 0 0 auto; }
 .geo-google-attribution span { overflow-wrap: anywhere; }
+
+.pecas-google-attribution { display:flex; align-items:center; flex-wrap:wrap; gap:5px 12px; margin:8px 0; padding:6px 8px; background:#f3f8f5; border:1px solid #cbdad0; border-radius:6px; font-size:11px; color:#224b37; }
+.pecas-google-attribution strong { white-space:nowrap; }
