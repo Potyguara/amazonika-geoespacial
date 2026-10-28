@@ -46,15 +46,25 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const vertexSourceRef = useRef(new VectorSource());
   const vertexNamesKey = JSON.stringify(vertexNames);
-  const [basemap, setBasemap] = useState<"osm" | "satellite" | "google">(saved?.basemap ?? "satellite");
+  const [basemap, setBasemap] = useState<"osm" | "satellite" | "google" | "mapbox">(saved?.basemap ?? "satellite");
   const [busy, setBusy] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
+  const [mapboxAvailable, setMapboxAvailable] = useState(false);
   const [copyright, setCopyright] = useState("");
   const [googleError, setGoogleError] = useState("");
   const [licenseConfirmed, setLicenseConfirmed] = useState(false);
   const [licenseReference, setLicenseReference] = useState("");
 
   const [message, setMessage] = useState("");
+  useEffect(() => {
+    let active = true;
+    void fetch(`${getApiUrl()}/mapbox-satellite/status`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : { enabled: false })
+      .then(data => { if (active) setMapboxAvailable(Boolean(data.enabled)); })
+      .catch(() => { if (active) setMapboxAvailable(false); });
+    return () => { active = false; };
+  }, []);
+
   useEffect(() => {
     let active = true;
     void fetch(`${getApiUrl()}/google-tiles/status`, { credentials: "include" })
@@ -174,6 +184,16 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   }, [geometryKey]);
 
   useEffect(() => {
+    if (basemap === "mapbox") {
+      if (!mapboxAvailable) return;
+      baseRef.current?.setSource(new XYZ({
+        url: `${getApiUrl()}/mapbox-satellite/tiles/{z}/{x}/{y}`,
+        crossOrigin: "use-credentials",
+        maxZoom: 20,
+        attributions: "© Mapbox",
+      }));
+      return;
+    }
     if (basemap === "google") {
       if (!googleAvailable) {
         setGoogleError("Google Satélite não está habilitado nesta API.");
@@ -201,7 +221,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       })
       : new OSM({ maxZoom: 19, crossOrigin: "anonymous" });
     baseRef.current?.setSource(source);
-  }, [basemap, geometryKey, googleAvailable]);
+  }, [basemap, geometryKey, googleAvailable, mapboxAvailable]);
 
   useEffect(() => {
     const labelsSource = vertexSourceRef.current;
@@ -237,6 +257,10 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   const capture = async () => {
     if (!licenseConfirmed || !licenseReference.trim()) {
       setMessage("Informe a referência da licença e confirme o direito de reprodução no PDF antes da captura.");
+      return;
+    }
+    if (basemap === "mapbox") {
+      setMessage("A imagem Mapbox permanece em visualização até a licença de reprodução em PDF ser confirmada contratualmente.");
       return;
     }
     if (basemap === "google") {
@@ -318,13 +342,14 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       <div className="pecas-situation-actions">
         <select aria-label="Base cartográfica" value={basemap}
           onChange={(event) => {
-            setBasemap(event.target.value as "osm" | "satellite" | "google");
+            setBasemap(event.target.value as "osm" | "satellite" | "google" | "mapbox");
             setLicenseConfirmed(false);
             setLicenseReference("");
           }}>
           <option value="satellite">Esri World Imagery (para PDF)</option>
           <option value="osm">Mapa OSM (para PDF)</option>
           <option value="google" disabled={!googleAvailable}>Google Satélite (somente visualizar)</option>
+          <option value="mapbox" disabled={!mapboxAvailable}>Mapbox Satellite (somente visualizar)</option>
         </select>
         <button type="button" onClick={() => mapRef.current?.getView().setZoom((mapRef.current?.getView().getZoom() ?? 12) + 1)}>Zoom +</button>
         <button type="button" onClick={() => mapRef.current?.getView().setZoom((mapRef.current?.getView().getZoom() ?? 12) - 1)}>Zoom −</button>
@@ -345,16 +370,17 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
         </label>
         <details>
           <summary>Outros provedores em avaliação</summary>
-          <p>Mapbox Satellite e Airbus OneAtlas: conectores dependentes de credenciais oficiais e licença de exportação. Imagens próprias e GeoTIFF serão integrados em etapa posterior.</p>
+          <p>Mapbox Satellite: visualização disponível quando configurado no servidor. Exportação depende de licenciamento apropriado. Airbus OneAtlas e GeoTIFF serão integrados posteriormente.</p>
         </details>
       </div>
       {basemap === "google" && <div className="pecas-google-attribution" aria-label="Créditos Google">
         <strong>Google Maps</strong><span>{copyright || "Carregando créditos…"}</span>
       </div>}
+      {basemap === "mapbox" && <div className="pecas-google-attribution"><strong>© Mapbox</strong><span>Créditos cartográficos conforme atribuição Mapbox Satellite.</span></div>}
       {googleError && <p className="pecas-warning" role="alert">{googleError}</p>}
-      <button type="button" className="pecas-primary pecas-capture" disabled={busy || basemap === "google" || !licenseConfirmed || !licenseReference.trim()}
+      <button type="button" className="pecas-primary pecas-capture" disabled={busy || basemap === "google" || basemap === "mapbox" || !licenseConfirmed || !licenseReference.trim()}
         onClick={() => void capture()}>
-        {busy ? "Capturando mapa…" : basemap === "google" ? "Selecione Esri ou OSM para gerar PDF" : "Usar este enquadramento na planta"}
+        {busy ? "Capturando mapa…" : basemap === "google" || basemap === "mapbox" ? "Selecione uma fonte com licença para PDF" : "Usar este enquadramento na planta"}
       </button>
       <p className="pecas-note" role="status">{message || (saved?.geometry_key === geometryKey
         ? "Enquadramento salvo. É possível voltar e ajustá-lo novamente."
