@@ -31,6 +31,7 @@ class MapboxSatelliteTests(unittest.TestCase):
         response.__enter__ = Mock(return_value=response)
         response.__exit__ = Mock(return_value=False)
         with patch.object(gateway, "get_settings") as settings, \
+             patch.object(gateway, "reserve"), \
              patch.object(gateway, "urlopen", return_value=response):
             settings.return_value.mapbox_satellite_enabled = True
             settings.return_value.mapbox_access_token = "internal-only"
