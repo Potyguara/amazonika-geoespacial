@@ -552,9 +552,31 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     label_layout.reserved.append(Box(vx,vy,55,vh))
     label_layout.reserved.append(Box(vx,vy,vw,16))
     orientation_on = enabled("north")
+    orientation_box = None
     if orientation_on:
-        # Quadro de orientação separado do desenho das parcelas e da grade.
-        label_layout.reserved.append(Box(vx+3,vy+vh-131,127,127))
+        # Escolha um canto que não cubra nenhuma geometria: se nenhum canto
+        # estiver livre, não produza uma prancha tecnicamente ilegível.
+        geom_points = [xy(*point) for ring in projected for point in ring]
+        gx0=min(p[0] for p in geom_points)-7
+        gy0=min(p[1] for p in geom_points)-7
+        gx1=max(p[0] for p in geom_points)+7
+        gy1=max(p[1] for p in geom_points)+7
+        occupied=Box(gx0,gy0,gx1-gx0,gy1-gy0)
+        candidates=[
+            Box(vx+3,vy+vh-131,127,127),
+            Box(vx+vw-130,vy+vh-131,127,127),
+            Box(vx+3,vy+21,127,127),
+            Box(vx+vw-130,vy+21,127,127),
+        ]
+        orientation_box=next((box for box in candidates
+                              if box.inside(Box(*viewport),pad=0)
+                              and not box.intersects(occupied,gap=3)),None)
+        if orientation_box is None:
+            raise ValueError(
+                "O quadro de orientação não cabe sem encobrir o polígono. "
+                "Use papel maior, ajuste a escala ou desative o quadro de orientação."
+            )
+        label_layout.reserved.append(orientation_box)
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -623,7 +645,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         # A declinação é um dado de campo INFORMADO; não confundir com
         # cálculo de campo magnético baseado em modelo e época geomagnética.
         declination=magnetic_declination_degrees if elements.get("magnetic_declination",False) else None
-        ox,oy=vx+7,vy+vh-127
+        assert orientation_box is not None
+        ox,oy=orientation_box.x+4,orientation_box.y+4
         ow,oh=118,121
         pdf.saveState()
         pdf.setFillColor(colors.white)
