@@ -947,7 +947,7 @@ export default function Home() {
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
         <div className="brand">
-          <img className="amazonika-brand-logo" src="/amazonika-logo.png" alt="Logomarca Amazônika Engenharia" />
+          <img className="amazonika-brand-logo" src="/amazonika-logo.svg" alt="Logomarca Amazônika Engenharia" />
           <div>
             <strong>AMAZÔNIKA</strong>
             <span>GEOESPACIAL</span>
