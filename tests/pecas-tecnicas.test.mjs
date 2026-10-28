@@ -97,7 +97,7 @@ test("Google Satélite no enquadramento é somente visualização, sem captura P
   assert.match(side, /google-tiles\/session/);
   assert.match(side, /google-tiles\/attribution/);
   assert.match(side, /basemap === "google"/);
-  assert.match(side, /disabled=\{busy \|\| basemap === "google"\}/);
+  assert.match(side, /disabled=\{busy \|\| basemap === "google" \|\| !licenseConfirmed/);
 });
 
 test("escala usa faixa separada e orientação calcula norte geográfico", async () => {
