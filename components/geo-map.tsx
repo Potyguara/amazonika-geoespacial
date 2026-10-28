@@ -282,6 +282,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [manualError, setManualError] = useState<string | null>(null);
   const [basemap, setBasemap] = useState("osm");
   const [googleTilesEnabled, setGoogleTilesEnabled] = useState(false);
+  const [mapboxTilesEnabled, setMapboxTilesEnabled] = useState(false);
   const [googleCopyright, setGoogleCopyright] = useState("");
   const [googleBasemapError, setGoogleBasemapError] = useState("");
   const [extentMessage, setExtentMessage] = useState<string | null>(null);
@@ -1902,6 +1903,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   }, []);
 
   useEffect(() => {
+    let active = true;
+    void fetch(`${getApiUrl()}/mapbox-satellite/status`, { credentials: "include" })
+      .then(response => response.ok ? response.json() : { enabled: false })
+      .then(data => { if (active) setMapboxTilesEnabled(Boolean(data.enabled)); })
+      .catch(() => { if (active) setMapboxTilesEnabled(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     if (basemap !== "google-satellite") {
       setGoogleCopyright("");
       return;
@@ -1952,6 +1962,19 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const layer = baseLayerRef.current;
     if (!layer) return;
     setGoogleBasemapError("");
+    if (value === "mapbox-satellite") {
+      if (!mapboxTilesEnabled) {
+        setGoogleBasemapError("Mapbox indisponível ou bloqueada pelo limite mensal. Verifique Configurações → Controle de custos.");
+        return;
+      }
+      layer.setSource(new XYZ({
+        url: `${getApiUrl()}/mapbox-satellite/tiles/{z}/{x}/{y}`,
+        maxZoom: 20, crossOrigin: "use-credentials",
+        attributions: "© Mapbox",
+      }));
+      setBasemap(value);
+      return;
+    }
     if (value === "google-satellite") {
       if (!googleTilesEnabled) {
         setGoogleBasemapError("Integração Google não habilitada na API deste ambiente.");
@@ -2370,8 +2393,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             onClick={() => void changeBasemap("google-satellite")}>
             Google Satélite {googleTilesEnabled ? "(visualização)" : "(aguardando configuração)"}
           </button>
+          <button disabled={!mapboxTilesEnabled} className={basemap === "mapbox-satellite" ? "active" : ""}
+            onClick={() => void changeBasemap("mapbox-satellite")}>
+            Mapbox Satellite {mapboxTilesEnabled ? "(visualização)" : "(indisponível ou limite atingido)"}
+          </button>
           {googleBasemapError && <small role="alert">{googleBasemapError}</small>}
-          <small>Google Satélite é apenas para visualização online, sem captura ou exportação PDF.</small>
+          <small>Google e Mapbox são exibidos para visualização online, sem captura ou exportação PDF nesta integração.</small>
         </aside>
       )}
 
