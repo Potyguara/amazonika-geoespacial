@@ -73,7 +73,8 @@ def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordina
     table_h = title_h + (vertex_count + 1) * row_h + 7 if show_coordinates else 0
     # Faixa exclusiva para escala gráfica e escala numérica; fora da grade UTM.
     map_bottom = 42 + table_h + 39
-    map_top = h - 88
+    # Faixa acima da grade reservada a rosa dos ventos e quadro magnético.
+    map_top = h - 172
     map_w = available_width
     map_h = map_top - map_bottom
     if map_h < 145 or available_width < 210:
@@ -555,30 +556,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     label_layout.reserved.append(Box(vx,vy,55,vh))
     label_layout.reserved.append(Box(vx,vy,vw,16))
     orientation_on = enabled("north")
-    orientation_box = None
-    if orientation_on:
-        # Escolha um canto que não cubra nenhuma geometria: se nenhum canto
-        # estiver livre, não produza uma prancha tecnicamente ilegível.
-        geom_points = [xy(*point) for ring in projected for point in ring]
-        gx0=min(p[0] for p in geom_points)-7
-        gy0=min(p[1] for p in geom_points)-7
-        gx1=max(p[0] for p in geom_points)+7
-        gy1=max(p[1] for p in geom_points)+7
-        occupied=Box(gx0,gy0,gx1-gx0,gy1-gy0)
-        candidates=[
-            Box(vx+3,vy+vh-131,127,127),
-            Box(vx+vw-130,vy+vh-131,127,127),
-            Box(vx+3,vy+21,127,127),
-            Box(vx+vw-130,vy+21,127,127),
-        ]
-        orientation_box=next((box for box in candidates
-                              if box.inside(Box(*viewport),pad=0)
-                              and not box.intersects(occupied,gap=3)),None)
-        if orientation_box is not None:
-            label_layout.reserved.append(orientation_box)
-        # Quando o perímetro ocupa toda a moldura, cria-se uma folha de
-        # orientação em vez de cobrir a geometria ou perder a informação.
-        orientation_appendix = orientation_box is None
+    # Rosa dos ventos e declinação são desenhadas na faixa externa
+    # acima da grade UTM, nunca sobre a geometria ou os rótulos.
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -637,78 +616,79 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.drawRightString(bx+bar_pt,by-9,f"{bar_m:.1f} m")
         pdf.restoreState()
 
-    if orientation_on and orientation_box is not None:
-        # Para cálculo da convergência, utiliza-se o ponto geográfico
-        # mais ao norte (maior latitude) de todas as parcelas.
+    if orientation_on:
         from pyproj import Proj
-        point_north=max(all_vertices,key=lambda pt:pt[1])
-        longitude,latitude=point_north
+        from calendar import isleap
+        longitude,latitude=max(all_vertices,key=lambda pt:pt[1])
         convergence=float(Proj(crs).get_factors(longitude,latitude).meridian_convergence)
-        # A declinação é um dado de campo INFORMADO; não confundir com
-        # cálculo de campo magnético baseado em modelo e época geomagnética.
         declination=None
-        magnetic_source=None
+        magnetic_source="Não selecionada"
         if elements.get("magnetic_declination",False):
             if magnetic_declination_degrees is not None:
-                declination=magnetic_declination_degrees
+                declination=float(magnetic_declination_degrees)
                 magnetic_source="Informada pelo RT"
             else:
                 from pygeomag import GeoMag
-                year_days=366 if (__import__("calendar").isleap(reference_dt.year)) else 365
-                decimal_year=reference_dt.year + (reference_dt.timetuple().tm_yday-1)/year_days
+                days=366 if isleap(reference_dt.year) else 365
+                decimal_year=reference_dt.year+(reference_dt.timetuple().tm_yday-1)/days
                 if not 2025 <= decimal_year < 2030:
-                    raise ValueError(
-                        "O modelo WMM2025 somente cobre datas de 2025 a 2029. "
-                        "Escolha uma data nesse intervalo ou informe a declinação validada."
-                    )
-                result=GeoMag(coefficients_file="wmm/WMM_2025.COF").calculate(
-                    glat=latitude,glon=longitude,alt=0,time=decimal_year,
-                )
-                declination=float(result.d)
+                    raise ValueError("WMM2025 exige data de referência entre 2025 e 2029.")
+                declination=float(GeoMag(coefficients_file="wmm/WMM_2025.COF").calculate(
+                    glat=latitude,glon=longitude,alt=0,time=decimal_year).d)
                 magnetic_source="WMM2025 (alt. 0 km)"
-
-        assert orientation_box is not None
-        ox,oy=orientation_box.x+4,orientation_box.y+4
-        ow,oh=118,121
-        pdf.saveState()
-        pdf.setFillColor(colors.white)
-        pdf.setStrokeColor(RULE)
-        pdf.roundRect(ox,oy,ow,oh,3,stroke=1,fill=1)
-        pdf.setFillColor(GREEN)
-        pdf.setFont("Helvetica-Bold",7.4)
-        pdf.drawCentredString(ox+ow/2,oy+oh-11,"ORIENTAÇÃO")
-        pdf.setFont("Helvetica",5.7)
-        pdf.setFillColor(DARK)
-        pdf.drawCentredString(ox+ow/2,oy+oh-21,
-            "SIRGAS 2000 | "+reference_dt.strftime("%d/%m/%Y"))
-        def angle_arrow(base_x,base_y,degrees,length,label):
-            radians=math.radians(degrees)
-            tip_x=base_x+math.sin(radians)*length
-            tip_y=base_y+math.cos(radians)*length
-            pdf.line(base_x,base_y,tip_x,tip_y)
-            # Siglas em legenda fixa para impedir colisões quando os ângulos são próximos.
-        base_x,base_y=ox+ow/2,oy+39
+        # Dois painéis idênticos, lado a lado, sob o cabeçalho.
+        band_bottom=h-161
+        panel_w=min(126.,(vw-12)/2)
+        panel_h=79.
+        left_x=vx+3
+        right_x=vx+vw-panel_w-3
+        if right_x < left_x+panel_w+5:
+            raise ValueError("A folha não comporta os dois quadros de orientação.")
+        def panel_frame(px,title):
+            pdf.setFillColor(colors.white)
+            pdf.setStrokeColor(RULE)
+            pdf.roundRect(px,band_bottom,panel_w,panel_h,3,stroke=1,fill=1)
+            pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",7)
+            pdf.drawCentredString(px+panel_w/2,band_bottom+panel_h-11,title)
+        panel_frame(left_x,"ROSA DOS VENTOS")
+        cx=left_x+panel_w/2
+        cy=band_bottom+26
+        pdf.setStrokeColor(GREEN);pdf.setFillColor(GREEN)
+        pdf.setLineWidth(1)
+        for degrees in range(0,360,45):
+            angle=math.radians(degrees)
+            length=26 if degrees%90==0 else 17
+            x=cx+math.sin(angle)*length
+            y=cy+math.cos(angle)*length
+            pdf.line(cx,cy,x,y)
+        # Norte destacado, sem sobreposição de rótulos.
+        pdf.line(cx,cy+26,cx,cy+34)
+        pdf.setFont("Helvetica-Bold",7);pdf.setFillColor(DARK)
+        pdf.drawCentredString(cx,cy+37,"N")
+        panel_frame(right_x,"DECLINAÇÃO MAGNÉTICA")
+        rx=right_x+panel_w/2; ry=band_bottom+30
         pdf.setStrokeColor(GREEN)
-        angle_arrow(base_x,base_y,0,31,"NG")
-        angle_arrow(base_x,base_y,convergence,28,"NQ")
-        if declination is not None:
-            angle_arrow(base_x,base_y,declination,25,"NM")
-        pdf.setFont("Helvetica",5.5)
-        pdf.drawCentredString(ox+ow/2,oy+31,"NG (geográfico) | NQ (grade) | NM (magnético)")
-        pdf.drawCentredString(ox+ow/2,oy+24,
-            f"Lat. {latitude:+.6f} | Lon. {longitude:+.6f}")
-        pdf.drawCentredString(ox+ow/2,oy+16,
+        for deg,length in [(0,23),(convergence,20)]+(
+            [(declination,17)] if declination is not None else []):
+            radians=math.radians(deg)
+            pdf.line(rx,ry,rx+math.sin(radians)*length,ry+math.cos(radians)*length)
+        pdf.setFillColor(DARK);pdf.setFont("Helvetica",5.7)
+        pdf.drawCentredString(rx,band_bottom+19,
             f"Convergência: {convergence:+.5f}°")
-        if declination is not None:
-            pdf.drawCentredString(ox+ow/2,oy+8,
-                f"Declinação: {declination:+.3f}°")
-        else:
-            pdf.drawCentredString(ox+ow/2,oy+8,
-                "Declinação: não informada")
-        if declination is not None:
-            pdf.setFont("Helvetica",5.0)
-            pdf.drawCentredString(ox+ow/2,oy+2,magnetic_source or "")
-        pdf.restoreState()
+        pdf.drawCentredString(rx,band_bottom+12,
+            f"Declinação: {declination:+.3f}°" if declination is not None
+            else "Declinação: não selecionada")
+        pdf.drawCentredString(rx,band_bottom+5,magnetic_source)
+        # Referência geográfica e data na área central livre da faixa.
+        pdf.setFont("Helvetica",6)
+        mid_x=(left_x+panel_w+right_x)/2
+        if right_x-(left_x+panel_w)>110:
+            pdf.drawCentredString(mid_x,band_bottom+48,
+                reference_dt.strftime("%d/%m/%Y"))
+            pdf.drawCentredString(mid_x,band_bottom+37,
+                f"Lat. {latitude:+.5f}°")
+            pdf.drawCentredString(mid_x,band_bottom+26,
+                f"Lon. {longitude:+.5f}°")
     if enabled("coordinates"):
         _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
     # Coluna direita em células separadas com situação cartográfica.
@@ -735,53 +715,6 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             raise ValueError("A observação de croqui não cabe no rodapé deste formato.")
         warning.drawOn(pdf,38,40-warning_height)
     pdf.showPage()
-    if orientation_on and orientation_box is None:
-        # Prancha auxiliar de orientação, quando não cabe dentro do mapa.
-        from pyproj import Proj
-        lon,lat=max(all_vertices,key=lambda pt:pt[1])
-        gamma=float(Proj(crs).get_factors(lon,lat).meridian_convergence)
-        decl=None
-        model_source="Não informada"
-        if elements.get("magnetic_declination",False):
-            if magnetic_declination_degrees is not None:
-                decl=magnetic_declination_degrees
-                model_source="Informada pelo responsável técnico"
-            else:
-                from pygeomag import GeoMag
-                from calendar import isleap
-                days=366 if isleap(reference_dt.year) else 365
-                year=reference_dt.year+(reference_dt.timetuple().tm_yday-1)/days
-                if not 2025 <= year < 2030:
-                    raise ValueError("WMM2025 exige data de 2025 a 2029.")
-                decl=float(GeoMag(coefficients_file="wmm/WMM_2025.COF").calculate(
-                    glat=lat,glon=lon,alt=0,time=year).d)
-                model_source="WMM2025 | altitude de referência: 0 km"
-        pdf.setPageSize(A4)
-        aw,ah=A4
-        pdf.setFillColor(GREEN)
-        pdf.setFont("Helvetica-Bold",16)
-        pdf.drawCentredString(aw/2,ah-68,"ORIENTAÇÃO CARTOGRÁFICA")
-        pdf.setFillColor(DARK)
-        pdf.setFont("Helvetica",10)
-        pdf.drawCentredString(aw/2,ah-93,f"Referência: SIRGAS 2000 | {reference_dt.strftime('%d/%m/%Y')}")
-        center_x,center_y=aw/2,ah/2-20
-        pdf.setStrokeColor(GREEN);pdf.setLineWidth(1.5)
-        for angle,length in [(0,150),(gamma,142)]+([(decl,132)] if decl is not None else []):
-            angle_rad=math.radians(angle)
-            ex=center_x+math.sin(angle_rad)*length
-            ey=center_y+math.cos(angle_rad)*length
-            pdf.line(center_x,center_y,ex,ey)
-        pdf.setFillColor(DARK);pdf.setFont("Helvetica",10)
-        for i,line in enumerate([
-            f"NG - Norte Geográfico | NQ - Norte da Quadrícula | NM - Norte Magnético",
-            f"Ponto mais ao norte: latitude {lat:+.8f}°, longitude {lon:+.8f}°",
-            f"Convergência meridiana: {gamma:+.6f}°",
-            f"Declinação magnética: {decl:+.6f}°" if decl is not None else
-                "Declinação magnética: não selecionada",
-            f"Fonte: {model_source}",
-        ]):
-            pdf.drawCentredString(aw/2,175-i*20,line)
-        pdf.showPage()
     _memorial_pdf(
         pdf,parcels,title,owner_name,owner_rg,owner_cpf,property_address,
         memorial_heading,professional,croqui,stamp,edited_memorial,
