@@ -258,6 +258,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [drawKind, setDrawKind] = useState<DrawKind>(null);
   const [modifyActive, setModifyActive] = useState(false);
   const [identifyActive, setIdentifyActive] = useState(false);
+  const [featurePanelOffset, setFeaturePanelOffset] = useState({ x: 0, y: 0 });
+  const featureDragRef = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const [identifiedFeature, setIdentifiedFeature] =
     useState<IdentifiedFeature | null>(null);
   const [identifyLoading, setIdentifyLoading] = useState(false);
@@ -2637,11 +2639,33 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       {identifiedFeature && (
         <aside
           className="feature-info-panel"
+          style={{ transform: `translate(${featurePanelOffset.x}px, ${featurePanelOffset.y}px)` }}
           aria-label="Informações da feição identificada"
         >
-          <header>
+          <header className="feature-info-drag-handle" title="Arraste para mover a janela"
+            onPointerDown={(event) => {
+              if ((event.target as HTMLElement).closest("button")) return;
+              featureDragRef.current = {
+                x: event.clientX, y: event.clientY,
+                originX: featurePanelOffset.x, originY: featurePanelOffset.y,
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              const drag = featureDragRef.current;
+              if (!drag) return;
+              setFeaturePanelOffset({
+                x: Math.max(-window.innerWidth + 360, Math.min(window.innerWidth - 380, drag.originX + event.clientX - drag.x)),
+                y: Math.max(-window.innerHeight + 240, Math.min(window.innerHeight - 200, drag.originY + event.clientY - drag.y)),
+              });
+            }}
+            onPointerUp={(event) => {
+              featureDragRef.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => { featureDragRef.current = null; }}>
             <div>
-              <small>FEIÇÃO IDENTIFICADA</small>
+              <small>FEIÇÃO IDENTIFICADA · ARRASTE PARA MOVER</small>
               <strong>{identifiedFeature.title}</strong>
               <span>{identifiedFeature.layer}</span>
             </div>
