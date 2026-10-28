@@ -107,5 +107,15 @@ test("escala usa faixa separada e orientação calcula norte geográfico", async
   assert.match(pdf, /point_north=max\(all_vertices,key=lambda pt:pt\[1\]\)/);
   assert.match(pdf, /get_factors\(longitude,latitude\)\.meridian_convergence/);
   assert.match(pdf, /America\/Belem/);
-  assert.match(pdf, /Declinação informada/);
+  assert.match(pdf, /Declinação:/);
+});
+
+test("cálculo WMM2025 usa data de referência e vértice mais ao norte", async () => {
+  const pdf = await read("backend/app/services/plant_memorial_v3.py");
+  const api = await read("backend/app/api/routes/tools.py");
+  const workspace = await read("components/pecas-tecnicas-workspace.tsx");
+  assert.match(pdf, /GeoMag\(coefficients_file="wmm\/WMM_2025\.COF"\)/);
+  assert.match(pdf, /glat=latitude,glon=longitude,alt=0,time=decimal_year/);
+  assert.match(api, /survey_date/);
+  assert.match(workspace, /type="date"/);
 });
