@@ -13,6 +13,8 @@ import VectorSource from "ol/source/Vector";
 import OSM from "ol/source/OSM";
 import XYZ from "ol/source/XYZ";
 import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "ol/style";
+import { toLonLat } from "ol/proj";
+import { getApiUrl } from "@/lib/api";
 
 export type SituationSnapshot = {
   raster_b64: string;
@@ -44,9 +46,60 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const vertexSourceRef = useRef(new VectorSource());
   const vertexNamesKey = JSON.stringify(vertexNames);
-  const [basemap, setBasemap] = useState<"osm" | "satellite">(saved?.basemap ?? "satellite");
+  const [basemap, setBasemap] = useState<"osm" | "satellite" | "google">(saved?.basemap ?? "satellite");
   const [busy, setBusy] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
+  const [copyright, setCopyright] = useState("");
+  const [googleError, setGoogleError] = useState("");
   const [message, setMessage] = useState("");
+  useEffect(() => {
+    let active = true;
+    void fetch(`${getApiUrl()}/google-tiles/status`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { enabled: false })
+      .then((data) => { if (active) setGoogleAvailable(Boolean(data.enabled)); })
+      .catch(() => { if (active) setGoogleAvailable(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (basemap !== "google") { setCopyright(""); return; }
+    const map = mapRef.current;
+    if (!map) return;
+    let active = true;
+    let pending: AbortController | null = null;
+    const update = () => {
+      const size = map.getSize();
+      if (!size) return;
+      const extent = map.getView().calculateExtent(size);
+      const sw = toLonLat([extent[0], extent[1]]);
+      const ne = toLonLat([extent[2], extent[3]]);
+      const south = Math.max(-89.999, Math.min(89.999, sw[1]));
+      const north = Math.max(-89.999, Math.min(89.999, ne[1]));
+      const west = Math.max(-179.999, Math.min(179.999, sw[0]));
+      const east = Math.max(-179.999, Math.min(179.999, ne[0]));
+      if (!(south < north && west < east)) return;
+      pending?.abort();
+      pending = new AbortController();
+      const q = new URLSearchParams({
+        south: String(south), north: String(north),
+        west: String(west), east: String(east),
+        zoom: String(Math.max(0, Math.min(22, Math.round(map.getView().getZoom() ?? 0)))),
+      });
+      void fetch(`${getApiUrl()}/google-tiles/attribution?${q}`, {
+        credentials: "include", signal: pending.signal,
+      }).then((r) => {
+        if (!r.ok) throw new Error("Créditos indisponíveis");
+        return r.json();
+      }).then((data) => { if (active) setCopyright(String(data.copyright ?? "")); })
+        .catch((err) => {
+          if (active && err?.name !== "AbortError") setCopyright("Créditos indisponíveis");
+        });
+    };
+    map.on("moveend", update);
+    update();
+    return () => { active = false; pending?.abort(); map.un("moveend", update); };
+  }, [basemap, geometryKey]);
+
   const geoKeyRef = useRef(geometryKey);
   geoKeyRef.current = geometryKey;
   const saveRef = useRef(onSave);
@@ -118,6 +171,26 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   }, [geometryKey]);
 
   useEffect(() => {
+    if (basemap === "google") {
+      if (!googleAvailable) {
+        setGoogleError("Google Satélite não está habilitado nesta API.");
+        return;
+      }
+      let active = true;
+      setGoogleError("");
+      void fetch(`${getApiUrl()}/google-tiles/session`, { credentials: "include" })
+        .then((r) => { if (!r.ok) throw new Error("Sessão Google indisponível"); return r.json(); })
+        .then(() => {
+          if (!active) return;
+          baseRef.current?.setSource(new XYZ({
+            url: `${getApiUrl()}/google-tiles/tiles/{z}/{x}/{y}`,
+            crossOrigin: "use-credentials", maxZoom: 20,
+            attributions: "Google Maps",
+          }));
+        })
+        .catch((e) => { if (active) setGoogleError(e instanceof Error ? e.message : "Falha Google"); });
+      return () => { active = false; };
+    }
     const source = basemap === "satellite"
       ? new XYZ({
         url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -125,7 +198,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       })
       : new OSM({ maxZoom: 19, crossOrigin: "anonymous" });
     baseRef.current?.setSource(source);
-  }, [basemap, geometryKey]);
+  }, [basemap, geometryKey, googleAvailable]);
 
   useEffect(() => {
     const labelsSource = vertexSourceRef.current;
@@ -159,6 +232,10 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   };
 
   const capture = async () => {
+    if (basemap === "google") {
+      setMessage("A base Google é somente para visualização. Selecione Esri ou OSM e registre o enquadramento para o PDF.");
+      return;
+    }
     const map = mapRef.current;
     if (!map) return;
     setBusy(true);
@@ -232,17 +309,22 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       <div className="pecas-situation-map" ref={container} aria-label="Mapa interativo de enquadramento" />
       <div className="pecas-situation-actions">
         <select aria-label="Base cartográfica" value={basemap}
-          onChange={(event) => setBasemap(event.target.value as "osm" | "satellite")}>
-          <option value="satellite">Imagem de satélite</option>
-          <option value="osm">Mapa OSM</option>
+          onChange={(event) => setBasemap(event.target.value as "osm" | "satellite" | "google")}>
+          <option value="satellite">Esri World Imagery (para PDF)</option>
+          <option value="osm">Mapa OSM (para PDF)</option>
+          <option value="google" disabled={!googleAvailable}>Google Satélite (somente visualizar)</option>
         </select>
         <button type="button" onClick={() => mapRef.current?.getView().setZoom((mapRef.current?.getView().getZoom() ?? 12) + 1)}>Zoom +</button>
         <button type="button" onClick={() => mapRef.current?.getView().setZoom((mapRef.current?.getView().getZoom() ?? 12) - 1)}>Zoom −</button>
         <button type="button" onClick={fit}>Enquadrar área</button>
       </div>
-      <button type="button" className="pecas-primary pecas-capture" disabled={busy}
+      {basemap === "google" && <div className="pecas-google-attribution" aria-label="Créditos Google">
+        <strong>Google Maps</strong><span>{copyright || "Carregando créditos…"}</span>
+      </div>}
+      {googleError && <p className="pecas-warning" role="alert">{googleError}</p>}
+      <button type="button" className="pecas-primary pecas-capture" disabled={busy || basemap === "google"}
         onClick={() => void capture()}>
-        {busy ? "Capturando mapa…" : "Usar este enquadramento na planta"}
+        {busy ? "Capturando mapa…" : basemap === "google" ? "Selecione Esri ou OSM para gerar PDF" : "Usar este enquadramento na planta"}
       </button>
       <p className="pecas-note" role="status">{message || (saved?.geometry_key === geometryKey
         ? "Enquadramento salvo. É possível voltar e ajustá-lo novamente."
