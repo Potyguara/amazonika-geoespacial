@@ -339,6 +339,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
   const [scaleChoice, setScaleChoice] = useState("auto");
   const [customScale, setCustomScale] = useState("1500");
+  const [surveyDate, setSurveyDate] = useState("");
   const [ownerRg, setOwnerRg] = useState("");
   const [ownerCpf, setOwnerCpf] = useState("");
   const [propertyAddress, setPropertyAddress] = useState("");
@@ -674,6 +675,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       professional: documentProfessional,
       elements: plantElements,
       magnetic_declination: magneticDeclination,
+      survey_date: surveyDate,
       memorial_edited: editedMemorial.trim() ? editedMemorial : null,
       generated_pdf_id: lastGeneratedPdfId,
       situation: situationSnapshot,
@@ -2071,6 +2073,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         plant_elements: plantElements,
         magnetic_declination_degrees: plantElements.magnetic_declination && magneticDeclination.trim()
           ? Number(magneticDeclination) : null,
+        survey_date: surveyDate || null,
         scale_denominator: scaleChoice === "auto"
           ? null : scaleChoice === "custom"
             ? Number(customScale)
@@ -2141,6 +2144,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       }
       if (snapshot.elements) setPlantElements(snapshot.elements as PlantElementFlags);
       setMagneticDeclination(String(snapshot.magnetic_declination ?? ""));
+      setSurveyDate(String(snapshot.survey_date ?? ""));
       setSituationSnapshot((snapshot.situation ?? null) as SituationSnapshot | null);
       setLoadedMemorialDraft(String(snapshot.memorial_edited ?? ""));
       setEditedMemorial(snapshot.memorial_edited ? String(snapshot.memorial_edited) : null);
@@ -2451,6 +2455,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         }
         declination={magneticDeclination}
         onDeclinationChange={setMagneticDeclination}
+        surveyDate={surveyDate}
+        onSurveyDateChange={setSurveyDate}
         rasterKey={JSON.stringify([mapRef.current?.getView().getCenter(), mapRef.current?.getView().getZoom(), basemap, situationSnapshot?.token])}
         onSelect={(id, checked) => setSelectedPolygonIds((current) =>
           checked ? [...new Set([...current, id])] : current.filter((item) => item !== id)
