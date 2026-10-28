@@ -640,7 +640,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             tip_x=base_x+math.sin(radians)*length
             tip_y=base_y+math.cos(radians)*length
             pdf.line(base_x,base_y,tip_x,tip_y)
-            pdf.drawCentredString(tip_x,tip_y+3,label)
+            # Siglas em legenda fixa para impedir colisões quando os ângulos são próximos.
         base_x,base_y=ox+ow/2,oy+39
         pdf.setStrokeColor(GREEN)
         angle_arrow(base_x,base_y,0,31,"NG")
@@ -648,6 +648,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         if declination is not None:
             angle_arrow(base_x,base_y,declination,25,"NM")
         pdf.setFont("Helvetica",5.5)
+        pdf.drawCentredString(ox+ow/2,oy+31,"NG: geográfico | NQ: quadrícula | NM: magnético")
         pdf.drawCentredString(ox+ow/2,oy+24,
             f"Lat. {latitude:+.6f} | Lon. {longitude:+.6f}")
         pdf.drawCentredString(ox+ow/2,oy+16,
