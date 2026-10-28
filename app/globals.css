@@ -6426,3 +6426,12 @@ input {
 
 .pecas-google-attribution { display:flex; align-items:center; flex-wrap:wrap; gap:5px 12px; margin:8px 0; padding:6px 8px; background:#f3f8f5; border:1px solid #cbdad0; border-radius:6px; font-size:11px; color:#224b37; }
 .pecas-google-attribution strong { white-space:nowrap; }
+
+/* Fonte cartográfica e direitos de reprodução para peças técnicas */
+.pecas-source-license { margin:10px 0; padding:12px; border:1px solid #cdded3; border-radius:8px; background:#f8fbf9; font-size:12px; }
+.pecas-source-license h4 { margin:0 0 6px; font-size:13px; color:#174d37; }
+.pecas-source-license p { margin:4px 0 10px; line-height:1.5; }
+.pecas-source-license label { display:flex; flex-direction:column; gap:6px; margin:8px 0; }
+.pecas-source-license input:not([type="checkbox"]) { width:100%; padding:8px; border:1px solid #bccfc3; border-radius:5px; }
+.pecas-source-license .pecas-license-check { flex-direction:row; align-items:flex-start; line-height:1.45; }
+.pecas-source-license details { margin-top:8px; }
