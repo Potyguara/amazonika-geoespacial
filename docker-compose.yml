@@ -21,6 +21,8 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-amazonika}:${POSTGRES_PASSWORD:-amazonika_local}@db:5432/${POSTGRES_DB:-amazonika_geo}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4173}
       STORAGE_DIR: /data/uploads
+      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
+      MAPBOX_SATELLITE_ENABLED: ${MAPBOX_SATELLITE_ENABLED:-false}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
       GOOGLE_MAP_TILES_ENABLED: ${GOOGLE_MAP_TILES_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
