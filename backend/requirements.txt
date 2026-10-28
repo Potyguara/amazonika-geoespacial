@@ -16,3 +16,4 @@ qrcode==8.2
 odfpy==1.4.1
 python-docx==1.2.0
 pypdf==5.9.0
+pygeomag==1.1.0
