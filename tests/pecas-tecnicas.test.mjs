@@ -84,3 +84,18 @@ test("quadro de assinaturas e azimutes compactos estão na prancha", async () =>
   assert.match(pdf, /lines\.append\("Az\. "\+_azimuth_minutes/);
   assert.match(pdf, /lines\.append\("Dist\. "\+_br_number/);
 });
+
+test("memorial editado é gravado no backend pelo botão próprio", async () => {
+  const workspace = await read("components/pecas-tecnicas-workspace.tsx");
+  assert.match(workspace, /await onSavePiece\(editableMemorial\)/);
+  assert.match(workspace, /onSaveMemorial\(editableMemorial\)/);
+  assert.match(workspace, /memorialDirty \|\| memorialSaved/);
+});
+
+test("Google Satélite no enquadramento é somente visualização, sem captura PDF", async () => {
+  const side = await read("components/situation-map-preview.tsx");
+  assert.match(side, /google-tiles\/session/);
+  assert.match(side, /google-tiles\/attribution/);
+  assert.match(side, /basemap === "google"/);
+  assert.match(side, /disabled=\{busy \|\| basemap === "google"\}/);
+});
