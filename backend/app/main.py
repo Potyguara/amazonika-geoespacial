@@ -6,12 +6,14 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
+from app.services.tile_budget import ensure_tables
 import app.models
 
 @asynccontextmanager
 async def lifespan(_:FastAPI):
     with engine.begin() as connection: connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
     Base.metadata.create_all(bind=engine)
+    ensure_tables()
     # Migração compatível com instalações locais e futuras implantações no VPS.
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS professional_profile_json JSONB NOT NULL DEFAULT '{}'::jsonb"))
