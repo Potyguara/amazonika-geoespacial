@@ -140,6 +140,7 @@ export function PecasTecnicasWorkspace({
   const [editableMemorial, setEditableMemorial] = useState("");
   const [memorialSaved, setMemorialSaved] = useState(false);
   const [memorialDirty, setMemorialDirty] = useState(false);
+  const memorialSavingRef = useRef(false);
   const [savedPieceNotice, setSavedPieceNotice] = useState("");
   useEffect(() => {
     if (!loadedPieceId || loadedMemorialDraft == null) return;
@@ -225,10 +226,10 @@ export function PecasTecnicasWorkspace({
   }, []);
 
   useEffect(() => {
-    if (memorialDirty) return;
+    // O texto automático nunca substitui uma revisão salva pelo usuário.
+    if (memorialDirty || memorialSaved || memorialSavingRef.current) return;
     setEditableMemorial(memorialText);
-    setMemorialSaved(false);
-  }, [memorialText, memorialDirty]);
+  }, [memorialText, memorialDirty, memorialSaved]);
 
   if (!open) return null;
 
@@ -382,21 +383,32 @@ export function PecasTecnicasWorkspace({
         {stage === 2 && (
           <div className="pecas-card pecas-large">
             <h3>3. Memorial descritivo</h3>
-            <p>Edite livremente o texto e salve a revisão. A edição será mantida neste rascunho; a emissão documental será integrada após validação da persistência.</p>
+            <p>Edite o texto livremente. “Salvar alterações” grava a revisão no servidor e a aplica às exportações PDF e DOCX.</p>
             {memorialLoading && <p className="pecas-busy">Gerando memorial…</p>}
             <textarea className="pecas-memorial" value={editableMemorial}
               onChange={(event) => { setEditableMemorial(event.target.value); setMemorialDirty(true); setMemorialSaved(false); }}
               aria-label="Memorial descritivo editável" />
             <div className="pecas-situation-actions">
               <button type="button" className="pecas-primary"
-                onClick={() => { onSaveMemorial(editableMemorial); setMemorialDirty(false); setMemorialSaved(true); }}
-                disabled={!editableMemorial.trim()}>Salvar alterações do rascunho</button>
+                onClick={() => void runAction(async () => {
+                  memorialSavingRef.current = true;
+                  try {
+                    await onSavePiece(editableMemorial);
+                    onSaveMemorial(editableMemorial);
+                    setMemorialDirty(false);
+                    setMemorialSaved(true);
+                    setSavedPieceNotice("Memorial salvo no servidor");
+                  } finally {
+                    memorialSavingRef.current = false;
+                  }
+                })}
+                disabled={!editableMemorial.trim() || actionBusy}> {actionBusy ? "Salvando…" : "Salvar alterações do memorial"}</button>
               <button type="button" className="pecas-secondary"
                 onClick={() => { onSaveMemorial(null); setMemorialDirty(false); setEditableMemorial(memorialText); setMemorialSaved(false); }}>Restaurar texto automático</button>
               <button type="button" className="pecas-secondary" disabled={memorialLoading}
                 onClick={() => { onSaveMemorial(null); setMemorialDirty(false); void onGenerateMemorial(); }}>Regenerar memorial</button>
             </div>
-            {memorialSaved && <p role="status">Memorial revisado aplicado às próximas exportações PDF e DOCX. Use “Salvar peça” para guardar o trabalho no servidor.</p>}
+            {memorialSaved && <p role="status">Memorial revisado salvo no servidor e aplicado às próximas exportações PDF e DOCX.</p>}
           </div>
         )}
 
