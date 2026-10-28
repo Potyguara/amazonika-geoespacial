@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { getApiUrl } from "@/lib/api";
+import { PaidMapsBudget } from "@/components/paid-maps-budget";
 import { Check, FileImage, Save, Settings2, TriangleAlert } from "lucide-react";
 
 const API_URL = getApiUrl();
@@ -177,6 +178,7 @@ export function SettingsModule() {
           </button>
         </footer>
       </form>
+      <PaidMapsBudget />
     </section>
   );
 }
