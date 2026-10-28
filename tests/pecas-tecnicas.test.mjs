@@ -99,3 +99,13 @@ test("Google Satélite no enquadramento é somente visualização, sem captura P
   assert.match(side, /basemap === "google"/);
   assert.match(side, /disabled=\{busy \|\| basemap === "google"\}/);
 });
+
+test("escala usa faixa separada e orientação calcula norte geográfico", async () => {
+  const pdf = await read("backend/app/services/plant_memorial_v3.py");
+  assert.match(pdf, /map_bottom = 42 \+ table_h \+ 39/);
+  assert.match(pdf, /footer_y = vy-25/);
+  assert.match(pdf, /point_north=max\(all_vertices,key=lambda pt:pt\[1\]\)/);
+  assert.match(pdf, /get_factors\(longitude,latitude\)\.meridian_convergence/);
+  assert.match(pdf, /America\/Belem/);
+  assert.match(pdf, /Declinação informada/);
+});
