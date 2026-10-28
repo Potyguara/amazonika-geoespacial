@@ -222,6 +222,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
+  const measureSourceRef = useRef(new VectorSource());
+  const [measureMode, setMeasureMode] = useState<"LineString" | "Polygon" | null>(null);
+  const [measureValue, setMeasureValue] = useState("");
   const officialSourceRef = useRef(new VectorSource());
   const snapLayerSourceRef = useRef(new VectorSource());
   const vertexLabelSourceRef = useRef(new VectorSource());
@@ -1071,6 +1074,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           style: subjectStyle,
         }),
         new VectorLayer({
+          source: measureSourceRef.current, zIndex: 5,
+          style: new Style({
+            stroke: new Stroke({ color: "#eab308", width: 3, lineDash: [7, 5] }),
+            fill: new Fill({ color: "rgba(234,179,8,0.16)" }),
+            image: new CircleStyle({ radius: 5, fill: new Fill({ color: "#eab308" }),
+              stroke: new Stroke({ color: "#fff", width: 2 }) }),
+          }),
+        }),
+        new VectorLayer({
           source: vertexLabelSourceRef.current,
           zIndex: 4,
           style: (feature) =>
@@ -1565,10 +1577,30 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !measureMode) return;
+    const draw = new Draw({ source: measureSourceRef.current, type: measureMode });
+    draw.on("drawend", ({ feature }) => {
+      const geom = feature.getGeometry();
+      if (geom instanceof LineString) {
+        const meters = getLength(geom, { projection: map.getView().getProjection() });
+        setMeasureValue(meters >= 1000
+          ? `Distância: ${(meters / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} km`
+          : `Distância: ${meters.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m`);
+      } else if (geom instanceof Polygon) {
+        const m2 = getArea(geom, { projection: map.getView().getProjection() });
+        setMeasureValue(`Área: ${(m2 / 10000).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha | ${m2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²`);
+      }
+    });
+    map.addInteraction(draw);
+    return () => { map.removeInteraction(draw); };
+  }, [measureMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map) return;
     if (drawRef.current) map.removeInteraction(drawRef.current);
     drawRef.current = null;
-    if (!drawKind) return;
+    if (!drawKind || measureMode) return;
 
     const draw = new Draw({ source: sourceRef.current, type: drawKind });
     // Mantém os polígonos previamente desenhados, possibilitando loteamentos.
@@ -2187,12 +2219,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   };
 
   const activateDraw = (kind: Exclude<DrawKind, null>) => {
+    setMeasureMode(null);
     setIdentifyActive(false);
     setModifyActive(false);
     setDrawKind((current) => (current === kind ? null : kind));
   };
 
   const toggleModify = () => {
+    setMeasureMode(null);
     if (sourceRef.current.getFeatures().length === 0) return;
 
     setDrawKind(null);
@@ -2200,7 +2234,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     setModifyActive((current) => !current);
   };
 
+  const toggleMeasure = (mode: "LineString" | "Polygon") => {
+    setIdentifyActive(false);
+    setDrawKind(null);
+    setModifyActive(false);
+    setMeasureValue("");
+    setMeasureMode(current => current === mode ? null : mode);
+  };
+
   const toggleIdentify = () => {
+    setMeasureMode(null);
     setDrawKind(null);
     setModifyActive(false);
     setIdentifyActive((current) => !current);
@@ -2259,6 +2302,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             }}
           />
         </label>
+        <button className={measureMode === "LineString" ? "active" : ""}
+          onClick={() => toggleMeasure("LineString")} title="Medir distâncias em metros ou quilômetros">
+          <Ruler size={16} /><span>Distância</span>
+        </button>
+        <button className={measureMode === "Polygon" ? "active" : ""}
+          onClick={() => toggleMeasure("Polygon")} title="Medir áreas em hectares e metros quadrados">
+          <Pentagon size={16} /><span>Área</span>
+        </button>
         <button onClick={locate} title="Minha localização">
           <Crosshair size={16} />
           <span>Localizar</span>
@@ -2268,6 +2319,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <span>Limpar</span>
         </button>
       </div>
+      {(measureMode || measureValue) && (
+        <div className="geo-measure-panel" role="status">
+          <strong>{measureValue || (measureMode === "LineString"
+            ? "Clique nos pontos e dê dois cliques para concluir a distância"
+            : "Clique nos vértices e dê dois cliques para concluir a área")}</strong>
+          <button type="button" onClick={() => { measureSourceRef.current.clear(); setMeasureValue(""); }}>Limpar medição</button>
+          <button type="button" onClick={() => setMeasureMode(null)}>Concluir</button>
+        </div>
+      )}
       {!hideAdvancedTools && <div className="geo-advanced-tools" aria-label="Ferramentas avançadas">
         <button className={advancedPanel === "coordinates" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "coordinates" ? null : "coordinates")} title="Inserir coordenadas manualmente"><MapPin size={18} /></button>
         <button className={snapSubjectEnabled || snapLayersEnabled ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "snap" ? null : "snap")} title="Configurar Snap"><Magnet size={18} /></button>
