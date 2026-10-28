@@ -687,8 +687,11 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.drawString(magnetic_box.x+34,magnetic_box.y+14,
                        f"d {declination:+.3f}°" if declination is not None
                        else "d: não informada")
+        pdf.setFont("Helvetica",5.0)
+        source_short=("WMM2025" if magnetic_source.startswith("WMM2025")
+                      else "RT" if declination is not None else "—")
         pdf.drawString(magnetic_box.x+34,magnetic_box.y+6,
-                       reference_dt.strftime("%d/%m/%Y"))
+                       source_short+" "+reference_dt.strftime("%d/%m/%y"))
         pdf.restoreState()
     if enabled("coordinates"):
         _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
