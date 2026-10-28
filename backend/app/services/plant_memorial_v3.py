@@ -695,7 +695,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         if declination is not None:
             angle_arrow(base_x,base_y,declination,25,"NM")
         pdf.setFont("Helvetica",5.5)
-        pdf.drawCentredString(ox+ow/2,oy+31,"NG: geográfico | NQ: quadrícula | NM: magnético")
+        pdf.drawCentredString(ox+ow/2,oy+31,"NG (geográfico) | NQ (grade) | NM (magnético)")
         pdf.drawCentredString(ox+ow/2,oy+24,
             f"Lat. {latitude:+.6f} | Lon. {longitude:+.6f}")
         pdf.drawCentredString(ox+ow/2,oy+16,
