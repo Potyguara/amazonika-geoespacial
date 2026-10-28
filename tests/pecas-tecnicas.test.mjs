@@ -41,7 +41,7 @@ test("opções avançadas são enviadas ao gerador e modificam os elementos", as
 test("pré-visualização usa blob real e invalida alterações de elementos e enquadramento", async () => {
   const ui = await read("components/pecas-tecnicas-workspace.tsx");
   assert.match(ui, /URL\.createObjectURL\(blob\)/);
-  assert.match(ui, /rasterKey, elements, declination, situationKey, situationToken/);
+  assert.match(ui, /rasterKey, elements, declination, surveyDate, situationKey, situationToken/);
   assert.match(ui, /lastPdfKey\.current === pdfKey/);
 });
 
