@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from app.core.config import get_settings
+from app.services.tile_budget import reserve, snapshot
 from app.services.auth import get_current_user
 from app.models.auth import User
 
@@ -36,6 +37,7 @@ def _key() -> str:
 
 def _fetch_google(path: str, params: dict, payload: dict | None = None):
     key = _key()
+    reserve("google")
     # O endpoint de viewport usa /tile/v1/, diferente de createSession e 2dtiles.
     base_path = "tile/v1" if path == "viewport" else "v1"
     url = "https://tile.googleapis.com/" + base_path + "/" + path + "?" + urlencode({**params, "key": key})
@@ -73,8 +75,10 @@ def _current_session() -> dict:
 @router.get("/status")
 def google_tiles_status(user: User = Depends(get_current_user)):
     settings = get_settings()
+    budget = snapshot("google")
     return {"enabled": bool(settings.google_map_tiles_enabled and
-                            (settings.google_maps_api_key or "").strip()),
+                            (settings.google_maps_api_key or "").strip() and not budget["blocked"]),
+            "budget": budget,
             "pdf_export": False}
 
 
