@@ -6,6 +6,7 @@ from urllib.request import urlopen, Request
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.core.config import get_settings
+from app.services.tile_budget import reserve, snapshot
 from app.services.auth import get_current_user
 from app.models.auth import User
 
@@ -15,9 +16,11 @@ router = APIRouter(prefix="/mapbox-satellite", tags=["Mapbox Satellite"])
 @router.get("/status")
 def mapbox_status(user: User = Depends(get_current_user)):
     cfg = get_settings()
+    budget = snapshot("mapbox")
     return {
         "enabled": bool(cfg.mapbox_satellite_enabled and
-                        (cfg.mapbox_access_token or "").strip()),
+                        (cfg.mapbox_access_token or "").strip() and not budget["blocked"]),
+        "budget": budget,
         "pdf_export": False,
         "attribution": "© Mapbox | Imagery providers as specified by Mapbox",
     }
@@ -35,11 +38,14 @@ def satellite_tile(z: int, x: int, y: int, user: User = Depends(get_current_user
         f"https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}.jpg90?"
         + urlencode({"access_token": token})
     )
+    reserve("mapbox")
     try:
         with urlopen(Request(url, headers={"User-Agent": "Amazonika-Geoespacial/1.0"}), timeout=12) as result:
             raw = result.read()
             content_type = result.headers.get("Content-Type", "")
     except HTTPError as error:
+        if error.code == 429:
+            raise HTTPException(status_code=429, detail="Mapbox limitou as requisições; verifique o faturamento e a cota.")
         raise HTTPException(status_code=502, detail=f"Mapbox indisponível (HTTP {error.code}).")
     except (URLError, TimeoutError):
         raise HTTPException(status_code=502, detail="Falha de comunicação com Mapbox.")
