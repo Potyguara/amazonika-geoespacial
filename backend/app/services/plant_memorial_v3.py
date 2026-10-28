@@ -71,7 +71,8 @@ def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordina
     row_h = 13 if fmt in ("A4", "A3") else 14
     title_h = 23
     table_h = title_h + (vertex_count + 1) * row_h + 7 if show_coordinates else 0
-    map_bottom = 42 + table_h + (13 if show_coordinates else 0)
+    # Faixa exclusiva para escala gráfica e escala numérica; fora da grade UTM.
+    map_bottom = 42 + table_h + 39
     map_top = h - 88
     map_w = available_width
     map_h = map_top - map_bottom
@@ -548,10 +549,12 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.setStrokeColor(RULE)
         pdf.rect(*viewport,fill=0,stroke=1)
     label_layout=LabelLayout(viewport)
-    label_layout.reserved.append(Box(vx,vy,50,vh))
+    label_layout.reserved.append(Box(vx,vy,55,vh))
     label_layout.reserved.append(Box(vx,vy,vw,16))
-    if enabled("north"):
-        label_layout.reserved.append(Box(vx+7,vy+vh-55,26,48))
+    orientation_on = enabled("north")
+    if orientation_on:
+        # Quadro de orientação separado do desenho das parcelas e da grade.
+        label_layout.reserved.append(Box(vx+3,vy+vh-131,127,127))
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -586,30 +589,76 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                 layout=label_layout,show_azimuth=enabled("azimuths"),
                 show_distance=enabled("distances"),
                 show_confrontants=enabled("confrontants"))
-    if enabled("north"):
-        pdf.setStrokeColor(GREEN);pdf.setLineWidth(1.5)
-        nx,ny=vx+18,vy+vh-18
-        pdf.line(nx,ny-22,nx,ny)
-        pdf.line(nx,ny,nx-5,ny-7);pdf.line(nx,ny,nx+5,ny-7)
-        pdf.setFont("Helvetica-Bold",8);pdf.drawCentredString(nx,ny+5,"N")
+    # Os três elementos de escala ocupam uma faixa independente abaixo
+    # do quadro UTM; não interferem nos valores das coordenadas.
+    footer_y = vy-25
     if enabled("scale_text"):
-        pdf.setFillColor(DARK);pdf.setFont("Helvetica",7.5)
-        pdf.drawString(vx,vy-13,f"ESCALA 1:{scale:,}  |  FOLHA {fmt} ({orientation})")
-    if elements.get("scale_bar", False):
-        bar_pt=min(vw*0.3,100)
+        pdf.setFillColor(DARK)
+        pdf.setFont("Helvetica-Bold",7.0)
+        pdf.drawString(vx+4,footer_y,f"ESCALA 1:{scale:,}".replace(",","."))
+    if elements.get("scale_bar",False):
+        bar_pt=min(vw*.28,90)
         bar_m=bar_pt/_pt_per_meter(scale)
+        bx=vx+vw-bar_pt-13
+        by=footer_y+2
         pdf.saveState()
-        pdf.setFillColor(GREEN);pdf.setStrokeColor(GREEN)
-        pdf.rect(vx+vw-bar_pt-12,vy+8,bar_pt/2,5,stroke=1,fill=1)
+        pdf.setStrokeColor(GREEN)
+        pdf.setFillColor(GREEN)
+        pdf.rect(bx,by,bar_pt/2,5,stroke=1,fill=1)
         pdf.setFillColor(colors.white)
-        pdf.rect(vx+vw-bar_pt/2-12,vy+8,bar_pt/2,5,stroke=1,fill=1)
-        pdf.setFont("Helvetica",6.5);pdf.setFillColor(DARK)
-        pdf.drawRightString(vx+vw-12,vy+17,f"{bar_m:.1f} m")
+        pdf.rect(bx+bar_pt/2,by,bar_pt/2,5,stroke=1,fill=1)
+        pdf.setFont("Helvetica",6)
+        pdf.setFillColor(DARK)
+        pdf.drawString(bx,by-9,"0")
+        pdf.drawRightString(bx+bar_pt,by-9,f"{bar_m:.1f} m")
         pdf.restoreState()
-    if elements.get("magnetic_declination", False):
-        pdf.setFont("Helvetica",6.6);pdf.setFillColor(DARK)
-        pdf.drawString(vx+4,vy+6,
-            f"Declinação magnética informada: {magnetic_declination_degrees:+.2f}°")
+
+    if orientation_on:
+        # Para cálculo da convergência, utiliza-se o ponto geográfico
+        # mais ao norte (maior latitude) de todas as parcelas.
+        from pyproj import Proj
+        point_north=max(all_vertices,key=lambda pt:pt[1])
+        longitude,latitude=point_north
+        convergence=float(Proj(crs).get_factors(longitude,latitude).meridian_convergence)
+        # A declinação é um dado de campo INFORMADO; não confundir com
+        # cálculo de campo magnético baseado em modelo e época geomagnética.
+        declination=magnetic_declination_degrees if elements.get("magnetic_declination",False) else None
+        ox,oy=vx+7,vy+vh-127
+        ow,oh=118,121
+        pdf.saveState()
+        pdf.setFillColor(colors.white)
+        pdf.setStrokeColor(RULE)
+        pdf.roundRect(ox,oy,ow,oh,3,stroke=1,fill=1)
+        pdf.setFillColor(GREEN)
+        pdf.setFont("Helvetica-Bold",7.4)
+        pdf.drawCentredString(ox+ow/2,oy+oh-11,"ORIENTAÇÃO")
+        pdf.setFont("Helvetica",5.7)
+        pdf.setFillColor(DARK)
+        pdf.drawCentredString(ox+ow/2,oy+oh-21,"SIRGAS 2000 | Ponto mais ao norte")
+        def angle_arrow(base_x,base_y,degrees,length,label):
+            radians=math.radians(degrees)
+            tip_x=base_x+math.sin(radians)*length
+            tip_y=base_y+math.cos(radians)*length
+            pdf.line(base_x,base_y,tip_x,tip_y)
+            pdf.drawCentredString(tip_x,tip_y+3,label)
+        base_x,base_y=ox+ow/2,oy+39
+        pdf.setStrokeColor(GREEN)
+        angle_arrow(base_x,base_y,0,31,"NG")
+        angle_arrow(base_x,base_y,convergence,28,"NQ")
+        if declination is not None:
+            angle_arrow(base_x,base_y,declination,25,"NM")
+        pdf.setFont("Helvetica",5.5)
+        pdf.drawCentredString(ox+ow/2,oy+24,
+            f"Lat. {latitude:+.6f} | Lon. {longitude:+.6f}")
+        pdf.drawCentredString(ox+ow/2,oy+16,
+            f"Convergência: {convergence:+.5f}°")
+        if declination is not None:
+            pdf.drawCentredString(ox+ow/2,oy+8,
+                f"Declinação informada: {declination:+.3f}°")
+        else:
+            pdf.drawCentredString(ox+ow/2,oy+8,
+                "Declinação: não informada")
+        pdf.restoreState()
     if enabled("coordinates"):
         _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
     # Coluna direita em células separadas com situação cartográfica.
