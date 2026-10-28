@@ -107,7 +107,7 @@ test("escala usa faixa separada e orientação calcula norte geográfico", async
   assert.match(pdf, /longitude,latitude=max\(all_vertices,key=lambda pt:pt\[1\]\)/);
   assert.match(pdf, /get_factors\(longitude,latitude\)\.meridian_convergence/);
   assert.match(pdf, /America\/Belem/);
-  assert.match(pdf, /Declinação:/);
+  assert.match(pdf, /declination:\+\.3f/);
 });
 
 test("cálculo WMM2025 usa data de referência e vértice mais ao norte", async () => {
