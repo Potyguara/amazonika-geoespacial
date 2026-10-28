@@ -38,6 +38,7 @@ import {
   PanelLeftOpen,
   Plus,
   ScanSearch,
+  Search,
   Settings,
   ShieldCheck,
   UploadCloud,
