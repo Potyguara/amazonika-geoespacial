@@ -80,6 +80,19 @@ class PlantElementsTest(unittest.TestCase):
         text=" ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages)
         self.assertIn("WMM2025",text)
 
+    def test_pdf_api_accepts_iso_survey_date(self):
+        from app.api.routes.tools import PlantMemorialPdfRequest
+        model = PlantMemorialPdfRequest(
+            title="Teste",
+            geometry={
+                "type": "Polygon",
+                "coordinates": [[[-51.05,-0.05],[-51.0497,-0.05],
+                                 [-51.0497,-0.0497],[-51.05,-0.05]]],
+            },
+            survey_date="2026-10-25",
+        )
+        self.assertEqual(model.survey_date,"2026-10-25")
+
     def test_declination_manual_preservada(self):
         pdf, _, _ = self.build(
             plant_elements={"magnetic_declination": True},
