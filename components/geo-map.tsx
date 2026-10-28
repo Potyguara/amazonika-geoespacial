@@ -2082,7 +2082,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      throw new Error(payload?.detail ?? "Não foi possível gerar o PDF.");
+      const detail = payload?.detail;
+      const message = typeof detail === "string" ? detail
+        : Array.isArray(detail) ? detail.map((issue: { loc?: unknown[]; msg?: string }) =>
+            `${Array.isArray(issue.loc) ? issue.loc.join(".") + ": " : ""}${issue.msg ?? "Campo inválido"}`
+          ).join("; ")
+        : "Não foi possível gerar o PDF.";
+      throw new Error(message);
     }
     setLastGeneratedPdfId(response.headers.get("X-Document-Id"));
     return response.blob();
