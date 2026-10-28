@@ -81,8 +81,8 @@ class PlantElementsTest(unittest.TestCase):
         self.assertIn("WMM2025",text)
 
     def test_pdf_api_accepts_iso_survey_date(self):
-        from app.api.routes.tools import PlantMemorialPdfRequest
-        model = PlantMemorialPdfRequest(
+        from app.api.routes.tools import MemorialRequest
+        model = MemorialRequest(
             title="Teste",
             geometry={
                 "type": "Polygon",
