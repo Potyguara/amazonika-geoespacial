@@ -489,19 +489,22 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    orientation: str = "paisagem",
                    plant_elements: dict | None = None,
                    magnetic_declination_degrees: float | None = None,
-                   edited_memorial: str | None = None) -> tuple[bytes,str,int]:
+                   edited_memorial: str | None = None,
+                   survey_date: str | None = None) -> tuple[bytes,str,int]:
     elements = plant_elements or {}
     enabled = lambda key: elements.get(key, True)
     if enabled("situation") and not raster_b64:
         raise ValueError("A Planta de Situação exige imagem raster capturada do mapa.")
-    if elements.get("magnetic_declination", False) and magnetic_declination_degrees is None:
-        raise ValueError("Informe a declinação magnética antes de exibi-la.")
     if not parcels:
         raise ValueError("Selecione ao menos um polígono.")
     professional=dict(professional or {})
     if responsible_name and not professional.get("full_name"):
         professional["full_name"]=responsible_name
     raster=_raster_reader(raster_b64) if raster_b64 else None
+    reference_dt = datetime.now(ZoneInfo("America/Belem")).date()
+    if survey_date:
+        from datetime import date
+        reference_dt=date.fromisoformat(survey_date)
     stamp=datetime.now(ZoneInfo("America/Belem")).strftime(
         "%d/%m/%Y %H:%M:%S - Horário de Belém"
     )
@@ -644,7 +647,27 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         convergence=float(Proj(crs).get_factors(longitude,latitude).meridian_convergence)
         # A declinação é um dado de campo INFORMADO; não confundir com
         # cálculo de campo magnético baseado em modelo e época geomagnética.
-        declination=magnetic_declination_degrees if elements.get("magnetic_declination",False) else None
+        declination=None
+        magnetic_source=None
+        if elements.get("magnetic_declination",False):
+            if magnetic_declination_degrees is not None:
+                declination=magnetic_declination_degrees
+                magnetic_source="Informada pelo RT"
+            else:
+                from pygeomag import GeoMag
+                year_days=366 if (__import__("calendar").isleap(reference_dt.year)) else 365
+                decimal_year=reference_dt.year + (reference_dt.timetuple().tm_yday-1)/year_days
+                if not 2025 <= decimal_year < 2030:
+                    raise ValueError(
+                        "O modelo WMM2025 somente cobre datas de 2025 a 2029. "
+                        "Escolha uma data nesse intervalo ou informe a declinação validada."
+                    )
+                result=GeoMag(coefficients_file="wmm/WMM_2025.COF").calculate(
+                    glat=latitude,glon=longitude,alt=0,time=decimal_year,
+                )
+                declination=float(result.d)
+                magnetic_source="WMM2025 (alt. 0 km)"
+
         assert orientation_box is not None
         ox,oy=orientation_box.x+4,orientation_box.y+4
         ow,oh=118,121
@@ -658,7 +681,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.setFont("Helvetica",5.7)
         pdf.setFillColor(DARK)
         pdf.drawCentredString(ox+ow/2,oy+oh-21,
-            "SIRGAS 2000 | "+datetime.now(ZoneInfo("America/Belem")).strftime("%d/%m/%Y"))
+            "SIRGAS 2000 | "+reference_dt.strftime("%d/%m/%Y"))
         def angle_arrow(base_x,base_y,degrees,length,label):
             radians=math.radians(degrees)
             tip_x=base_x+math.sin(radians)*length
@@ -679,10 +702,13 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             f"Convergência: {convergence:+.5f}°")
         if declination is not None:
             pdf.drawCentredString(ox+ow/2,oy+8,
-                f"Declinação informada: {declination:+.3f}°")
+                f"Declinação: {declination:+.3f}°")
         else:
             pdf.drawCentredString(ox+ow/2,oy+8,
                 "Declinação: não informada")
+        if declination is not None:
+            pdf.setFont("Helvetica",5.0)
+            pdf.drawCentredString(ox+ow/2,oy+2,magnetic_source or "")
         pdf.restoreState()
     if enabled("coordinates"):
         _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
