@@ -332,43 +332,80 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
         pdf.setFillColor(GREEN)
         pdf.drawString(x+11,box_top-12,"QUADRO DE ASSINATURAS")
         inner_width=width-28
-        def signature_group(label, lines, baseline, area_height):
-            pdf.setFont("Helvetica-Bold",6.5)
-            pdf.setFillColor(DARK)
-            pdf.drawString(x+13,baseline,label)
-            pdf.setStrokeColor(RULE)
-            pdf.line(x+13,baseline-5,x+width-13,baseline-5)
-            cursor=baseline-16
-            for index,line in enumerate(lines):
-                if not line:continue
-                font=6.7 if index==0 else 6.1
-                paragraph=Paragraph(
-                    escape(str(line)),
-                    ParagraphStyle("signature",fontName="Helvetica",fontSize=font,
-                                   leading=font+1.5,alignment=1,textColor=DARK),
-                )
-                _,height=paragraph.wrap(inner_width,150)
-                if cursor-height < baseline-area_height:
-                    raise ValueError("Os dados do quadro de assinaturas não cabem nesta folha. Selecione formato maior.")
-                paragraph.drawOn(pdf,x+14,cursor-height)
-                cursor-=height+1
-        panel_h=box_top-box_bottom
-        split=box_bottom+panel_h*0.62
         owner_lines=[owner or "Não informado"]
-        if owner_rg:owner_lines.append(f"RG: {owner_rg}")
-        if owner_cpf:owner_lines.append(f"CPF: {owner_cpf}")
-        signature_group("PROPRIETÁRIO / DETENTOR",owner_lines,box_top-27, panel_h*0.30)
+        if owner_rg: owner_lines.append(f"RG: {owner_rg}")
+        if owner_cpf: owner_lines.append(f"CPF: {owner_cpf}")
         rt_lines=[
             professional.get("full_name") or "Não informado",
             professional.get("profession") or "",
             professional.get("specialization") or "",
-            " | ".join(f"{k.upper()}: {professional[k]}" for k in ("cpf","rg") if professional.get(k)),
-            " | ".join(str(professional.get(k)) for k in ("crea","visto","incra_code")
+            " | ".join(f"{k.upper()}: {professional[k]}" for k in ("cpf","rg")
                        if professional.get(k)),
+            " | ".join(str(professional.get(k)) for k in
+                       ("crea","visto","incra_code") if professional.get(k)),
             f"ART: {professional['art']}" if professional.get("art") else "",
         ]
-        pdf.line(x+7,split,x+width-7,split)
-        signature_group("RESPONSÁVEL TÉCNICO",rt_lines,split-13,split-box_bottom-12)
+        # Medir os parágrafos ANTES de desenhar ou de escolher a divisória.
+        # Os blocos não recebem percentuais fixos porque CPF/RG e títulos
+        # podem ocupar várias linhas.
+        def measured_lines(lines, body_size):
+            items=[]
+            for index,line in enumerate(lines):
+                if not line: continue
+                size=body_size if index==0 else max(5.3,body_size-.5)
+                p=Paragraph(
+                    escape(str(line)),
+                    ParagraphStyle("signature",fontName="Helvetica",fontSize=size,
+                                   leading=size+1.5,alignment=1,textColor=DARK),
+                )
+                _,height=p.wrap(inner_width,300)
+                items.append((p,height))
+            return items
+        # Reserva: título do quadro (17 pt), cada cabeçalho e traço
+        # (17 pt), folgas de 3 pt e margem inferior (8 pt).
+        area_height=box_top-box_bottom
+        layout=None
+        for font_size in (6.7,6.3,5.9,5.6):
+            owner_items=measured_lines(owner_lines,font_size)
+            rt_items=measured_lines(rt_lines,font_size)
+            owner_needed=sum(h+2 for _,h in owner_items)+25
+            rt_needed=sum(h+2 for _,h in rt_items)+25
+            if owner_needed+rt_needed+22 <= area_height:
+                layout=(owner_items,rt_items,owner_needed,rt_needed)
+                break
+        if layout is None:
+            raise ValueError(
+                "O quadro de assinaturas não comporta todos os dados com "
+                "fontes legíveis. Escolha uma folha maior ou reduza os textos."
+            )
+        owner_items,rt_items,owner_needed,rt_needed=layout
+        # A divisória nasce do tamanho real dos dados do proprietário.
+        # Garante-se separação mínima da próxima seção.
+        owner_heading=box_top-27
+        def draw_group(heading,items,baseline,group_floor):
+            pdf.setFillColor(DARK)
+            pdf.setFont("Helvetica-Bold",6.5)
+            pdf.drawString(x+13,baseline,heading)
+            pdf.setStrokeColor(RULE)
+            pdf.line(x+13,baseline-5,x+width-13,baseline-5)
+            cursor=baseline-15
+            for paragraph,height in items:
+                bottom=cursor-height
+                if bottom < group_floor+5:
+                    raise ValueError(
+                        "O quadro de assinaturas não possui espaço suficiente "
+                        "para distribuir os textos sem sobreposição."
+                    )
+                paragraph.drawOn(pdf,x+14,bottom)
+                cursor=bottom-2
+            return cursor
+        owner_floor=box_top-17-owner_needed
+        if owner_floor-box_bottom < rt_needed+8:
+            raise ValueError("Espaço insuficiente para assinaturas. Use folha maior.")
+        draw_group("PROPRIETÁRIO / DETENTOR",owner_items,owner_heading,owner_floor)
+        pdf.setStrokeColor(RULE)
+        pdf.line(x+7,owner_floor,x+width-7,owner_floor)
+        draw_group("RESPONSÁVEL TÉCNICO",rt_items,owner_floor-12,box_bottom)
 
     pdf.setFillColor(DARK)
     pdf.setFont("Helvetica",5.6)
