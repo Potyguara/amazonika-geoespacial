@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("./storage/uploads")
     public_base_url: str = "http://localhost:3000"
     google_maps_api_key: str | None = None
+    mapbox_access_token: str | None = None
+    mapbox_satellite_enabled: bool = False
     google_map_tiles_enabled: bool = False
     openai_api_key: str | None = None
     openai_model: str = "gpt-6-luna"
