@@ -368,7 +368,7 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
         for font_size in (6.7,6.3,5.9,5.6):
             owner_items=measured_lines(owner_lines,font_size)
             rt_items=measured_lines(rt_lines,font_size)
-            owner_needed=sum(h+2 for _,h in owner_items)+25
+            owner_needed=sum(h+2 for _,h in owner_items)+32
             rt_needed=sum(h+2 for _,h in rt_items)+25
             if owner_needed+rt_needed+22 <= area_height:
                 layout=(owner_items,rt_items,owner_needed,rt_needed)
