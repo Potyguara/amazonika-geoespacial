@@ -74,7 +74,7 @@ def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordina
     # Faixa exclusiva para escala gráfica e escala numérica; fora da grade UTM.
     map_bottom = 42 + table_h + 39
     # Faixa acima da grade reservada a rosa dos ventos e quadro magnético.
-    map_top = h - 172
+    map_top = h - 88
     map_w = available_width
     map_h = map_top - map_bottom
     if map_h < 145 or available_width < 210:
@@ -556,8 +556,23 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     label_layout.reserved.append(Box(vx,vy,55,vh))
     label_layout.reserved.append(Box(vx,vy,vw,16))
     orientation_on = enabled("north")
-    # Rosa dos ventos e declinação são desenhadas na faixa externa
-    # acima da grade UTM, nunca sobre a geometria ou os rótulos.
+    # Símbolos discretos em cantos da moldura, com áreas de exclusão
+    # para etiquetas; nunca redesenhar uma faixa adicional inteira.
+    rose_box=Box(vx+58,vy+vh-50,44,43)
+    magnetic_box=Box(vx+vw-100,vy+vh-50,94,43)
+    if orientation_on:
+        # Não permitir símbolos sobre a geometria, mesmo para parcelas
+        # que ocupem grande parte da folha.
+        for ring in projected:
+            screen=[xy(*p) for p in ring]
+            occupied=Box(min(p[0] for p in screen)-6,
+                         min(p[1] for p in screen)-6,
+                         max(p[0] for p in screen)-min(p[0] for p in screen)+12,
+                         max(p[1] for p in screen)-min(p[1] for p in screen)+12)
+            if rose_box.intersects(occupied, gap=2) or magnetic_box.intersects(occupied,gap=2):
+                raise ValueError("Símbolos de orientação encontram o polígono. "
+                                 "Escolha folha maior ou ajuste a escala da planta.")
+        label_layout.reserved.extend([rose_box, magnetic_box])
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -636,59 +651,45 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                 declination=float(GeoMag(coefficients_file="wmm/WMM_2025.COF").calculate(
                     glat=latitude,glon=longitude,alt=0,time=decimal_year).d)
                 magnetic_source="WMM2025 (alt. 0 km)"
-        # Dois painéis idênticos, lado a lado, sob o cabeçalho.
-        band_bottom=h-161
-        panel_w=min(126.,(vw-12)/2)
-        panel_h=79.
-        left_x=vx+3
-        right_x=vx+vw-panel_w-3
-        if right_x < left_x+panel_w+5:
-            raise ValueError("A folha não comporta os dois quadros de orientação.")
-        def panel_frame(px,title):
-            pdf.setFillColor(colors.white)
-            pdf.setStrokeColor(RULE)
-            pdf.roundRect(px,band_bottom,panel_w,panel_h,3,stroke=1,fill=1)
-            pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",7)
-            pdf.drawCentredString(px+panel_w/2,band_bottom+panel_h-11,title)
-        panel_frame(left_x,"ROSA DOS VENTOS")
-        cx=left_x+panel_w/2
-        cy=band_bottom+26
-        pdf.setStrokeColor(GREEN);pdf.setFillColor(GREEN)
-        pdf.setLineWidth(1)
+        # Rosa do norte (canto superior esquerdo), discreta e sem moldura.
+        pdf.saveState()
+        pdf.setFillColor(colors.white)
+        pdf.rect(rose_box.x,rose_box.y,rose_box.w,rose_box.h,fill=1,stroke=0)
+        cx=rose_box.x+rose_box.w/2
+        cy=rose_box.y+17
+        pdf.setStrokeColor(DARK)
+        pdf.setFillColor(DARK)
+        pdf.setLineWidth(.65)
         for degrees in range(0,360,45):
             angle=math.radians(degrees)
-            length=26 if degrees%90==0 else 17
-            x=cx+math.sin(angle)*length
-            y=cy+math.cos(angle)*length
-            pdf.line(cx,cy,x,y)
-        # Norte destacado, sem sobreposição de rótulos.
-        pdf.line(cx,cy+26,cx,cy+34)
-        pdf.setFont("Helvetica-Bold",7);pdf.setFillColor(DARK)
-        pdf.drawCentredString(cx,cy+37,"N")
-        panel_frame(right_x,"DECLINAÇÃO MAGNÉTICA")
-        rx=right_x+panel_w/2; ry=band_bottom+30
-        pdf.setStrokeColor(GREEN)
-        for deg,length in [(0,23),(convergence,20)]+(
-            [(declination,17)] if declination is not None else []):
-            radians=math.radians(deg)
-            pdf.line(rx,ry,rx+math.sin(radians)*length,ry+math.cos(radians)*length)
-        pdf.setFillColor(DARK);pdf.setFont("Helvetica",5.7)
-        pdf.drawCentredString(rx,band_bottom+19,
-            f"Convergência: {convergence:+.5f}°")
-        pdf.drawCentredString(rx,band_bottom+12,
-            f"Declinação: {declination:+.3f}°" if declination is not None
-            else "Declinação: não selecionada")
-        pdf.drawCentredString(rx,band_bottom+5,magnetic_source)
-        # Referência geográfica e data na área central livre da faixa.
-        pdf.setFont("Helvetica",6)
-        mid_x=(left_x+panel_w+right_x)/2
-        if right_x-(left_x+panel_w)>110:
-            pdf.drawCentredString(mid_x,band_bottom+48,
-                reference_dt.strftime("%d/%m/%Y"))
-            pdf.drawCentredString(mid_x,band_bottom+37,
-                f"Lat. {latitude:+.5f}°")
-            pdf.drawCentredString(mid_x,band_bottom+26,
-                f"Lon. {longitude:+.5f}°")
+            reach=14 if degrees%90==0 else 9
+            pdf.line(cx,cy,cx+math.sin(angle)*reach,cy+math.cos(angle)*reach)
+        pdf.setFont("Helvetica-Bold",6.7)
+        pdf.drawCentredString(cx,rose_box.y+35,"N")
+        # Declinação e convergência em ícone compacto no canto oposto.
+        pdf.setFillColor(colors.white)
+        pdf.rect(magnetic_box.x,magnetic_box.y,magnetic_box.w,magnetic_box.h,
+                 fill=1,stroke=0)
+        mx=magnetic_box.x+16
+        my=magnetic_box.y+9
+        pdf.setStrokeColor(DARK)
+        pdf.setLineWidth(.7)
+        for ang,reach in [(0,23),(convergence,20)]+(
+                [(declination,18)] if declination is not None else []):
+            rad=math.radians(ang)
+            pdf.line(mx,my,mx+math.sin(rad)*reach,my+math.cos(rad)*reach)
+        pdf.setFont("Helvetica",5.5)
+        pdf.setFillColor(GREEN)
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+30,"NG / NQ / NM")
+        pdf.setFillColor(DARK)
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+22,
+                       f"c {convergence:+.4f}°")
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+14,
+                       f"d {declination:+.3f}°" if declination is not None
+                       else "d: não informada")
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+6,
+                       reference_dt.strftime("%d/%m/%Y"))
+        pdf.restoreState()
     if enabled("coordinates"):
         _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
     # Coluna direita em células separadas com situação cartográfica.
