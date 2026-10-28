@@ -292,7 +292,8 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
         raster_b64: result.toDataURL("image/jpeg", 0.9).split(",")[1],
         raster_source: basemap === "satellite" ? "Esri World Imagery - referência" : "OpenStreetMap - referência",
         geometry_key: geoKeyRef.current, token: Date.now(),
-        center: [...center], zoom: map.getView().getZoom() ?? 12, basemap,
+        center: [...center], zoom: map.getView().getZoom() ?? 12,
+        basemap: basemap === "osm" ? "osm" : "satellite",
       });
       setMessage("Enquadramento registrado para a Planta de Situação.");
     } catch (error) {
