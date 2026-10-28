@@ -52,6 +52,7 @@ class GoogleTilesTests(unittest.TestCase):
         response.headers.get.return_value = "application/json"
         response.__enter__.return_value = response
         with patch.object(google_tiles, "_key", return_value="dummy"), \
+             patch.object(google_tiles, "reserve"), \
              patch.object(google_tiles, "urlopen", return_value=response) as request:
             data, mime = google_tiles._fetch_google("viewport", {
                 "session": "placeholder", "zoom": 10,
