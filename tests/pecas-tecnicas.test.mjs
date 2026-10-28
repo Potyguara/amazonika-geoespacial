@@ -120,11 +120,11 @@ test("cálculo WMM2025 usa data de referência e vértice mais ao norte", async 
   assert.match(workspace, /type="date"/);
 });
 
-test("rosa dos ventos e declinação compartilham a faixa superior da primeira prancha", async () => {
+test("orientação compacta mantém altura útil da grade e reserva a área de rótulos", async () => {
   const pdf = await read("backend/app/services/plant_memorial_v3.py");
-  assert.match(pdf, /panel_frame\(left_x,"ROSA DOS VENTOS"\)/);
-  assert.match(pdf, /panel_frame\(right_x,"DECLINAÇÃO MAGNÉTICA"\)/);
-  assert.match(pdf, /panel_h=79\./);
-  assert.match(pdf, /map_top = h - 172/);
-  assert.doesNotMatch(pdf, /if orientation_on and orientation_box is None:/);
+  assert.match(pdf, /rose_box=Box\(/);
+  assert.match(pdf, /magnetic_box=Box\(/);
+  assert.match(pdf, /label_layout\.reserved\.extend\(\[rose_box, magnetic_box\]\)/);
+  assert.match(pdf, /map_top = h - 88/);
+  assert.doesNotMatch(pdf, /band_bottom=h-161/);
 });
