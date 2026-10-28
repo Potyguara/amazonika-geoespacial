@@ -70,9 +70,22 @@ class PlantElementsTest(unittest.TestCase):
         })
         self.assertTrue(pdf.startswith(b"%PDF"))
 
-    def test_declination_requer_valor(self):
-        with self.assertRaisesRegex(ValueError, "declinação magnética"):
-            self.build(plant_elements={"magnetic_declination": True})
+    def test_declination_wmm2025_calculada_sem_valor_manual(self):
+        pdf, _, _ = self.build(
+            plant_elements={"magnetic_declination": True},
+            survey_date="2026-10-27",
+        )
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        from pypdf import PdfReader
+        text=" ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages)
+        self.assertIn("WMM2025",text)
+
+    def test_declination_manual_preservada(self):
+        pdf, _, _ = self.build(
+            plant_elements={"magnetic_declination": True},
+            magnetic_declination_degrees=-15.5,
+        )
+        self.assertTrue(pdf.startswith(b"%PDF"))
 
 
 if __name__ == "__main__":
