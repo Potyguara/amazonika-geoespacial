@@ -17,6 +17,7 @@ export type TechnicalPieceSnapshot = {
   professional?: Record<string, string> | null;
   elements?: Record<string, boolean>;
   magnetic_declination?: string;
+  survey_date?: string;
   memorial_edited?: string;
   generated_pdf_id?: string | null;
   situation?: Record<string, unknown> | null;
