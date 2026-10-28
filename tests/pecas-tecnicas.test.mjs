@@ -128,3 +128,14 @@ test("orientação compacta mantém altura útil da grade e reserva a área de r
   assert.match(pdf, /map_top = h - 88/);
   assert.doesNotMatch(pdf, /band_bottom=h-161/);
 });
+
+test("medição usa camada isolada e cálculos geodésicos sem alterar parcelas", async () => {
+  const map = await read("components/geo-map.tsx");
+  assert.match(map, /measureSourceRef = useRef\(new VectorSource\(\)\)/);
+  assert.match(map, /source: measureSourceRef\.current/);
+  assert.match(map, /getLength\(geom, \{ projection:/);
+  assert.match(map, /getArea\(geom, \{ projection:/);
+  assert.match(map, /<span>Distância<\/span>/);
+  assert.match(map, /<span>Área<\/span>/);
+  assert.match(map, /measureSourceRef\.current\.clear\(\)/);
+});
