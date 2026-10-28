@@ -51,6 +51,9 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   const [googleAvailable, setGoogleAvailable] = useState(false);
   const [copyright, setCopyright] = useState("");
   const [googleError, setGoogleError] = useState("");
+  const [licenseConfirmed, setLicenseConfirmed] = useState(false);
+  const [licenseReference, setLicenseReference] = useState("");
+
   const [message, setMessage] = useState("");
   useEffect(() => {
     let active = true;
@@ -232,6 +235,10 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   };
 
   const capture = async () => {
+    if (!licenseConfirmed || !licenseReference.trim()) {
+      setMessage("Informe a referência da licença e confirme o direito de reprodução no PDF antes da captura.");
+      return;
+    }
     if (basemap === "google") {
       setMessage("A base Google é somente para visualização. Selecione Esri ou OSM e registre o enquadramento para o PDF.");
       return;
@@ -290,7 +297,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       if (!center) throw new Error("Centro cartográfico indisponível.");
       saveRef.current({
         raster_b64: result.toDataURL("image/jpeg", 0.9).split(",")[1],
-        raster_source: basemap === "satellite" ? "Esri World Imagery - referência" : "OpenStreetMap - referência",
+        raster_source: (basemap === "satellite" ? "Esri World Imagery" : "OpenStreetMap") + " | " + licenseReference.trim(),
         geometry_key: geoKeyRef.current, token: Date.now(),
         center: [...center], zoom: map.getView().getZoom() ?? 12,
         basemap: basemap === "osm" ? "osm" : "satellite",
@@ -310,7 +317,11 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       <div className="pecas-situation-map" ref={container} aria-label="Mapa interativo de enquadramento" />
       <div className="pecas-situation-actions">
         <select aria-label="Base cartográfica" value={basemap}
-          onChange={(event) => setBasemap(event.target.value as "osm" | "satellite" | "google")}>
+          onChange={(event) => {
+            setBasemap(event.target.value as "osm" | "satellite" | "google");
+            setLicenseConfirmed(false);
+            setLicenseReference("");
+          }}>
           <option value="satellite">Esri World Imagery (para PDF)</option>
           <option value="osm">Mapa OSM (para PDF)</option>
           <option value="google" disabled={!googleAvailable}>Google Satélite (somente visualizar)</option>
@@ -319,11 +330,29 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
         <button type="button" onClick={() => mapRef.current?.getView().setZoom((mapRef.current?.getView().getZoom() ?? 12) - 1)}>Zoom −</button>
         <button type="button" onClick={fit}>Enquadrar área</button>
       </div>
+      <div className="pecas-source-license">
+        <h4>Fonte e licença da imagem da planta</h4>
+        <p>Google Satélite permanece somente para visualização. A seleção de outra fonte não concede direitos de reprodução automaticamente.</p>
+        <label>
+          <span>Comprovante, contrato ou referência de permissão para emissão da planta</span>
+          <input value={licenseReference} onChange={(event) => { setLicenseReference(event.target.value); setLicenseConfirmed(false); }}
+            placeholder="Ex.: contrato/licença e número de referência" disabled={basemap === "google"} />
+        </label>
+        <label className="pecas-license-check">
+          <input type="checkbox" checked={licenseConfirmed} disabled={basemap === "google" || !licenseReference.trim()}
+            onChange={(event) => setLicenseConfirmed(event.target.checked)} />
+          <span>Confirmo que possuo autorização para reproduzir esta imagem em PDF técnico e me responsabilizo por registrar a fonte e a licença.</span>
+        </label>
+        <details>
+          <summary>Outros provedores em avaliação</summary>
+          <p>Mapbox Satellite e Airbus OneAtlas: conectores dependentes de credenciais oficiais e licença de exportação. Imagens próprias e GeoTIFF serão integrados em etapa posterior.</p>
+        </details>
+      </div>
       {basemap === "google" && <div className="pecas-google-attribution" aria-label="Créditos Google">
         <strong>Google Maps</strong><span>{copyright || "Carregando créditos…"}</span>
       </div>}
       {googleError && <p className="pecas-warning" role="alert">{googleError}</p>}
-      <button type="button" className="pecas-primary pecas-capture" disabled={busy || basemap === "google"}
+      <button type="button" className="pecas-primary pecas-capture" disabled={busy || basemap === "google" || !licenseConfirmed || !licenseReference.trim()}
         onClick={() => void capture()}>
         {busy ? "Capturando mapa…" : basemap === "google" ? "Selecione Esri ou OSM para gerar PDF" : "Usar este enquadramento na planta"}
       </button>
