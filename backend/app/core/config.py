@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     mapbox_satellite_enabled: bool = False
     google_map_tiles_enabled: bool = False
     openai_api_key: str | None = None
-    openai_model: str = "gpt-6-luna"
+    openai_model: str = "gpt-5-mini"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
