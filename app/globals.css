@@ -6491,3 +6491,10 @@ input {
 .thematic-design-review {border:1px solid #c3ddcc;border-radius:9px;padding:13px;background:#f8fcf9;margin:10px 0;}
 .thematic-design-review .thematic-layer-row strong {min-width:150px}
 .thematic-design-review label {display:flex;align-items:center;gap:6px;font-size:12px}
+
+.thematic-export-actions {display:flex;flex-wrap:wrap;gap:12px;align-items:center;}
+.thematic-pdf-preview {margin-top:18px;border:1px solid #c9decf;padding:12px;border-radius:9px;}
+.thematic-pdf-preview>div {display:flex;justify-content:space-between;gap:12px;padding-bottom:8px;}
+.thematic-pdf-preview button {border:1px solid #d0ded6;border-radius:6px;padding:5px 10px;background:white;}
+.thematic-pdf-preview iframe {width:100%;height:min(75vh,750px);border:1px solid #d7e1da;}
+.thematic-design-review select {max-width:220px;padding:6px;border:1px solid #d0ded6;border-radius:6px;background:white;}
