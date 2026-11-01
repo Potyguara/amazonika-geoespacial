@@ -5,6 +5,7 @@ import tempfile
 from uuid import uuid4
 import os
 import sqlite3
+from datetime import datetime, timezone
 from shapely.ops import unary_union
 from shapely.geometry import box
 from pathlib import Path
@@ -120,6 +121,35 @@ def _user_package(user: User, package_id: str) -> Path:
     return PACKAGE_ROOT / str(user.id) / (package_id + ".gpkg")
 
 
+
+def _catalog_path(user: User) -> Path:
+    return PACKAGE_ROOT / str(user.id) / "catalog.json"
+
+
+def _catalog(user: User) -> list:
+    path = _catalog_path(user)
+    if not path.exists():
+        return []
+    try:
+        items = json.loads(path.read_text(encoding="utf-8"))
+        return [p for p in items if _user_package(user, p["package_id"]).is_file()]
+    except (ValueError, KeyError, TypeError):
+        return []
+
+
+def _save_catalog(user: User, items: list):
+    path = _catalog_path(user)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
+@router.get("/packages")
+def list_packages(user: User = Depends(get_current_user)):
+    return _catalog(user)
+
+
 @router.post("/package")
 async def upload_package(file: UploadFile = File(...), user: User = Depends(get_current_user)):
     if Path(file.filename or "").suffix.lower() != ".gpkg":
@@ -150,7 +180,11 @@ async def upload_package(file: UploadFile = File(...), user: User = Depends(get_
             layers.append({"name": name, "features": info.get("features"),
                            "geometry_type": info.get("geometry_type"),
                            "source_crs": str(info["crs"])})
-        return {"package_id": package_id, "layers": layers, "size_bytes": size}
+        record = {"package_id": package_id, "name": Path(file.filename or "").name,
+                  "layers": layers, "size_bytes": size,
+                  "created_at": datetime.now(timezone.utc).isoformat()}
+        _save_catalog(user, [record, *_catalog(user)])
+        return record
     except HTTPException:
         path.unlink(missing_ok=True)
         raise
@@ -165,6 +199,7 @@ class PackageMapRequest(BaseModel):
     title: str = Field(min_length=1, max_length=150)
     subtitle: str = Field(default="", max_length=150)
     selected_layers: list[str] = Field(min_length=1, max_length=60)
+    class_fields: dict[str, str] = Field(default_factory=dict)
     include_branding: bool = False
     source_text: str = Field(default="", max_length=600)
 
@@ -227,13 +262,24 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
                 raise ValueError("SRC não informado.")
             frame = frame.to_crs("EPSG:4674")
             frame = frame[frame.geometry.notna() & ~frame.geometry.is_empty]
-            # Use a fixed geographic window for layout, do not alter original geometries.
-            clipped = frame.geometry.intersection(roi)
-            geoms = [g for g in clipped if not g.is_empty and g.is_valid]
-            if geoms:
-                geom = unary_union(geoms)
-                layers.append(Layer(name, f"GeoPackage: {name}", geom,
-                                    PALETTE[index % len(PALETTE)], "theme"))
+            # Preserve geological/pedological classes instead of dissolving all units.
+            candidates = [c for c in frame.columns if c != frame.geometry.name]
+            preferred = payload.class_fields.get(name)
+            if preferred and preferred not in candidates:
+                raise ValueError("Campo de classificação indisponível.")
+            if not preferred:
+                terms = ("classe", "unidade", "sigla", "tipo", "nome", "descricao", "litologia", "solo")
+                preferred = next((c for c in candidates if any(t in c.casefold() for t in terms)
+                                  and 1 < frame[c].nunique(dropna=True) <= 12), None)
+            groups = frame.groupby(frame[preferred].fillna("Não classificado").astype(str)) if preferred else [(name, frame)]
+            for category, subset in groups:
+                clipped = subset.geometry.intersection(roi)
+                geoms = [g for g in clipped if not g.is_empty and g.is_valid]
+                if geoms:
+                    geom = unary_union(geoms)
+                    label = f"{name}: {str(category)[:60]}" if preferred else name
+                    layers.append(Layer(label, f"GeoPackage: {name}", geom,
+                                        PALETTE[len(layers) % len(PALETTE)], "theme"))
         except Exception as exc:
             raise HTTPException(422, f"Camada {name}: {str(exc)[:160]}") from exc
     if not layers:
