@@ -373,3 +373,98 @@ def suggest_package_layers(payload: PackageMapRequest, user: User = Depends(get_
             "method": "ia_assistida" if ai_used else "regras_cartograficas",
             "ai_used": ai_used,
             "note": "IA só sugere camadas existentes; confira as fontes e geometria antes de gerar."}
+
+
+class DesignRequest(BaseModel):
+    package_id: str
+    template: str = Field(max_length=80)
+    selected_layers: list[str] = Field(min_length=1, max_length=30)
+
+
+@router.post("/package/design")
+def design_map(payload: DesignRequest, user: User = Depends(get_current_user)):
+    """AI-assisted cartographic design; only schema/sample attributes, never geometries."""
+    import urllib.request
+    from app.core.config import get_settings
+    path = _user_package(user, payload.package_id)
+    if not path.exists():
+        raise HTTPException(404, "Base não encontrada.")
+    allowed = set(row[0] for row in pyogrio.list_layers(str(path)) if row[1])
+    if any(name not in allowed for name in payload.selected_layers):
+        raise HTTPException(422, "Seleção contém camada inexistente.")
+    metadata = []
+    for name in payload.selected_layers:
+        info = pyogrio.read_info(str(path), layer=name)
+        candidates = []
+        for field in info.get("fields", []):
+            field = str(field)
+            if field == "geometry":
+                continue
+            # Bounded, representative attribute samples, never unrestricted dataset extraction.
+            try:
+                preview = gpd.read_file(path, layer=name, columns=[field], max_features=120)
+                values = [str(x)[:65] for x in preview[field].dropna().unique()[:12]]
+                if values:
+                    candidates.append({"field": field, "examples": values})
+            except (ValueError, KeyError, TypeError):
+                continue
+            if len(candidates) >= 12:
+                break
+        metadata.append({"name": name, "geometry": info.get("geometry_type"),
+                         "fields": candidates})
+    # Deterministic, transparent fallback for unavailable AI / quota limits.
+    defaults = []
+    for index, item in enumerate(metadata):
+        options = item["fields"]
+        key = ("classe", "unidade", "litolog", "tipo", "nome", "sigla", "solo", "veget")
+        pick = next((f["field"] for f in options if any(word in f["field"].casefold() for word in key)), None)
+        defaults.append({"layer": item["name"], "class_field": pick,
+                         "color": PALETTE[index % len(PALETTE)], "reason": "Regras cartográficas"})
+    result = {"design": defaults, "ai_used": False, "metadata": metadata,
+              "usage": None, "note": "Confira todas as sugestões antes de aplicar."}
+    settings = get_settings()
+    if not settings.openai_api_key:
+        return result
+    try:
+        prompt = {
+            "template": payload.template, "layers": metadata,
+            "rules": "Retorne JSON com chave design, lista de objetos com layer, class_field, color, reason. "
+                     "Use exatamente os nomes e campos fornecidos; class_field pode ser null. "
+                     "Color deve ser #RRGGBB; escolha cores contrastantes, hidrografia azul, "
+                     "propriedade não está neste pacote. Não infira descrições de códigos."
+        }
+        request = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=json.dumps({"model": settings.openai_model,
+                "input": [{"role": "system", "content":
+                           "Você é assistente de cartografia temática. Nunca invente camadas, campos, "
+                           "coordenadas nem atributos. Responda SOMENTE JSON."},
+                          {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)}],
+                "max_output_tokens": 1200}).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + settings.openai_api_key},
+            method="POST")
+        with urllib.request.urlopen(request, timeout=25) as response:
+            answer = json.load(response)
+        raw = "".join(part.get("text", "") for block in answer.get("output", [])
+                      for part in block.get("content", []) if part.get("type") == "output_text")
+        proposed = json.loads(raw).get("design", [])
+        by_name = {p["layer"]: p for p in proposed if isinstance(p, dict) and isinstance(p.get("layer"), str)}
+        verified = []
+        for default, item in zip(defaults, metadata):
+            proposal = by_name.get(item["name"], {})
+            fields = {f["field"] for f in item["fields"]}
+            field = proposal.get("class_field")
+            if field not in fields:
+                field = default["class_field"]
+            color = proposal.get("color", "")
+            try:
+                _color(color)
+            except (ValueError, TypeError):
+                color = default["color"]
+            verified.append({"layer": item["name"], "class_field": field,
+                             "color": color, "reason": str(proposal.get("reason", ""))[:180]})
+        result.update(design=verified, ai_used=True, usage=answer.get("usage"))
+    except (ValueError, KeyError, TypeError, OSError, TimeoutError):
+        result["note"] = "IA indisponível; recomendações locais aplicadas."
+    return result
