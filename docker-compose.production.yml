@@ -59,7 +59,7 @@ services:
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
       GOOGLE_MAP_TILES_ENABLED: ${GOOGLE_MAP_TILES_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
     ports:
       - "127.0.0.1:18000:8000"
     mem_limit: 1536m
