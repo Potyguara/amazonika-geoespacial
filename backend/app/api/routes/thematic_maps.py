@@ -288,14 +288,16 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
                 preferred = next((c for c in candidates if any(t in c.casefold() for t in terms)
                                   and 1 < frame[c].nunique(dropna=True) <= 12), None)
             groups = frame.groupby(frame[preferred].fillna("Não classificado").astype(str)) if preferred else [(name, frame)]
-            for category, subset in groups:
+            groups = list(groups)
+            from app.services.thematic_maps import category_shade
+            for class_index, (category, subset) in enumerate(groups):
                 clipped = subset.geometry.intersection(roi)
                 geoms = [g for g in clipped if not g.is_empty and g.is_valid]
                 if geoms:
                     geom = unary_union(geoms)
                     label = f"{name}: {str(category)[:60]}" if preferred else name
                     layers.append(Layer(label, f"GeoPackage: {name}", geom,
-                                        payload.class_colors.get(label, payload.layer_colors.get(name, PALETTE[len(layers) % len(PALETTE)])), "theme"))
+                                        payload.class_colors.get(label, category_shade(payload.layer_colors.get(name, PALETTE[index % len(PALETTE)]), class_index, len(groups))), "theme"))
         except Exception as exc:
             raise HTTPException(422, f"Camada {name}: {str(exc)[:160]}") from exc
     if not layers:
