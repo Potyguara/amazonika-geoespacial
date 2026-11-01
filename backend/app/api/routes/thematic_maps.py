@@ -135,7 +135,9 @@ async def upload_package(file: UploadFile = File(...), user: User = Depends(get_
                 if size > 300_000_000:
                     raise HTTPException(413, "GeoPackage excede 300 MB.")
                 output.write(chunk)
-        if path.read_bytes()[:16] != b"SQLite format 3\\x00":
+        with path.open("rb") as header_file:
+            header = header_file.read(16)
+        if header != b"SQLite format 3\\x00":
             raise ValueError("Arquivo não é um GeoPackage SQLite válido.")
         names = fiona.listlayers(str(path))
         if not names or len(names) > 80:
@@ -190,7 +192,7 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
         raise HTTPException(422, "Camada não existe no pacote.")
     for index, name in enumerate(payload.selected_layers):
         try:
-            frame = gpd.read_file(path, layer=name, bbox=tuple(roi.bounds))
+            frame = gpd.read_file(path, layer=name, bbox=gpd.GeoSeries([roi], crs="EPSG:4674"))
             if frame.empty:
                 continue
             if frame.crs is None:
