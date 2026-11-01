@@ -129,7 +129,21 @@ def _catalog_path(user: User) -> Path:
 def _catalog(user: User) -> list:
     path = _catalog_path(user)
     if not path.exists():
-        return []
+        # Importações anteriores à biblioteca também ficam disponíveis.
+        root = path.parent
+        records = []
+        for item in sorted(root.glob("*.gpkg")):
+            try:
+                names = [row[0] for row in pyogrio.list_layers(str(item)) if row[1]]
+                records.append({"package_id": item.stem, "name": item.name,
+                                "layers": [{"name": n} for n in names],
+                                "size_bytes": item.stat().st_size,
+                                "created_at": datetime.fromtimestamp(item.stat().st_mtime, timezone.utc).isoformat()})
+            except (ValueError, OSError):
+                continue
+        if records:
+            _save_catalog(user, records)
+        return records
     try:
         items = json.loads(path.read_text(encoding="utf-8"))
         return [p for p in items if _user_package(user, p["package_id"]).is_file()]
