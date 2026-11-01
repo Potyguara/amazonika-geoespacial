@@ -6483,3 +6483,5 @@ input {
 .thematic-package-list label { display:flex; gap:9px; align-items:center; cursor:pointer; font-size:13px; }
 .thematic-package-list button { background:#e0f0e6; color:#174f38; border:1px solid #b8d6c3; border-radius:7px; padding:10px; cursor:pointer; width:fit-content; font-weight:600; }
 .thematic-brand-toggle { display:flex; align-items:center; gap:10px; margin-top:18px; color:#174f38; font-size:13px; }
+
+.thematic-saved-select { display:block; width:100%; max-width:850px; margin:12px 0 18px; padding:11px; border:1px solid #bfd4c7; border-radius:8px; color:#174b36; background:white; }
