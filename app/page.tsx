@@ -16,6 +16,7 @@ import { SigefModule, SourceVersion } from "@/components/sigef-module";
 import { SourcesModule } from "@/components/sources-module";
 import { UsersModule } from "@/components/users-module";
 import { SettingsModule } from "@/components/settings-module";
+import { ThematicMapsModule } from "@/components/thematic-maps-module";
 import { ProfessionalProfile } from "@/components/professional-profile";
 import { AnalysesModule } from "@/components/analyses-module";
 import { TechnicalPiecesModule, type TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
@@ -211,7 +212,7 @@ export default function Home() {
   const [analysisHolderDocument, setAnalysisHolderDocument] = useState("");
   const [analysisResetNonce, setAnalysisResetNonce] = useState(0);
   const [activeView, setActiveView] = useState<
-    "map" | "sigef" | "analyses" | "pieces" | "sources" | "users" | "settings"
+    "map" | "sigef" | "analyses" | "pieces" | "thematic" | "sources" | "users" | "settings"
   >("map");
   const [sigefCurrent, setSigefCurrent] = useState<SourceVersion | null>(null);
   const [pieceRevision, setPieceRevision] = useState(0);
@@ -979,6 +980,10 @@ export default function Home() {
           >
             <FileText size={18} /> Peças Técnicas
           </button>
+          <button className={activeView === "thematic" ? "nav-active" : ""}
+            onClick={() => { setActiveView("thematic"); setMobileSidebarOpen(false); }}>
+            <Layers3 size={18}/> Mapas Temáticos
+          </button>
           <button
             className={activeView === "sources" ? "nav-active" : ""}
             onClick={() => { setActiveView("sources"); setMobileSidebarOpen(false); }}
@@ -1056,6 +1061,8 @@ export default function Home() {
                   ? "Gestão SIGEF"
                   : activeView === "analyses"
                     ? "Análises"
+                    : activeView === "thematic"
+                      ? "Mapas Temáticos"
                     : activeView === "sources"
                       ? "Gestão das fontes"
                       : activeView === "users"
@@ -1466,6 +1473,7 @@ export default function Home() {
           />
         )}
 
+        {activeView === "thematic" && <ThematicMapsModule />}
         {activeView === "sources" && <SourcesModule />}
 
         {activeView === "users" &&
