@@ -13,7 +13,7 @@ import geopandas as gpd
 import pyogrio
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Response
 from pydantic import BaseModel, Field
-from shapely.geometry import mapping, shape
+from shapely.geometry import mapping, shape, Polygon, MultiPolygon, GeometryCollection
 from app.services.auth import require_permission, get_current_user
 from app.models.auth import User
 from app.services.thematic_maps import Layer, TEMPLATES, PALETTE, render_thematic_pdf
@@ -169,14 +169,42 @@ class PackageMapRequest(BaseModel):
     source_text: str = Field(default="", max_length=600)
 
 
+def normalize_property_polygon(value: dict):
+    """Extract all polygonal features from GeoJSON GeometryCollections/FeatureCollections."""
+    def gather(obj):
+        if not isinstance(obj, dict):
+            return []
+        kind = obj.get("type")
+        if kind == "FeatureCollection":
+            return [p for f in obj.get("features", []) for p in gather(f)]
+        if kind == "Feature":
+            return gather(obj.get("geometry"))
+        if kind == "GeometryCollection":
+            return [p for g in obj.get("geometries", []) for p in gather(g)]
+        try:
+            geom = shape(obj)
+        except (TypeError, ValueError, KeyError):
+            return []
+        if isinstance(geom, Polygon):
+            return [geom]
+        if isinstance(geom, MultiPolygon):
+            return list(geom.geoms)
+        return []
+    polygons = [p for p in gather(value) if not p.is_empty and p.is_valid and p.area > 0]
+    if not polygons:
+        raise HTTPException(422, "A propriedade não contém polígonos válidos. Importe um perímetro fechado.")
+    result = unary_union(polygons)
+    if result.is_empty or not result.is_valid:
+        raise HTTPException(422, "Os polígonos da propriedade possuem geometria inválida.")
+    return result
+
+
 @router.post("/package/pdf")
 def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_current_user)):
     path = _user_package(user, payload.package_id)
     if not path.is_file():
         raise HTTPException(404, "GeoPackage não localizado.")
-    prop = shape(payload.property_geometry)
-    if prop.is_empty or not prop.is_valid or prop.geom_type not in ("Polygon", "MultiPolygon"):
-        raise HTTPException(422, "Forneça uma propriedade poligonal válida.")
+    prop = normalize_property_polygon(payload.property_geometry)
     # CRS canonical for file upload property: EPSG:4674.
     from app.services.thematic_maps import _color
     from shapely.ops import transform
