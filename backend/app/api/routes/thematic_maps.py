@@ -426,6 +426,7 @@ def design_map(payload: DesignRequest, user: User = Depends(get_current_user)):
     if not settings.openai_api_key:
         return result
     try:
+        from app.services.thematic_maps import _color
         prompt = {
             "template": payload.template, "layers": metadata,
             "rules": "Retorne JSON com chave design, lista de objetos com layer, class_field, color, reason. "
