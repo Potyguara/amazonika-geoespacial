@@ -20,6 +20,7 @@ export function ThematicMapsModule() {
   const [selectedPackageLayers,setSelectedPackageLayers] = useState<string[]>([]);
   const [includeBranding,setIncludeBranding] = useState(false);
   const [design,setDesign] = useState<{layer:string;class_field:string|null;color:string;reason:string}[]>([]);
+  const [availableFields,setAvailableFields] = useState<Record<string,string[]>>({});
   const [aiUsed,setAiUsed] = useState(false);
   const [aiTokens,setAiTokens] = useState<number|null>(null);
   const [busy,setBusy] = useState(false);
@@ -82,6 +83,8 @@ export function ThematicMapsModule() {
       const result=await r.json();
       if(!r.ok)throw new Error(result.detail||"Erro na proposta cartográfica.");
       setDesign(result.design);
+      setAvailableFields(Object.fromEntries((result.metadata as {name:string;fields:{field:string}[]}[])
+        .map(layer=>[layer.name,layer.fields.map(f=>f.field)])));
       setAiUsed(Boolean(result.ai_used));
       setAiTokens(result.usage?.total_tokens??null);
       setMessage(result.ai_used?"IA analisou os atributos disponíveis. Revise as sugestões abaixo.":"Regras locais aplicadas: IA não respondeu. Revise as sugestões.");
@@ -182,7 +185,10 @@ export function ThematicMapsModule() {
         {design.map(item=><div className="thematic-layer-row" key={item.layer}>
           <strong>{item.layer}</strong>
           <label>Cor <input type="color" value={item.color} onChange={e=>setDesign(old=>old.map(x=>x.layer===item.layer?{...x,color:e.target.value}:x))}/></label>
-          <label>Classificação <input value={item.class_field||""} placeholder="Automática" onChange={e=>setDesign(old=>old.map(x=>x.layer===item.layer?{...x,class_field:e.target.value||null}:x))}/></label>
+          <label>Classificação <select value={item.class_field||""} onChange={e=>setDesign(old=>old.map(x=>x.layer===item.layer?{...x,class_field:e.target.value||null}:x))}>
+            <option value="">Automática</option>
+            {(availableFields[item.layer]||[]).map(field=><option key={field} value={field}>{field}</option>)}
+          </select></label>
           <small>{item.reason}</small>
         </div>)}
       </div>}
