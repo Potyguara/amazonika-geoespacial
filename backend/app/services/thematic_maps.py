@@ -50,7 +50,7 @@ def _projected(layers):
     prop = property_geoms[0]
     lon, lat = prop.centroid.x, prop.centroid.y
     zone = max(1, min(60, int((lon + 180) / 6) + 1))
-    epsg = (31960 + zone if lat >= 0 else 31960 + zone + 6) if zone == 22 else (32700 if lat < 0 else 32600) + zone
+    epsg = (31976 if lat >= 0 else 31982) if zone == 22 else (32700 if lat < 0 else 32600) + zone
     destination = CRS.from_epsg(epsg)
     tf = Transformer.from_crs("EPSG:4674", destination, always_xy=True)
     projected = [shapely_transform(tf.transform, l.geometry) for l in layers]
