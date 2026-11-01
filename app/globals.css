@@ -6454,3 +6454,27 @@ input {
 .feature-info-panel .feature-info-drag-handle { cursor:grab; touch-action:none; user-select:none; }
 .feature-info-panel .feature-info-drag-handle:active { cursor:grabbing; }
 .sidebar-bottom > button[title="Configurações"] { width:44px; justify-content:center; }
+
+/* Cartografia temática: fluxo responsivo de composição A3 */
+.thematic-module { padding:22px; max-width:1420px; margin:0 auto; }
+.thematic-card { background:white; border:1px solid #d9e6dd; border-radius:12px; padding:22px; margin-top:18px; }
+.thematic-card h3 { font-size:17px; margin:20px 0 10px; color:#164a35; }
+.thematic-template-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(188px,1fr)); gap:9px; }
+.thematic-template-grid button { background:#f5faf6; border:1px solid #cadecf; border-radius:8px; padding:12px; text-align:left; color:#164a35; cursor:pointer; }
+.thematic-template-grid button.active { background:#daf0e3; border-color:#1b7050; font-weight:700; }
+.thematic-imports { display:flex; flex-wrap:wrap; gap:10px; }
+.thematic-upload { display:flex; align-items:center; gap:9px; border:1px dashed #8dad9c; border-radius:9px; padding:13px; cursor:pointer; color:#144e36; font-weight:650; }
+.thematic-upload input { display:none; }
+.thematic-layer-list { display:flex; flex-direction:column; gap:7px; margin:12px 0; }
+.thematic-layer-row { display:flex; flex-wrap:wrap; align-items:center; gap:9px; padding:9px; border:1px solid #dfebe2; border-radius:7px; }
+.thematic-layer-row input:not([type=color]) { flex:1; min-width:180px; border:1px solid #cddbd2; padding:7px; border-radius:6px; }
+.thematic-layer-row input[type=color] { width:40px; height:34px; }
+.thematic-layer-row button { background:none; border:0; cursor:pointer; }
+.thematic-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.thematic-fields label { display:flex; flex-direction:column; gap:6px; }
+.thematic-fields label.wide { grid-column:1/-1; }
+.thematic-fields input { padding:11px; border:1px solid #cbdad0; border-radius:7px; }
+.thematic-export { background:#165b3e; color:white; padding:12px 18px; border:0; border-radius:8px; display:inline-flex; align-items:center; gap:9px; cursor:pointer; margin-top:19px; }
+.thematic-export:disabled { opacity:.5; cursor:not-allowed; }
+.thematic-note { font-size:12px; color:#657c6f; margin-top:15px; }
+@media(max-width:700px){.thematic-module{padding:10px}.thematic-card{padding:13px}.thematic-fields{grid-template-columns:1fr}}
