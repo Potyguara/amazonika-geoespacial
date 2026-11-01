@@ -11,6 +11,10 @@ from app.api.routes import thematic_maps
 
 
 class ThematicPackageTests(unittest.TestCase):
+    def test_route_import_has_no_unlisted_fiona_dependency(self):
+        from app.api.router import api_router
+        self.assertTrue(any(route.path.endswith("/thematic-maps/package") for route in api_router.routes))
+
     def test_package_renders_with_separate_property(self):
         with tempfile.TemporaryDirectory() as directory:
             name = "11111111-1111-4111-8111-111111111111"
