@@ -1,10 +1,14 @@
 """Contract and render tests for thematic maps."""
 import unittest
 from shapely.geometry import Polygon, LineString, Point
-from app.services.thematic_maps import Layer, TEMPLATES, render_thematic_pdf, _projected
+from app.services.thematic_maps import Layer, TEMPLATES, render_thematic_pdf, _projected, category_shade
 
 
 class ThematicTests(unittest.TestCase):
+    def test_categories_have_distinct_colors(self):
+        self.assertNotEqual(category_shade("#70b88a",0,4),category_shade("#70b88a",1,4))
+        self.assertEqual(category_shade("#70b88a",0,1),"#70b88a")
+
     def test_sirgas_utm_zone_22_north(self):
         prop = Polygon([(-51.1, 0.02),(-51.0, 0.02),(-51.0, 0.03),(-51.1, 0.03)])
         _, epsg = _projected([Layer("Imóvel","Usuário",prop,"#cc0000","property")])
