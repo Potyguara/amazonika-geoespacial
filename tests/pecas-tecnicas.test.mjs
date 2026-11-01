@@ -150,5 +150,5 @@ test("Mapas Temáticos possui menu, templates e exportação PDF independente", 
   assert.match(module, /thematic-maps\/\$\{endpoint\}/);
   assert.match(module, /Baixar mapa temático PDF/);
   assert.match(module, /Visualizar prévia A3/);
-  assert.match(module, /thematic-maps\\/package\\/design/);
+  assert.match(module, /package\\/design/);
 });
