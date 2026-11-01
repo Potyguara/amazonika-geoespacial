@@ -238,6 +238,46 @@ def suggest_package_layers(payload: PackageMapRequest, user: User = Depends(get_
     }
     words = groups.get(payload.title.lower().strip(), ())
     matches = [n for n in names if any(w in n.casefold() for w in words)]
+    # IA opcional: recomenda apenas nomes existentes, nunca altera geometrias.
+    from app.core.config import get_settings
+    cfg = get_settings()
+    ai_used = False
+    if cfg.openai_api_key:
+        try:
+            import urllib.request
+            request = urllib.request.Request(
+                "https://api.openai.com/v1/responses",
+                data=json.dumps({
+                    "model": cfg.openai_model,
+                    "input": [
+                        {"role": "system", "content":
+                         "Você é assistente cartográfico. Escolha APENAS nomes de camadas existentes "
+                         "apropriados ao tema. Responda somente JSON: "
+                         "{\\\"layers\\\":[\\\"nome exato\\\"]}. Não invente dados ou geometrias."},
+                        {"role": "user", "content": json.dumps({
+                            "tema": payload.title, "camadas_disponiveis": names[:80],
+                            "regras_sugerem": matches
+                        }, ensure_ascii=False)}
+                    ],
+                    "max_output_tokens": 300
+                }).encode("utf-8"),
+                headers={"Authorization": "Bearer " + cfg.openai_api_key,
+                         "Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=12) as response:
+                result = json.load(response)
+            content = "".join(part.get("text", "") for block in result.get("output", [])
+                              for part in block.get("content", [])
+                              if part.get("type") == "output_text")
+            proposed = json.loads(content).get("layers", [])
+            valid = [name for name in proposed if isinstance(name, str) and name in names]
+            if valid:
+                matches = list(dict.fromkeys(valid))
+                ai_used = True
+        except (ValueError, KeyError, TimeoutError, OSError, TypeError):
+            pass
     return {"suggested_layers": matches, "all_layers": names,
-            "method": "regras_cartograficas", "ai_used": False,
-            "note": "Sugestões locais; confira as camadas e seus metadados antes de gerar."}
+            "method": "ia_assistida" if ai_used else "regras_cartograficas",
+            "ai_used": ai_used,
+            "note": "IA só sugere camadas existentes; confira as fontes e geometria antes de gerar."}
