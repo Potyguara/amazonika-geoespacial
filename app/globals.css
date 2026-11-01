@@ -6485,3 +6485,9 @@ input {
 .thematic-brand-toggle { display:flex; align-items:center; gap:10px; margin-top:18px; color:#174f38; font-size:13px; }
 
 .thematic-saved-select { display:block; width:100%; max-width:850px; margin:12px 0 18px; padding:11px; border:1px solid #bfd4c7; border-radius:8px; color:#174b36; background:white; }
+
+.thematic-ai-button {border:1px solid #90b9a4;background:#e6f4eb;color:#165139;border-radius:8px;padding:11px 15px;font-weight:700;cursor:pointer;margin:12px 0;}
+.thematic-ai-button:disabled {opacity:.5;cursor:not-allowed}
+.thematic-design-review {border:1px solid #c3ddcc;border-radius:9px;padding:13px;background:#f8fcf9;margin:10px 0;}
+.thematic-design-review .thematic-layer-row strong {min-width:150px}
+.thematic-design-review label {display:flex;align-items:center;gap:6px;font-size:12px}
