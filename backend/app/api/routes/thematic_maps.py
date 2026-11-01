@@ -10,7 +10,7 @@ from shapely.geometry import box
 from pathlib import Path
 from zipfile import ZipFile, BadZipFile
 import geopandas as gpd
-import fiona
+import pyogrio
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Response
 from pydantic import BaseModel, Field
 from shapely.geometry import mapping, shape
@@ -139,17 +139,17 @@ async def upload_package(file: UploadFile = File(...), user: User = Depends(get_
             header = header_file.read(16)
         if header != b"SQLite format 3" + bytes([0]):
             raise ValueError("Arquivo não é um GeoPackage SQLite válido.")
-        names = fiona.listlayers(str(path))
+        names = [row[0] for row in pyogrio.list_layers(str(path))]
         if not names or len(names) > 80:
             raise ValueError("Pacote sem camadas ou com mais de 80 camadas.")
         layers = []
         for name in names:
-            with fiona.open(path, layer=name) as source:
-                if not source.crs:
-                    raise ValueError(f"Camada {name} sem SRC definido.")
-                layers.append({"name": name, "features": len(source),
-                               "geometry_type": source.schema.get("geometry"),
-                               "source_crs": str(source.crs)})
+            info = pyogrio.read_info(str(path), layer=name)
+            if not info.get("crs"):
+                raise ValueError(f"Camada {name} sem SRC definido.")
+            layers.append({"name": name, "features": info.get("features"),
+                           "geometry_type": info.get("geometry_type"),
+                           "source_crs": str(info["crs"])})
         return {"package_id": package_id, "layers": layers, "size_bytes": size}
     except HTTPException:
         path.unlink(missing_ok=True)
@@ -187,7 +187,7 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
     roi = box(bounds[0]-radius*.4,bounds[1]-radius*.4,
               bounds[2]+radius*.4,bounds[3]+radius*.4)
     layers = []
-    available = set(fiona.listlayers(str(path)))
+    available = set([row[0] for row in pyogrio.list_layers(str(path))])
     if any(name not in available for name in payload.selected_layers):
         raise HTTPException(422, "Camada não existe no pacote.")
     for index, name in enumerate(payload.selected_layers):
@@ -225,7 +225,7 @@ def suggest_package_layers(payload: PackageMapRequest, user: User = Depends(get_
         raise HTTPException(404, "GeoPackage não localizado.")
     # Local, explainable baseline. Never generate geometry or factual features through AI.
     import re
-    names = fiona.listlayers(str(path))
+    names = [row[0] for row in pyogrio.list_layers(str(path))]
     groups = {
         "hidrografia": ("hidro", "rio", "dren", "igarap", "nascent"),
         "pedologia": ("solo", "pedolog"),
