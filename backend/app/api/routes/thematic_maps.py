@@ -137,7 +137,7 @@ async def upload_package(file: UploadFile = File(...), user: User = Depends(get_
                 output.write(chunk)
         with path.open("rb") as header_file:
             header = header_file.read(16)
-        if header != b"SQLite format 3\\x00":
+        if header != b"SQLite format 3" + bytes([0]):
             raise ValueError("Arquivo não é um GeoPackage SQLite válido.")
         names = fiona.listlayers(str(path))
         if not names or len(names) > 80:
