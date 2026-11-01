@@ -23,6 +23,7 @@ export function ThematicMapsModule() {
   const [availableFields,setAvailableFields] = useState<Record<string,string[]>>({});
   const [aiUsed,setAiUsed] = useState(false);
   const [aiTokens,setAiTokens] = useState<number|null>(null);
+  const [previewUrl,setPreviewUrl] = useState<string|null>(null);
   const [busy,setBusy] = useState(false);
   const [message,setMessage] = useState("");
   useEffect(() => {
@@ -105,7 +106,7 @@ export function ThematicMapsModule() {
     } catch(e){setMessage(e instanceof Error?e.message:"Erro de importação.");}
     finally{setBusy(false);}
   };
-  const exportPdf=async()=>{
+  const exportPdf=async(preview=false)=>{
     setBusy(true);setMessage("");
     try{
       const property=layers.find(l=>l.role==="property");
@@ -121,8 +122,12 @@ export function ThematicMapsModule() {
         headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
       if(!r.ok){const e=await r.json().catch(()=>null);throw new Error(e?.detail||"Não foi possível emitir PDF.");}
       const url=URL.createObjectURL(await r.blob());
-      const a=document.createElement("a");a.href=url;a.download="mapa-tematico.pdf";a.click();
-      window.setTimeout(()=>URL.revokeObjectURL(url),30000);
+      if(preview){
+        setPreviewUrl(previous=>{if(previous)URL.revokeObjectURL(previous);return url;});
+      } else {
+        const a=document.createElement("a");a.href=url;a.download="mapa-tematico.pdf";a.click();
+        window.setTimeout(()=>URL.revokeObjectURL(url),30000);
+      }
     }catch(e){setMessage(e instanceof Error?e.message:"Erro na exportação.");}finally{setBusy(false);}
   };
   return <section className="thematic-module">
@@ -203,8 +208,18 @@ export function ThematicMapsModule() {
         Exibir identificação Amazônika no rodapé (opcional)
       </label>
       {message&&<p role="status">{message}</p>}
-      <button type="button" className="thematic-export" disabled={busy||!layers.some(l=>l.role==="property")||(packageId ? selectedPackageLayers.length===0 : !layers.some(l=>l.role==="theme"))}
-        onClick={()=>void exportPdf()}><FileDown size={18}/>{busy?"Processando…":"Gerar mapa temático PDF — A3"}</button>
+      <div className="thematic-export-actions">
+        <button type="button" className="thematic-export" disabled={busy||!layers.some(l=>l.role==="property")||(packageId ? selectedPackageLayers.length===0 : !layers.some(l=>l.role==="theme"))}
+          onClick={()=>void exportPdf(true)}>Visualizar prévia A3</button>
+        <button type="button" className="thematic-export" disabled={busy||!layers.some(l=>l.role==="property")||(packageId ? selectedPackageLayers.length===0 : !layers.some(l=>l.role==="theme"))}
+          onClick={()=>void exportPdf(false)}><FileDown size={18}/>{busy?"Processando…":"Baixar mapa temático PDF"}</button>
+      </div>
+      {previewUrl&&<div className="thematic-pdf-preview">
+        <div><strong>Pré-visualização da prancha A3</strong>
+          <button type="button" onClick={()=>{URL.revokeObjectURL(previewUrl);setPreviewUrl(null);}}>Fechar prévia</button>
+        </div>
+        <iframe title="Pré-visualização do mapa temático" src={previewUrl}/>
+      </div>}
       <p className="thematic-note">O GeoPackage é processado no servidor por recorte espacial; a propriedade é independente. Sugestões automáticas exigem conferência do responsável técnico.</p>
     </div>
   </section>;
