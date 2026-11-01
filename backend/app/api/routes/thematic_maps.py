@@ -132,14 +132,14 @@ async def upload_package(file: UploadFile = File(...), user: User = Depends(get_
         with path.open("wb") as output:
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
-                if size > 300_000_000:
-                    raise HTTPException(413, "GeoPackage excede 300 MB.")
+                if size > 50_000_000:
+                    raise HTTPException(413, "GeoPackage excede 50 MB.")
                 output.write(chunk)
         with path.open("rb") as header_file:
             header = header_file.read(16)
         if header != b"SQLite format 3" + bytes([0]):
             raise ValueError("Arquivo não é um GeoPackage SQLite válido.")
-        names = [row[0] for row in pyogrio.list_layers(str(path))]
+        names = [row[0] for row in pyogrio.list_layers(str(path)) if row[1]]
         if not names or len(names) > 80:
             raise ValueError("Pacote sem camadas ou com mais de 80 camadas.")
         layers = []
@@ -187,7 +187,7 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
     roi = box(bounds[0]-radius*.4,bounds[1]-radius*.4,
               bounds[2]+radius*.4,bounds[3]+radius*.4)
     layers = []
-    available = set([row[0] for row in pyogrio.list_layers(str(path))])
+    available = set([row[0] for row in pyogrio.list_layers(str(path)) if row[1]])
     if any(name not in available for name in payload.selected_layers):
         raise HTTPException(422, "Camada não existe no pacote.")
     for index, name in enumerate(payload.selected_layers):
