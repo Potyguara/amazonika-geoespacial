@@ -14,6 +14,7 @@ export function ThematicMapsModule() {
   const [title,setTitle] = useState("MAPA DE SITUAÇÃO");
   const [subtitle,setSubtitle] = useState("");
   const [sourceText,setSourceText] = useState("");
+  const [savedPackages,setSavedPackages] = useState<{package_id:string;name:string;layers:{name:string}[];size_bytes:number}[]>([]);
   const [packageId,setPackageId] = useState("");
   const [packageLayers,setPackageLayers] = useState<string[]>([]);
   const [selectedPackageLayers,setSelectedPackageLayers] = useState<string[]>([]);
@@ -24,6 +25,18 @@ export function ThematicMapsModule() {
     void fetch(`${API}/thematic-maps/templates`,{credentials:"include"})
       .then(r=>r.json()).then(setTemplates).catch(()=>setMessage("Falha ao carregar modelos."));
   },[]);
+  const loadPackages=async()=>{
+    try {
+      const r=await fetch(`${API}/thematic-maps/packages`,{credentials:"include"});
+      if(r.ok)setSavedPackages(await r.json());
+    }catch { /* biblioteca offline */ }
+  };
+  useEffect(()=>{void loadPackages();},[]);
+  const usePackage=(item:{package_id:string;layers:{name:string}[]})=>{
+    const names=item.layers.map(layer=>layer.name);
+    setPackageId(item.package_id);setPackageLayers(names);setSelectedPackageLayers(names);
+    setMessage("Base carregada da biblioteca. Selecione as camadas e gere seu mapa.");
+  };
   const importPackage=async(file:File)=>{
     setBusy(true);setMessage("");
     try {
@@ -34,7 +47,8 @@ export function ThematicMapsModule() {
       setPackageId(payload.package_id);
       setPackageLayers(payload.layers.map((layer:{name:string})=>layer.name));
       setSelectedPackageLayers(payload.layers.map((layer:{name:string})=>layer.name));
-      setMessage(`Pacote carregado: ${payload.layers.length} camadas. Marque as camadas desejadas.`);
+      setMessage(`Pacote gravado na biblioteca: ${payload.layers.length} camadas.`);
+      await loadPackages();
     } catch(err) {setMessage(err instanceof Error?err.message:"Erro no pacote.");}
     finally {setBusy(false);}
   };
@@ -112,7 +126,16 @@ export function ThematicMapsModule() {
           <button type="button" title="Excluir camada" onClick={()=>setLayers(v=>v.filter((_,j)=>j!==i))}><Trash2 size={16}/></button>
         </div>)}
       </div>
-      <h3>3. Pacote temático único (.gpkg)</h3>
+      <h3>3. Biblioteca de bases temáticas</h3>
+      <p>Selecione uma base já armazenada no servidor ou importe um GeoPackage novo. Não será necessário reenviar a mesma base em cada mapa.</p>
+      <select className="thematic-saved-select" value={packageId}
+        onChange={e=>{const item=savedPackages.find(p=>p.package_id===e.target.value);if(item)usePackage(item);}}>
+        <option value="">Selecionar base existente...</option>
+        {savedPackages.map(p=><option key={p.package_id} value={p.package_id}>
+          {p.name} — {(p.size_bytes/1000000).toFixed(1)} MB · {p.layers.length} camadas
+        </option>)}
+      </select>
+      <h3>Importar novo pacote temático (.gpkg)</h3>
       <p>Importe um GeoPackage contendo as camadas de hidrografia, acessos, solos, vegetação, unidades de conservação e demais temas. O servidor filtra as geometrias para o entorno da propriedade.</p>
       <label className="thematic-upload"><FileUp size={18}/> Importar GeoPackage temático
         <input type="file" accept=".gpkg" disabled={busy}
