@@ -97,7 +97,7 @@ def _draw_geometry(pdf, geometry, xy, stroke, fill, property_outline=False):
         pdf.circle(*xy(geometry.x, geometry.y), 3, stroke=1, fill=1)
 
 
-def render_thematic_pdf(title, subtitle, layers, source_text):
+def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=False):
     if not layers or len(layers) > 60:
         raise ValueError("Informe de 1 a 60 camadas.")
     projected, epsg = _projected(layers)
@@ -141,6 +141,7 @@ def render_thematic_pdf(title, subtitle, layers, source_text):
     for i in range(int(math.floor(miny/step)),int(math.ceil(maxy/step))+1):
         y=i*step
         pdf.line(map_left,xy(minx,y)[1],map_left+map_w,xy(minx,y)[1])
+    # Layers are thematic overlays; the property outline always appears on top.
     for role in ("theme", "property"):
         for layer, geom in zip(layers,projected):
             if layer.role != role:
@@ -201,6 +202,7 @@ def render_thematic_pdf(title, subtitle, layers, source_text):
     pdf.line(map_left+map_w-18,map_bottom+map_h-50,map_left+map_w-18,map_bottom+map_h-30)
     pdf.line(map_left+map_w-18,map_bottom+map_h-30,map_left+map_w-24,map_bottom+map_h-41)
     pdf.line(map_left+map_w-18,map_bottom+map_h-30,map_left+map_w-12,map_bottom+map_h-41)
-    pdf.setFont("Helvetica",7);pdf.drawString(42,23,"AMAZÔNIKA GEOESPACIAL  |  MAPAS TEMÁTICOS")
+    if include_branding:
+        pdf.setFont("Helvetica",7);pdf.drawString(42,23,"AMAZÔNIKA GEOESPACIAL  |  MAPAS TEMÁTICOS")
     pdf.showPage();pdf.save()
     return buffer.getvalue()
