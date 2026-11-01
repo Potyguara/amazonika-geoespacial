@@ -214,6 +214,8 @@ class PackageMapRequest(BaseModel):
     subtitle: str = Field(default="", max_length=150)
     selected_layers: list[str] = Field(min_length=1, max_length=60)
     class_fields: dict[str, str] = Field(default_factory=dict)
+    class_colors: dict[str, str] = Field(default_factory=dict)
+    layer_colors: dict[str, str] = Field(default_factory=dict)
     include_branding: bool = False
     source_text: str = Field(default="", max_length=600)
 
@@ -293,7 +295,7 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
                     geom = unary_union(geoms)
                     label = f"{name}: {str(category)[:60]}" if preferred else name
                     layers.append(Layer(label, f"GeoPackage: {name}", geom,
-                                        PALETTE[len(layers) % len(PALETTE)], "theme"))
+                                        payload.class_colors.get(label, payload.layer_colors.get(name, PALETTE[len(layers) % len(PALETTE)])), "theme"))
         except Exception as exc:
             raise HTTPException(422, f"Camada {name}: {str(exc)[:160]}") from exc
     if not layers:
