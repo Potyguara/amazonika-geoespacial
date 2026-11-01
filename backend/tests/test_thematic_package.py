@@ -11,6 +11,15 @@ from app.api.routes import thematic_maps
 
 
 class ThematicPackageTests(unittest.TestCase):
+    def test_property_geometry_collection(self):
+        from shapely.geometry import mapping, GeometryCollection
+        polygons = [Polygon([(-51.1,.01),(-51.09,.01),(-51.09,.02),(-51.1,.02)])]
+        source = GeometryCollection([*polygons, Point(-51.095,.015)])
+        result = thematic_maps.normalize_property_polygon(mapping(source))
+        self.assertEqual(result.geom_type, "Polygon")
+        self.assertAlmostEqual(result.area, polygons[0].area)
+
+
     def test_route_import_has_no_unlisted_fiona_dependency(self):
         from app.api.router import api_router
         self.assertTrue(any(route.path.endswith("/thematic-maps/package") for route in api_router.routes))
