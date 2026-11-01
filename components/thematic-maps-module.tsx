@@ -19,6 +19,9 @@ export function ThematicMapsModule() {
   const [packageLayers,setPackageLayers] = useState<string[]>([]);
   const [selectedPackageLayers,setSelectedPackageLayers] = useState<string[]>([]);
   const [includeBranding,setIncludeBranding] = useState(false);
+  const [design,setDesign] = useState<{layer:string;class_field:string|null;color:string;reason:string}[]>([]);
+  const [aiUsed,setAiUsed] = useState(false);
+  const [aiTokens,setAiTokens] = useState<number|null>(null);
   const [busy,setBusy] = useState(false);
   const [message,setMessage] = useState("");
   useEffect(() => {
@@ -34,7 +37,7 @@ export function ThematicMapsModule() {
   useEffect(()=>{void loadPackages();},[]);
   const usePackage=(item:{package_id:string;layers:{name:string}[]})=>{
     const names=item.layers.map(layer=>layer.name);
-    setPackageId(item.package_id);setPackageLayers(names);setSelectedPackageLayers(names);
+    setPackageId(item.package_id);setPackageLayers(names);setSelectedPackageLayers(names);setDesign([]);
     setMessage("Base carregada da biblioteca. Selecione as camadas e gere seu mapa.");
   };
   const importPackage=async(file:File)=>{
@@ -44,7 +47,7 @@ export function ThematicMapsModule() {
       const r=await fetch(`${API}/thematic-maps/package`,{method:"POST",credentials:"include",body:data});
       const payload=await r.json();
       if(!r.ok)throw new Error(payload.detail||"Falha no pacote GeoPackage.");
-      setPackageId(payload.package_id);
+      setPackageId(payload.package_id);setDesign([]);
       setPackageLayers(payload.layers.map((layer:{name:string})=>layer.name));
       setSelectedPackageLayers(payload.layers.map((layer:{name:string})=>layer.name));
       setMessage(`Pacote gravado na biblioteca: ${payload.layers.length} camadas.`);
@@ -68,6 +71,23 @@ export function ThematicMapsModule() {
     }catch(err){setMessage(err instanceof Error?err.message:"Falha nas sugestões.");}
     finally{setBusy(false);}
   };
+  const proposeDesign=async()=>{
+    if(!packageId||!selectedPackageLayers.length)return;
+    setBusy(true);setMessage("");
+    try {
+      const r=await fetch(`${API}/thematic-maps/package/design`,{
+        method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({package_id:packageId,template,selected_layers:selectedPackageLayers})
+      });
+      const result=await r.json();
+      if(!r.ok)throw new Error(result.detail||"Erro na proposta cartográfica.");
+      setDesign(result.design);
+      setAiUsed(Boolean(result.ai_used));
+      setAiTokens(result.usage?.total_tokens??null);
+      setMessage(result.ai_used?"IA analisou os atributos disponíveis. Revise as sugestões abaixo.":"Regras locais aplicadas: IA não respondeu. Revise as sugestões.");
+    }catch(err){setMessage(err instanceof Error?err.message:"Falha na IA.");}
+    finally{setBusy(false);}
+  };
   const importFile=async(file:File,role:"property"|"theme")=>{
     setBusy(true);setMessage("");
     try {
@@ -89,7 +109,9 @@ export function ThematicMapsModule() {
       const endpoint=packageId ? "package/pdf" : "pdf";
       const body=packageId ? {
         package_id:packageId,property_geometry:property?.geometry,title,subtitle,
-        selected_layers:selectedPackageLayers,include_branding:includeBranding,source_text:sourceText
+        selected_layers:selectedPackageLayers,include_branding:includeBranding,source_text:sourceText,
+        class_fields:Object.fromEntries(design.filter(d=>d.class_field).map(d=>[d.layer,d.class_field])),
+        layer_colors:Object.fromEntries(design.map(d=>[d.layer,d.color]))
       } : {title,subtitle,source_text:sourceText,include_branding:includeBranding,
         layers:layers.map(({features,...layer})=>layer)};
       const r=await fetch(`${API}/thematic-maps/${endpoint}`,{method:"POST",credentials:"include",
@@ -151,7 +173,20 @@ export function ThematicMapsModule() {
           {name}
         </label>)}
       </div>}
-      <h3>4. Composição cartográfica</h3>
+      <h3>4. Assistente cartográfico de IA</h3>
+      <p>A IA analisa nomes, amostras de atributos e tipos geométricos, sem enviar coordenadas. A aplicação das sugestões depende da sua revisão.</p>
+      <button type="button" className="thematic-ai-button" disabled={busy||!packageId||selectedPackageLayers.length===0}
+        onClick={()=>void proposeDesign()}>Analisar camadas e sugerir simbologia com IA</button>
+      {design.length>0&&<div className="thematic-design-review">
+        <p>{aiUsed?"Sugestões geradas pela IA":"Sugestões geradas por regras locais"}{aiTokens!==null?` · ${aiTokens} tokens`:""} — edite antes de gerar.</p>
+        {design.map(item=><div className="thematic-layer-row" key={item.layer}>
+          <strong>{item.layer}</strong>
+          <label>Cor <input type="color" value={item.color} onChange={e=>setDesign(old=>old.map(x=>x.layer===item.layer?{...x,color:e.target.value}:x))}/></label>
+          <label>Classificação <input value={item.class_field||""} placeholder="Automática" onChange={e=>setDesign(old=>old.map(x=>x.layer===item.layer?{...x,class_field:e.target.value||null}:x))}/></label>
+          <small>{item.reason}</small>
+        </div>)}
+      </div>}
+      <h3>5. Composição cartográfica</h3>
       <div className="thematic-fields">
         <label>Título<input value={title} onChange={e=>setTitle(e.target.value)}/></label>
         <label>Subtítulo<input value={subtitle} onChange={e=>setSubtitle(e.target.value)}/></label>
