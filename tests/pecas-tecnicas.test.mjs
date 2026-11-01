@@ -139,3 +139,14 @@ test("medição usa camada isolada e cálculos geodésicos sem alterar parcelas"
   assert.match(map, /<span>Área<\/span>/);
   assert.match(map, /measureSourceRef\.current\.clear\(\)/);
 });
+
+test("Mapas Temáticos possui menu, templates e exportação PDF independente", async () => {
+  const page = await read("app/page.tsx");
+  const module = await read("components/thematic-maps-module.tsx");
+  assert.match(page, /Mapas Temáticos/);
+  assert.match(page, /activeView === "thematic"/);
+  assert.match(module, /thematic-maps\/templates/);
+  assert.match(module, /thematic-maps\/import/);
+  assert.match(module, /thematic-maps\/pdf/);
+  assert.match(module, /Gerar mapa temático PDF/);
+});
