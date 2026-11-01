@@ -97,6 +97,22 @@ def _draw_geometry(pdf, geometry, xy, stroke, fill, property_outline=False):
         pdf.circle(*xy(geometry.x, geometry.y), 3, stroke=1, fill=1)
 
 
+def category_shade(hex_color: str, index: int, count: int) -> str:
+    """Distinct categorical variants based on a user-approved theme hue."""
+    import colorsys
+    _color(hex_color)
+    if count <= 1:
+        return hex_color
+    raw = hex_color.lstrip("#")
+    r, g, b = [int(raw[i:i+2], 16) / 255 for i in (0, 2, 4)]
+    hue, light, sat = colorsys.rgb_to_hls(r, g, b)
+    hue = (hue + ((index * 0.61803398875) % 1) * .28) % 1
+    light = min(.76, max(.37, .43 + (index % 4) * .09))
+    sat = max(.38, min(.78, sat))
+    rr, gg, bb = colorsys.hls_to_rgb(hue, light, sat)
+    return "#" + "".join(f"{round(v*255):02x}" for v in (rr, gg, bb))
+
+
 def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=False):
     if not layers or len(layers) > 60:
         raise ValueError("Informe de 1 a 60 camadas.")
