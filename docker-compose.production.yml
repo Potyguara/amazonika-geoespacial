@@ -60,6 +60,8 @@ services:
       GOOGLE_MAP_TILES_ENABLED: ${GOOGLE_MAP_TILES_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+      THEMATIC_RENDERER: ${THEMATIC_RENDERER:-matplotlib}
+      CARTOGRAPHY_URL: http://cartography-worker:8090
     ports:
       - "127.0.0.1:18000:8000"
     mem_limit: 1536m
@@ -74,6 +76,30 @@ services:
         condition: service_healthy
     security_opt:
       - no-new-privileges:true
+    logging: *default-logging
+
+  cartography-worker:
+    build:
+      context: ./cartography
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      QT_QPA_PLATFORM: offscreen
+    mem_limit: 2g
+    cpus: 1.0
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    networks:
+      - geo_private
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/usr/bin/python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
     logging: *default-logging
 
   package-worker:
