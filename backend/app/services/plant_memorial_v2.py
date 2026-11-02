@@ -56,7 +56,10 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
                 f"Área {index + 1}: polígonos com ilhas internas precisam de representação "
                 "específica do perímetro antes da emissão."
             )
-        points = [(float(lon), float(lat)) for lon, lat in list(polygon.exterior.coords)[:-1]]
+        # SIGEF/GeoPackage pode fornecer vértices XYZ. Os cálculos geodésicos
+        # usam longitude/latitude; o Z não é interpretado como altitude validada.
+        points = [(float(coord[0]), float(coord[1]))
+                  for coord in list(polygon.exterior.coords)[:-1]]
         if len(points) < 3 or len(points) > 2000:
             raise ValueError(f"Área {index + 1}: número de vértices fora do limite (3 a 2.000).")
         supplied_names = data.get("vertex_names")

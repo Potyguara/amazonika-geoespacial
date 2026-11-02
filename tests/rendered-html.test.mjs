@@ -7,9 +7,21 @@ const developmentPreviewMeta =
 test("renders development preview metadata", async () => {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+  const { default: entry } = await import(workerUrl.href);
 
-  const response = await worker.fetch(
+  // A saída Node do Vinext (App Router/RSC) exporta um handler diretamente.
+  // Builds em formato Worker podem exportar um objeto com fetch().
+  // Ambos precisam renderizar HTML real; não substituímos o teste por um mock.
+  const handleRequest =
+    typeof entry === "function" ? entry : entry?.fetch?.bind(entry);
+
+  assert.equal(
+    typeof handleRequest,
+    "function",
+    "A entrada gerada pelo Vinext deve exportar um handler HTTP válido",
+  );
+
+  const response = await handleRequest(
     new Request("http://localhost/", {
       headers: { accept: "text/html" },
     }),

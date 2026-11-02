@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feat/geospatial-tools-v1
+      - feat/pecas-tecnicas-fluxo-20261026
   pull_request:
     branches:
       - main
+      - integration/geospatial-tools-vps-20261025
 
 jobs:
   validate:
@@ -23,6 +25,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Frontend build and unit tests
+        run: npm test
+
       - name: TypeScript validation
         run: ./node_modules/.bin/tsc --noEmit -p tsconfig.ci.json
 
@@ -35,12 +40,16 @@ jobs:
         run: |
           python -m py_compile \
             backend/app/api/routes/tools.py \
+            backend/app/api/routes/technical_pieces.py \
+            backend/app/api/routes/google_tiles.py \
+            backend/app/models/technical_piece.py \
             backend/app/api/routes/users.py \
             backend/app/api/routes/security.py \
             backend/app/services/plant_memorial.py \
             backend/app/services/plant_memorial_v2.py \
             backend/app/services/plant_memorial_pro.py \
             backend/app/services/plant_memorial_v3.py \
+            backend/app/services/plant_label_layout.py \
             backend/app/services/memorial_docx.py \
             backend/app/services/geospatial_export.py \
             backend/app/models/security.py \
@@ -58,3 +67,18 @@ jobs:
         env:
           PYTHONPATH: backend
         run: python -m unittest test_geospatial_documents -v
+
+      - name: Test technical piece PDF
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_plant_elements.py' -v
+
+      - name: Validate label collision resolution
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_label_layout.py' -v
+
+      - name: Verify Google Tiles gateway without external traffic
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_google_tiles.py' -v

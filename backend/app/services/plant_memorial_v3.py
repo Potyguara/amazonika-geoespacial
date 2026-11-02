@@ -20,6 +20,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
+from app.services.plant_label_layout import LabelLayout, Box
 from app.services.plant_memorial_v2 import (
     DISCLAIMER, Parcel, _dms, _azimuth_minutes, _br_number,
     _raster_reader, build_joint_memorial,
@@ -56,7 +57,7 @@ def _columns(width):
     return list(zip(starts, widths))
 
 
-def _layout(projected, *, vertex_count, paper, orientation, scale):
+def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordinates=True):
     fmt = (paper or "A4").upper()
     if fmt not in PAPERS:
         raise ValueError("Formato inválido. Escolha A4, A3, A2, A1 ou A0.")
@@ -69,8 +70,10 @@ def _layout(projected, *, vertex_count, paper, orientation, scale):
     available_width = map_right - map_left
     row_h = 13 if fmt in ("A4", "A3") else 14
     title_h = 23
-    table_h = title_h + (vertex_count + 1) * row_h + 7
-    map_bottom = 42 + table_h + 13
+    table_h = title_h + (vertex_count + 1) * row_h + 7 if show_coordinates else 0
+    # Faixa exclusiva para escala gráfica e escala numérica; fora da grade UTM.
+    map_bottom = 42 + table_h + 39
+    # Faixa acima da grade reservada a rosa dos ventos e quadro magnético.
     map_top = h - 88
     map_w = available_width
     map_h = map_top - map_bottom
@@ -135,102 +138,75 @@ def _cell(pdf, x, y_top, width, heading, value, max_height=40):
     return y_top-max_height
 
 
-def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point, viewport):
-    x0,y0 = p0
-    x1,y1 = p1
-    dx,dy = x1-x0,y1-y0
-    length = math.hypot(dx,dy)
-    if length < 1:
-        return
-    angle = math.degrees(math.atan2(dy,dx))
-    ux,uy = dx/length,dy/length
-    nx,ny = -uy,ux
-    mx,my = (x0+x1)/2,(y0+y1)/2
-    # Texto do confrontante para o lado interno da poligonal.
-    cx,cy = inner_point
-    if (cx-mx)*nx + (cy-my)*ny < 0:
-        nx,ny = -nx,-ny
-    # Textos permanecem legíveis, sem ficar de cabeça para baixo.
-    if abs(angle) > 90:
-        angle = (angle+180) % 360
-        ux,uy = -ux,-uy
-    pdf.saveState()
-    _clip_rect(pdf,*viewport)
-    pdf.setFillColor(INK)
-    pdf.setFont("Helvetica-Bold",7.0)
-    distance = f"{_br_number(row['distance'],2)} m"
-    azimuth = _azimuth_minutes(row["azimuth"])
-    # Distância e azimute em posições diferentes ao longo do mesmo lado.
-    # Para lados muito curtos, abrevia a fonte, mas não altera os valores.
-    for text, position, offset in ((distance,.28,9),(azimuth,.73,9)):
-        if stringWidth(text,"Helvetica-Bold",7) > length*.46:
-            offset += 10
-        tx = x0+dx*position+nx*offset
-        ty = y0+dy*position+ny*offset
-        pdf.saveState()
-        pdf.translate(tx,ty)
-        pdf.rotate(angle)
-        pdf.setFillColor(colors.white)
-        ww=stringWidth(text,"Helvetica-Bold",7)
-        pdf.rect(-ww/2-2,-2,ww+4,11,fill=1,stroke=0)
-        pdf.setFillColor(DARK)
-        pdf.drawCentredString(0,0,text)
-        pdf.restoreState()
-    if confrontant.strip():
-        ctext = confrontant.strip()
-        if len(ctext)>45:
-            ctext = ctext[:42]+"…"
-        font = 7.0
-        pdf.setFont("Helvetica-Bold",font)
-        while font>5.8 and stringWidth(ctext,"Helvetica-Bold",font)>length*.95:
-            font -= .3
-        tx = mx+nx*27
-        ty = my+ny*27
-        pdf.saveState()
-        pdf.translate(tx,ty)
-        pdf.rotate(angle)
-        pdf.setFont("Helvetica-Bold",font)
-        ww=stringWidth(ctext,"Helvetica-Bold",font)
-        pdf.setFillColor(colors.white)
-        pdf.rect(-ww/2-2,-2,ww+4,font+4,fill=1,stroke=0)
-        pdf.setFillColor(GREEN)
-        pdf.drawCentredString(0,0,ctext)
-        pdf.restoreState()
-    pdf.restoreState()
+def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point,
+                          viewport, *, layout=None, show_azimuth=True,
+                          show_distance=True, show_confrontants=True):
+    x0,y0=p0
+    x1,y1=p1
+    dx,dy=x1-x0,y1-y0
+    length=math.hypot(dx,dy)
+    if length<1: return
+    angle=math.degrees(math.atan2(dy,dx))
+    nx,ny=-dy/length,dx/length
+    mx,my=(x0+x1)/2,(y0+y1)/2
+    cx,cy=inner_point
+    if (cx-mx)*nx+(cy-my)*ny>0: nx,ny=-nx,-ny
+    manager=layout if layout is not None else LabelLayout(viewport)
+    lines=[]
+    if show_azimuth: lines.append("Az. "+_azimuth_minutes(row["azimuth"]))
+    if show_distance: lines.append("Dist. "+_br_number(row["distance"],2)+" m")
+    if lines:
+        manager.place(pdf,lines,(mx,my),angle=angle,
+                      offsets=[(nx*13,ny*13),(-nx*13,-ny*13),
+                               (nx*23,ny*23),(-nx*23,-ny*23),
+                               (nx*34,ny*34),(-nx*34,-ny*34)],
+                      desired=7.1,minimum=6.0)
+    if show_confrontants and confrontant.strip():
+        manager.place(pdf,[confrontant.strip()],(mx,my),
+                      angle=angle,color=GREEN,
+                      offsets=[(nx*31,ny*31),(nx*45,ny*45),
+                               (-nx*31,-ny*31),(-nx*45,-ny*45)],
+                      desired=7.2,minimum=6.0)
 
 
 def _grid(pdf, viewport, bounds, xy, zone, hemi):
-    left,bottom,width,height = viewport
-    x0,y0,x1,y1 = bounds
+    left,bottom,width,height=viewport
+    x0,y0,x1,y1=bounds
     span=max(x1-x0,y1-y0,1)
     step=10**math.floor(math.log10(max(span/5,1)))
     if span/step>8: step*=2
     if span/step<3: step/=2
+    while step*abs(xy(x0+1,y0)[0]-xy(x0,y0)[0]) < 55: step*=2
     pdf.saveState()
     _clip_rect(pdf,left,bottom,width,height)
-    pdf.setStrokeColor(GRID)
-    pdf.setLineWidth(.5)
-    pdf.setFont("Helvetica",6)
-    pdf.setFillColor(GREEN)
+    pdf.setStrokeColor(GRID);pdf.setLineWidth(.5)
+    pdf.setFont("Helvetica",6.1)
+    last_x=-1e10;last_y=-1e10
     for i in range(100):
         east=math.floor(x0/step)*step+i*step
-        if east>x1+step: break
+        if east>x1+step:break
         x=xy(east,y0)[0]
-        if left<=x<=left+width:
-            pdf.line(x,bottom,x,bottom+height)
-            pdf.drawCentredString(x, bottom+6, f"{east:,.0f}")
+        if left+4<=x<=left+width-4:
+            pdf.setStrokeColor(GRID);pdf.line(x,bottom+14,x,bottom+height)
+            label=f"{east:,.0f}"
+            w=stringWidth(label,"Helvetica",6.1)
+            if x-last_x>=w+12 and x-w/2>=left+4 and x+w/2<=left+width-4:
+                pdf.setFillColor(GREEN);pdf.drawCentredString(x,bottom+4,label)
+                last_x=x
     for i in range(100):
         north=math.floor(y0/step)*step+i*step
-        if north>y1+step: break
+        if north>y1+step:break
         y=xy(x0,north)[1]
-        if bottom<=y<=bottom+height:
-            pdf.line(left,y,left+width,y)
-            pdf.drawString(left+4,y+2,f"{north:,.0f}")
+        if bottom+4<=y<=bottom+height-4:
+            pdf.setStrokeColor(GRID);pdf.line(left+48,y,left+width,y)
+            if y-last_y>=13:
+                pdf.setFillColor(GREEN);pdf.drawString(left+3,y-2,f"{north:,.0f}")
+                last_y=y
     pdf.restoreState()
-    pdf.setStrokeColor(RULE)
-    pdf.rect(left,bottom,width,height,fill=0,stroke=1)
+    pdf.setStrokeColor(RULE);pdf.rect(left,bottom,width,height,fill=0,stroke=1)
     pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",7)
-    pdf.drawString(left+4,bottom+height+5, f"GRADE UTM  |  SIRGAS 2000  |  FUSO {zone}{hemi}")
+    pdf.drawString(left+4,bottom+height+5,
+                   f"GRADE UTM  |  SIRGAS 2000  |  FUSO {zone}{hemi}")
 
 
 def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
@@ -278,72 +254,166 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
         for (offset,col_width),value in zip(cols,row):
             if not _fit_text(pdf,value,col_width-6,
                              "Helvetica",min(font_size,7.3),FONT_MIN):
-                # Nome longo deve ser editado pelo usuário antes da emissão.
-                if offset == 0.:
-                    raise ValueError(
-                        f"Código de vértice '{value}' não cabe na tabela; "
-                        "reduza seu comprimento ou escolha papel maior."
-                    )
+                raise ValueError(
+                    f"O texto '{value}' não cabe na coluna do quadro de coordenadas "
+                    "com fonte legível. Escolha uma folha maior ou simplifique o dado."
+                )
             pdf.drawString(left+offset+3,y+3,value)
     pdf.restoreState()
 
 
 def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
            address, area, perimeter, zone, hemi, professional, image,
-           image_source, stamp):
-    pdf.setStrokeColor(RULE);pdf.rect(x,limit,width,top-limit,stroke=1,fill=0)
-    pdf.setFillColor(GREEN);pdf.rect(x,top-32,width,32,fill=1,stroke=0)
-    pdf.setFillColor(colors.white);pdf.setFont("Helvetica-Bold",10)
-    pdf.drawCentredString(x+width/2,top-20,"IDENTIFICAÇÃO DO IMÓVEL")
-    y=top-32
-    fields=[
-        ("IMÓVEL",title),
-        ("DETENTOR/POSSEIRO",owner or "Não informado"),
-        ("CPF / RG", " | ".join(x for x in (owner_cpf,owner_rg) if x) or "Não informado"),
-        ("LOCALIZAÇÃO",address or "Não informada"),
-        ("ÁREA E PERÍMETRO",f"{_br_number(area,4)} ha  |  {_br_number(perimeter,2)} m"),
-        ("DATUM / FUSO",f"SIRGAS 2000 — UTM {zone}{hemi}"),
-        ("RESPONSÁVEL TÉCNICO",professional.get("full_name") or "Não informado"),
-        ("CREA / VISTO / ART"," | ".join(
-             str(professional.get(k) or "") for k in ("crea","visto","art")
-             if professional.get(k)) or "Não informado"),
-    ]
-    available=(top-32)-(limit+138)
-    heights=[]
-    for heading,value in fields:
-        measure=Paragraph(
-            escape(str(value or "Não informado")),
-            ParagraphStyle("cellMeasure",fontName="Helvetica",fontSize=7.6,leading=9.5),
-        )
-        _,text_height=measure.wrap(max(35,width-15),500)
-        heights.append(max(27,text_height+19))
-    if sum(heights)>available:
-        raise ValueError(
-            "Os dados cadastrais não cabem na coluna de identificação. "
-            "Use papel maior ou reduza o texto dos campos."
-        )
-    for (heading,value),cell_h in zip(fields,heights):
-        y=_cell(pdf,x,y,width,heading,value,cell_h)
-    # Raster dentro de moldura, sem título 'raster do mapa'.
-    raster_bottom=limit+29
-    raster_h=y-raster_bottom-17
-    if raster_h<65:
-        raise ValueError("Falta espaço para a Planta de Situação; escolha papel maior.")
-    pdf.setFont("Helvetica-Bold",8)
-    pdf.setFillColor(GREEN)
-    pdf.drawString(x+8,y-12,"PLANTA DE SITUAÇÃO")
+           image_source, stamp, show_situation=True, show_technical_stamp=True):
+    """Coluna direita: identificação, situação contígua, assinaturas em blocos."""
     pdf.setStrokeColor(RULE)
-    pdf.rect(x+7,raster_bottom,width-14,raster_h,stroke=1,fill=0)
-    pdf.drawImage(image,x+10,raster_bottom+3,width-20,raster_h-6,
-                  preserveAspectRatio=True,anchor="c")
-    pdf.setFont("Helvetica",6.4)
+    pdf.rect(x, limit, width, top-limit, stroke=1, fill=0)
+    pdf.setFillColor(GREEN)
+    pdf.rect(x, top-29, width, 29, fill=1, stroke=0)
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", min(9, max(6, width/22)))
+    pdf.drawCentredString(x+width/2, top-19, "IDENTIFICAÇÃO DO IMÓVEL")
+    y = top-29
+    fields = [
+        ("IMÓVEL", title),
+        ("DETENTOR/POSSEIRO", owner or "Não informado"),
+        ("CPF / RG", " | ".join(v for v in (owner_cpf,owner_rg) if v) or "Não informado"),
+        ("LOCALIZAÇÃO", address or "Não informada"),
+        ("ÁREA E PERÍMETRO", f"{_br_number(area,4)} ha | {_br_number(perimeter,2)} m"),
+        ("DATUM / FUSO", f"SIRGAS 2000 - UTM {zone}{hemi}"),
+    ]
+    reserved = (148 if show_technical_stamp else 20) + (105 if show_situation else 0)
+    available = y - limit - reserved
+    measured = []
+    for heading,value in fields:
+        paragraph = Paragraph(
+            escape(str(value or "Não informado")),
+            ParagraphStyle("panelMeasure", fontName="Helvetica", fontSize=7.2, leading=9),
+        )
+        _, height = paragraph.wrap(max(35,width-15),500)
+        measured.append(max(26,height+18))
+    if sum(measured) > available:
+        raise ValueError("A identificação excede a prancha. Escolha folha maior ou reduza textos.")
+    for (heading,value),cell_h in zip(fields,measured):
+        y = _cell(pdf,x,y,width,heading,value,cell_h)
+
+    if show_situation:
+        # A moldura começa imediatamente abaixo de seu título;
+        # nunca centralizar o quadro dentro do espaço total da coluna.
+        heading_y = y-12
+        pdf.setFont("Helvetica-Bold", 8)
+        pdf.setFillColor(GREEN)
+        pdf.drawString(x+8,heading_y,"PLANTA DE SITUAÇÃO")
+        frame_top = heading_y-8
+        frame_width = width-14
+        frame_height = frame_width*0.75
+        frame_bottom = frame_top-frame_height
+        if frame_bottom < limit+(135 if show_technical_stamp else 22):
+            raise ValueError("Não há espaço para situação e assinaturas. Escolha papel maior.")
+        pdf.setStrokeColor(RULE)
+        pdf.rect(x+7,frame_bottom,frame_width,frame_height,stroke=1,fill=0)
+        if image is not None:
+            pdf.drawImage(image,x+10,frame_bottom+3,frame_width-6,frame_height-6,
+                          preserveAspectRatio=True,anchor="c")
+        pdf.setFont("Helvetica",5.6)
+        pdf.setFillColor(DARK)
+        pdf.drawString(x+8,frame_bottom-10,(image_source or "Base cartográfica")[:50])
+        y=frame_bottom-15
+
+    if show_technical_stamp:
+        # Assinaturas sem desenhos de assinatura ou validação digital fictícia.
+        box_top=y-5
+        box_bottom=limit+23
+        if box_top-box_bottom < 110:
+            raise ValueError("Espaço insuficiente para o quadro de assinaturas.")
+        pdf.setStrokeColor(RULE)
+        pdf.rect(x+7,box_bottom,width-14,box_top-box_bottom,stroke=1,fill=0)
+        pdf.setFont("Helvetica-Bold",8)
+        pdf.setFillColor(GREEN)
+        pdf.drawString(x+11,box_top-12,"QUADRO DE ASSINATURAS")
+        inner_width=width-28
+        owner_lines=[owner or "Não informado"]
+        if owner_rg: owner_lines.append(f"RG: {owner_rg}")
+        if owner_cpf: owner_lines.append(f"CPF: {owner_cpf}")
+        rt_lines=[
+            professional.get("full_name") or "Não informado",
+            professional.get("profession") or "",
+            professional.get("specialization") or "",
+            " | ".join(f"{k.upper()}: {professional[k]}" for k in ("cpf","rg")
+                       if professional.get(k)),
+            " | ".join(str(professional.get(k)) for k in
+                       ("crea","visto","incra_code") if professional.get(k)),
+            f"ART: {professional['art']}" if professional.get("art") else "",
+        ]
+        # Medir os parágrafos ANTES de desenhar ou de escolher a divisória.
+        # Os blocos não recebem percentuais fixos porque CPF/RG e títulos
+        # podem ocupar várias linhas.
+        def measured_lines(lines, body_size):
+            items=[]
+            for index,line in enumerate(lines):
+                if not line: continue
+                size=body_size if index==0 else max(5.3,body_size-.5)
+                p=Paragraph(
+                    escape(str(line)),
+                    ParagraphStyle("signature",fontName="Helvetica",fontSize=size,
+                                   leading=size+1.5,alignment=1,textColor=DARK),
+                )
+                _,height=p.wrap(inner_width,300)
+                items.append((p,height))
+            return items
+        # Reserva: título do quadro (17 pt), cada cabeçalho e traço
+        # (17 pt), folgas de 3 pt e margem inferior (8 pt).
+        area_height=box_top-box_bottom
+        layout=None
+        for font_size in (6.7,6.3,5.9,5.6):
+            owner_items=measured_lines(owner_lines,font_size)
+            rt_items=measured_lines(rt_lines,font_size)
+            owner_needed=sum(h+2 for _,h in owner_items)+32
+            rt_needed=sum(h+2 for _,h in rt_items)+25
+            if owner_needed+rt_needed+22 <= area_height:
+                layout=(owner_items,rt_items,owner_needed,rt_needed)
+                break
+        if layout is None:
+            raise ValueError(
+                "O quadro de assinaturas não comporta todos os dados com "
+                "fontes legíveis. Escolha uma folha maior ou reduza os textos."
+            )
+        owner_items,rt_items,owner_needed,rt_needed=layout
+        # A divisória nasce do tamanho real dos dados do proprietário.
+        # Garante-se separação mínima da próxima seção.
+        owner_heading=box_top-27
+        def draw_group(heading,items,baseline,group_floor):
+            pdf.setFillColor(DARK)
+            pdf.setFont("Helvetica-Bold",6.5)
+            pdf.drawString(x+13,baseline,heading)
+            pdf.setStrokeColor(RULE)
+            pdf.line(x+13,baseline-5,x+width-13,baseline-5)
+            cursor=baseline-15
+            for paragraph,height in items:
+                bottom=cursor-height
+                if bottom < group_floor+5:
+                    raise ValueError(
+                        "O quadro de assinaturas não possui espaço suficiente "
+                        "para distribuir os textos sem sobreposição."
+                    )
+                paragraph.drawOn(pdf,x+14,bottom)
+                cursor=bottom-2
+            return cursor
+        owner_floor=box_top-17-owner_needed
+        if owner_floor-box_bottom < rt_needed+8:
+            raise ValueError("Espaço insuficiente para assinaturas. Use folha maior.")
+        draw_group("PROPRIETÁRIO / DETENTOR",owner_items,owner_heading,owner_floor)
+        pdf.setStrokeColor(RULE)
+        pdf.line(x+7,owner_floor,x+width-7,owner_floor)
+        draw_group("RESPONSÁVEL TÉCNICO",rt_items,owner_floor-12,box_bottom)
+
     pdf.setFillColor(DARK)
-    pdf.drawString(x+7,limit+16,(image_source or "Base de referência")[:47])
-    pdf.drawString(x+7,limit+5,stamp[:60])
+    pdf.setFont("Helvetica",5.6)
+    pdf.drawString(x+7,limit+7,stamp[:55])
 
 
 def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
-                  address, heading, professional, croqui, stamp):
+                  address, heading, professional, croqui, stamp, edited_memorial=None):
     w,h=A4; margin=43
     body=ParagraphStyle(
         "memorial",fontName="Helvetica",fontSize=9.4,leading=14,
@@ -388,6 +458,17 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
             next_page()
         p.drawOn(pdf,margin,y-height)
         y-=height+space
+    # Texto aprovado pelo usuário tem precedência sobre a versão automática.
+    # A edição não altera cálculos geométricos ou o carimbo da primeira folha.
+    if edited_memorial is not None:
+        for line in edited_memorial.splitlines():
+            value=line.strip()
+            if not value:
+                y-=5
+                continue
+            paragraph(value, bold=value.isupper() and len(value)<110, space=4)
+        foot()
+        return
     # Tabela compacta de identificação e metragem.
     meta=[
         f"IMÓVEL: {property_name}",
@@ -443,15 +524,25 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    professional: dict | None=None, qr_url: str | None=None,
                    paper_format: str | None="A4",
                    scale_denominator: int | None=None,
-                   orientation: str = "paisagem") -> tuple[bytes,str,int]:
-    if not raster_b64:
+                   orientation: str = "paisagem",
+                   plant_elements: dict | None = None,
+                   magnetic_declination_degrees: float | None = None,
+                   edited_memorial: str | None = None,
+                   survey_date: str | None = None) -> tuple[bytes,str,int]:
+    elements = plant_elements or {}
+    enabled = lambda key: elements.get(key, True)
+    if enabled("situation") and not raster_b64:
         raise ValueError("A Planta de Situação exige imagem raster capturada do mapa.")
     if not parcels:
         raise ValueError("Selecione ao menos um polígono.")
     professional=dict(professional or {})
     if responsible_name and not professional.get("full_name"):
         professional["full_name"]=responsible_name
-    raster=_raster_reader(raster_b64)
+    raster=_raster_reader(raster_b64) if raster_b64 else None
+    reference_dt = datetime.now(ZoneInfo("America/Belem")).date()
+    if survey_date:
+        from datetime import date
+        reference_dt=date.fromisoformat(survey_date)
     stamp=datetime.now(ZoneInfo("America/Belem")).strftime(
         "%d/%m/%Y %H:%M:%S - Horário de Belém"
     )
@@ -471,6 +562,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     fmt,w,h,side,bounds,viewport,table_rect,scale=_layout(
         projected,vertex_count=count,paper=paper_format,
         orientation=orientation,scale=scale_denominator,
+        show_coordinates=enabled("coordinates"),
     )
     x0,y0,x1,y1=bounds
     vx,vy,vw,vh=viewport
@@ -484,14 +576,40 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     pdf.setTitle(f"{plant_heading} — {title}")
     pdf.setStrokeColor(DARK);pdf.setLineWidth(.8)
     pdf.rect(23,23,w-46,h-46,fill=0,stroke=1)
-    pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",13)
-    pdf.drawCentredString((38+side-15)/2,h-43,plant_heading[:65].upper())
-    pdf.setFillColor(DARK);pdf.setFont("Helvetica-Bold",10)
-    pdf.drawCentredString((38+side-15)/2,h-59,title[:70].upper())
+    if enabled("title"):
+        pdf.setFillColor(GREEN);pdf.setFont("Helvetica-Bold",13)
+        pdf.drawCentredString((38+side-15)/2,h-43,plant_heading[:65].upper())
+        pdf.setFillColor(DARK);pdf.setFont("Helvetica-Bold",10)
+        pdf.drawCentredString((38+side-15)/2,h-59,title[:70].upper())
     pdf.setStrokeColor(RULE)
     pdf.line(38,h-69,side-15,h-69)
     # Grade contida rigorosamente na moldura cartográfica.
-    _grid(pdf,viewport,bounds,xy,zone,hemi)
+    if enabled("grid"):
+        _grid(pdf,viewport,bounds,xy,zone,hemi)
+    else:
+        pdf.setStrokeColor(RULE)
+        pdf.rect(*viewport,fill=0,stroke=1)
+    label_layout=LabelLayout(viewport)
+    label_layout.reserved.append(Box(vx,vy,55,vh))
+    label_layout.reserved.append(Box(vx,vy,vw,16))
+    orientation_on = enabled("north")
+    # Símbolos discretos em cantos da moldura, com áreas de exclusão
+    # para etiquetas; nunca redesenhar uma faixa adicional inteira.
+    rose_box=Box(vx+58,vy+vh-50,44,43)
+    magnetic_box=Box(vx+vw-100,vy+vh-50,94,43)
+    if orientation_on:
+        # Não permitir símbolos sobre a geometria, mesmo para parcelas
+        # que ocupem grande parte da folha.
+        for ring in projected:
+            screen=[xy(*p) for p in ring]
+            occupied=Box(min(p[0] for p in screen)-6,
+                         min(p[1] for p in screen)-6,
+                         max(p[0] for p in screen)-min(p[0] for p in screen)+12,
+                         max(p[1] for p in screen)-min(p[1] for p in screen)+12)
+            if rose_box.intersects(occupied, gap=2) or magnetic_box.intersects(occupied,gap=2):
+                raise ValueError("Símbolos de orientação encontram o polígono. "
+                                 "Escolha folha maior ou ajuste a escala da planta.")
+        label_layout.reserved.extend([rose_box, magnetic_box])
     palette=(colors.HexColor("#276749"),colors.HexColor("#1E6290"),
              colors.HexColor("#8E7235"),colors.HexColor("#85528D"))
     for index,(parcel,ring) in enumerate(zip(parcels,projected)):
@@ -513,31 +631,107 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             pdf.setStrokeColor(DARK)
             pdf.circle(x,y,2.7,fill=1,stroke=1)
         pdf.restoreState()
+        if enabled("vertex_labels"):
+            for i,(x,y) in enumerate(points):
+                label_layout.place(pdf,[parcel.names[i]],(x,y),
+                    desired=7.2,minimum=6.0,
+                    offsets=[(12,13),(-12,13),(12,-13),(-12,-13),
+                             (22,7),(-22,7)])
         for i,point in enumerate(points):
-            _azimuth_and_distance(pdf,point,points[(i+1)%len(points)],
-                                  parcel.segments[i],parcel.confrontants[i],
-                                  (cx,cy),viewport)
-            x,y=point
-            pdf.saveState();_clip_rect(pdf,*viewport)
-            pdf.setFont("Helvetica-Bold",7)
-            label=parcel.names[i]
-            txtw=stringWidth(label,"Helvetica-Bold",7)
-            lx=max(vx+4,min(vx+vw-txtw-5,x+5))
-            ly=max(vy+5,min(vy+vh-13,y+8))
-            pdf.setFillColor(colors.white)
-            pdf.rect(lx-2,ly-2,txtw+4,10,fill=1,stroke=0)
-            pdf.setFillColor(DARK);pdf.drawString(lx,ly,label)
-            pdf.restoreState()
-    # Norte permanece dentro da grade, sem invadir os rótulos externos.
-    pdf.setStrokeColor(GREEN);pdf.setLineWidth(1.5)
-    nx,ny=vx+18,vy+vh-18
-    pdf.line(nx,ny-22,nx,ny)
-    pdf.line(nx,ny,nx-5,ny-7);pdf.line(nx,ny,nx+5,ny-7)
-    pdf.setFont("Helvetica-Bold",8);pdf.drawCentredString(nx,ny+5,"N")
-    pdf.setFillColor(DARK);pdf.setFont("Helvetica",7.5)
-    pdf.drawString(vx,vy-13,f"ESCALA 1:{scale:,}  |  FOLHA {fmt} ({orientation})")
-    # Quadro de coordenadas *na mesma folha*, independente do volume.
-    _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
+            _azimuth_and_distance(
+                pdf,point,points[(i+1)%len(points)],
+                parcel.segments[i],parcel.confrontants[i],(cx,cy),viewport,
+                layout=label_layout,show_azimuth=enabled("azimuths"),
+                show_distance=enabled("distances"),
+                show_confrontants=enabled("confrontants"))
+    # Os três elementos de escala ocupam uma faixa independente abaixo
+    # do quadro UTM; não interferem nos valores das coordenadas.
+    footer_y = vy-25
+    if enabled("scale_text"):
+        pdf.setFillColor(DARK)
+        pdf.setFont("Helvetica-Bold",7.0)
+        pdf.drawString(vx+4,footer_y,f"ESCALA 1:{scale:,}".replace(",","."))
+    if elements.get("scale_bar",False):
+        bar_pt=min(vw*.28,90)
+        bar_m=bar_pt/_pt_per_meter(scale)
+        bx=vx+vw-bar_pt-13
+        by=footer_y+2
+        pdf.saveState()
+        pdf.setStrokeColor(GREEN)
+        pdf.setFillColor(GREEN)
+        pdf.rect(bx,by,bar_pt/2,5,stroke=1,fill=1)
+        pdf.setFillColor(colors.white)
+        pdf.rect(bx+bar_pt/2,by,bar_pt/2,5,stroke=1,fill=1)
+        pdf.setFont("Helvetica",6)
+        pdf.setFillColor(DARK)
+        pdf.drawString(bx,by-9,"0")
+        pdf.drawRightString(bx+bar_pt,by-9,f"{bar_m:.1f} m")
+        pdf.restoreState()
+
+    if orientation_on:
+        from pyproj import Proj
+        from calendar import isleap
+        longitude,latitude=max(all_vertices,key=lambda pt:pt[1])
+        convergence=float(Proj(crs).get_factors(longitude,latitude).meridian_convergence)
+        declination=None
+        magnetic_source="Não selecionada"
+        if elements.get("magnetic_declination",False):
+            if magnetic_declination_degrees is not None:
+                declination=float(magnetic_declination_degrees)
+                magnetic_source="Informada pelo RT"
+            else:
+                from pygeomag import GeoMag
+                days=366 if isleap(reference_dt.year) else 365
+                decimal_year=reference_dt.year+(reference_dt.timetuple().tm_yday-1)/days
+                if not 2025 <= decimal_year < 2030:
+                    raise ValueError("WMM2025 exige data de referência entre 2025 e 2029.")
+                declination=float(GeoMag(coefficients_file="wmm/WMM_2025.COF").calculate(
+                    glat=latitude,glon=longitude,alt=0,time=decimal_year).d)
+                magnetic_source="WMM2025 (alt. 0 km)"
+        # Rosa do norte (canto superior esquerdo), discreta e sem moldura.
+        pdf.saveState()
+        pdf.setFillColor(colors.white)
+        pdf.rect(rose_box.x,rose_box.y,rose_box.w,rose_box.h,fill=1,stroke=0)
+        cx=rose_box.x+rose_box.w/2
+        cy=rose_box.y+17
+        pdf.setStrokeColor(DARK)
+        pdf.setFillColor(DARK)
+        pdf.setLineWidth(.65)
+        for degrees in range(0,360,45):
+            angle=math.radians(degrees)
+            reach=14 if degrees%90==0 else 9
+            pdf.line(cx,cy,cx+math.sin(angle)*reach,cy+math.cos(angle)*reach)
+        pdf.setFont("Helvetica-Bold",6.7)
+        pdf.drawCentredString(cx,rose_box.y+35,"N")
+        # Declinação e convergência em ícone compacto no canto oposto.
+        pdf.setFillColor(colors.white)
+        pdf.rect(magnetic_box.x,magnetic_box.y,magnetic_box.w,magnetic_box.h,
+                 fill=1,stroke=0)
+        mx=magnetic_box.x+16
+        my=magnetic_box.y+9
+        pdf.setStrokeColor(DARK)
+        pdf.setLineWidth(.7)
+        for ang,reach in [(0,23),(convergence,20)]+(
+                [(declination,18)] if declination is not None else []):
+            rad=math.radians(ang)
+            pdf.line(mx,my,mx+math.sin(rad)*reach,my+math.cos(rad)*reach)
+        pdf.setFont("Helvetica",5.5)
+        pdf.setFillColor(GREEN)
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+30,"NG / NQ / NM")
+        pdf.setFillColor(DARK)
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+22,
+                       f"c {convergence:+.4f}°")
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+14,
+                       f"d {declination:+.3f}°" if declination is not None
+                       else "d: não informada")
+        pdf.setFont("Helvetica",5.0)
+        source_short=("WMM2025" if magnetic_source.startswith("WMM2025")
+                      else "RT" if declination is not None else "—")
+        pdf.drawString(magnetic_box.x+34,magnetic_box.y+6,
+                       source_short+" "+reference_dt.strftime("%d/%m/%y"))
+        pdf.restoreState()
+    if enabled("coordinates"):
+        _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
     # Coluna direita em células separadas com situação cartográfica.
     panel_x=side+7
     _panel(
@@ -548,6 +742,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         perimeter=sum(p.perimeter for p in parcels),
         zone=zone,hemi=hemi,professional=professional,
         image=raster,image_source=raster_source,stamp=stamp,
+        show_situation=enabled("situation"),
+        show_technical_stamp=enabled("technical_stamp"),
     )
     if croqui:
         warning=Paragraph(
@@ -562,7 +758,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     pdf.showPage()
     _memorial_pdf(
         pdf,parcels,title,owner_name,owner_rg,owner_cpf,property_address,
-        memorial_heading,professional,croqui,stamp,
+        memorial_heading,professional,croqui,stamp,edited_memorial,
     )
     pdf.save()
     return data.getvalue(),fmt,scale

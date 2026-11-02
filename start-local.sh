@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 PROJECT_NAME="Amazônika Geoespacial"
 EXPECTED_BRANCH="integration/geospatial-tools-vps-20261025"
+FEATURE_HOMOLOGATION_BRANCH="feat/pecas-tecnicas-fluxo-20261026"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 API_URL="http://127.0.0.1:8000"
 READY_URL="${API_URL}/ready"
@@ -44,8 +45,10 @@ docker info >/dev/null 2>&1 || die "Docker Desktop não está em execução."
 CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
 CURRENT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"
 
-if [[ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]]; then
-  die "Branch atual: '${CURRENT_BRANCH:-nenhuma}'. Use '$EXPECTED_BRANCH' para homologação."
+# Homologação local: permitir somente a integração validada e esta branch
+# isolada de peças técnicas. A restrição de diretório/working tree permanece.
+if [[ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" && "$CURRENT_BRANCH" != "$FEATURE_HOMOLOGATION_BRANCH" ]]; then
+  die "Branch atual: '${CURRENT_BRANCH:-nenhuma}'. Branches de homologação permitidas: '$EXPECTED_BRANCH' ou '$FEATURE_HOMOLOGATION_BRANCH'."
 fi
 
 if [[ -n "$(git status --porcelain)" ]]; then

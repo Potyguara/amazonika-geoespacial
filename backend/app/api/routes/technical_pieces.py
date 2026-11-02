@@ -1,0 +1,96 @@
+"""Rascunhos das peças técnicas, isolados pelo usuário autenticado."""
+from __future__ import annotations
+
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db
+from app.models.auth import User
+from app.models.technical_piece import TechnicalPiece
+from app.services.auth import get_current_user, require_permission
+
+router = APIRouter(
+    prefix="/technical-pieces", tags=["Peças técnicas"],
+    dependencies=[Depends(require_permission("analysis.execute"))],
+)
+
+
+class PieceInput(BaseModel):
+    title: str = Field(min_length=1, max_length=180)
+    snapshot: dict = Field(default_factory=dict)
+
+
+def _view(piece: TechnicalPiece) -> dict:
+    return {
+        "id": str(piece.id), "title": piece.title, "status": piece.status,
+        "created_at": piece.created_at.isoformat() if piece.created_at else None,
+        "updated_at": piece.updated_at.isoformat() if piece.updated_at else None,
+    }
+
+
+def _owned(piece_id: UUID, db: Session, user: User) -> TechnicalPiece:
+    piece = db.scalar(select(TechnicalPiece).where(
+        TechnicalPiece.id == piece_id,
+        TechnicalPiece.user_id == user.id,
+    ))
+    if piece is None:
+        raise HTTPException(404, "Peça técnica não encontrada.")
+    return piece
+
+
+@router.get("")
+def list_pieces(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    results = db.scalars(
+        select(TechnicalPiece).where(TechnicalPiece.user_id == user.id)
+        .order_by(TechnicalPiece.updated_at.desc())
+        .limit(200)
+    ).all()
+    return [_view(piece) for piece in results]
+
+
+@router.post("", status_code=201)
+def create_piece(
+    payload: PieceInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    piece = TechnicalPiece(user_id=user.id, title=payload.title, snapshot=payload.snapshot)
+    db.add(piece)
+    db.commit()
+    db.refresh(piece)
+    return {**_view(piece), "snapshot": piece.snapshot}
+
+
+@router.get("/{piece_id}")
+def get_piece(
+    piece_id: UUID,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    piece = _owned(piece_id, db, user)
+    return {**_view(piece), "snapshot": piece.snapshot}
+
+
+@router.put("/{piece_id}")
+def update_piece(
+    piece_id: UUID, payload: PieceInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    piece = _owned(piece_id, db, user)
+    piece.title = payload.title
+    piece.snapshot = payload.snapshot
+    db.commit()
+    db.refresh(piece)
+    return {**_view(piece), "snapshot": piece.snapshot}
+
+
+@router.delete("/{piece_id}", status_code=204)
+def delete_piece(
+    piece_id: UUID,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    db.delete(_owned(piece_id, db, user))
+    db.commit()

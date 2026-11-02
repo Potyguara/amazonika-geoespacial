@@ -16,14 +16,18 @@ import { SigefModule, SourceVersion } from "@/components/sigef-module";
 import { SourcesModule } from "@/components/sources-module";
 import { UsersModule } from "@/components/users-module";
 import { SettingsModule } from "@/components/settings-module";
+import { ThematicMapsModule } from "@/components/thematic-maps-module";
 import { ProfessionalProfile } from "@/components/professional-profile";
 import { AnalysesModule } from "@/components/analyses-module";
+import { TechnicalPiecesModule, type TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
 import { getApiUrl } from "@/lib/api";
 import {
   Activity,
   Database,
   Eye,
   EyeOff,
+  ChevronDown,
+  ChevronUp,
   FileSearch,
   FileText,
   Layers3,
@@ -34,8 +38,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Search,
   ScanSearch,
+  Search,
   Settings,
   ShieldCheck,
   UploadCloud,
@@ -191,6 +195,8 @@ export default function Home() {
     fallbackLayers.map((layer) => layer.active),
   );
   const [apiOnline, setApiOnline] = useState(false);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [catalogOwnerId, setCatalogOwnerId] = useState<string | null>(null);
   const [subjectGeometry, setSubjectGeometry] = useState<Record<
     string,
     unknown
@@ -206,15 +212,20 @@ export default function Home() {
   const [analysisHolderDocument, setAnalysisHolderDocument] = useState("");
   const [analysisResetNonce, setAnalysisResetNonce] = useState(0);
   const [activeView, setActiveView] = useState<
-    "map" | "sigef" | "analyses" | "sources" | "users" | "settings"
+    "map" | "sigef" | "analyses" | "pieces" | "thematic" | "sources" | "users" | "settings"
   >("map");
   const [sigefCurrent, setSigefCurrent] = useState<SourceVersion | null>(null);
+  const [pieceRevision, setPieceRevision] = useState(0);
+  const [restorePiece, setRestorePiece] = useState<{
+    id: string; snapshot: TechnicalPieceSnapshot; nonce: number;
+  } | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ sourceId: string; nonce: number } | null>(null);
   const focusSourceOnMap = (sourceId: string) => {
     setFocusRequest((current) => ({ sourceId, nonce: (current?.nonce ?? 0) + 1 }));
   };
   const [layerManagerOpen, setLayerManagerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showStatusStrip, setShowStatusStrip] = useState(false);
   const [layerPanelCollapsed, setLayerPanelCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileLayerPanelOpen, setMobileLayerPanelOpen] = useState(false);
@@ -391,6 +402,29 @@ export default function Home() {
     };
   }, [authUser, locationRetryNonce]);
 
+  // Preferências de visualização são isoladas pelo ID do usuário logado.
+  // Persistimos apenas identificadores e switches, nunca credenciais.
+  useEffect(() => {
+    if (!authUser) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`amazonika:layers:${authUser.id}`) ?? "null");
+      if (saved?.uf && BRAZIL_STATES.some((state) => state.value === saved.uf)) {
+        setIncraUf(saved.uf);
+      }
+    } catch { /* Preferências locais indisponíveis; usa padrões. */ }
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!authUser || !catalogLoaded || catalogOwnerId !== authUser.id) return;
+    try {
+      const flags = Object.fromEntries(catalog.map((layer,index) => [
+        String(layer.id ?? layer.slug ?? layer.name), Boolean(enabled[index]),
+      ]));
+      localStorage.setItem(`amazonika:layers:${authUser.id}`,
+        JSON.stringify({ uf: incraUf, flags }));
+    } catch { /* Bloqueio de armazenamento não impede funcionamento do mapa. */ }
+  }, [authUser?.id, catalogLoaded, catalogOwnerId, catalog, enabled, incraUf]);
+
   const setLayerEnabled = (index: number, checked: boolean) => {
     const layer = catalog[index];
     if (!layer || layerUiTransition) return;
@@ -492,7 +526,17 @@ export default function Home() {
                   : undefined,
               })),
             );
-            setEnabled(sources.map((source) => source.is_active));
+            let overrides: Record<string, boolean> = {};
+            try {
+              const prefs = JSON.parse(localStorage.getItem(`amazonika:layers:${authUser?.id}`) ?? "null");
+              if (prefs?.flags && typeof prefs.flags === "object") overrides = prefs.flags;
+            } catch { /* usa visibilidade definida pelo catálogo */ }
+            setEnabled(sources.map((source) => {
+              const key = String(source.id ?? source.slug ?? source.name);
+              return typeof overrides[key] === "boolean" ? overrides[key] : source.is_active;
+            }));
+            setCatalogOwnerId(authUser?.id ?? null);
+            setCatalogLoaded(true);
           }
           const sigef = sources.find(
             (source) => source.slug === "sigef-interno",
@@ -905,7 +949,7 @@ export default function Home() {
           {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
         <div className="brand">
-          <div className="brand-mark">A</div>
+          <img className="amazonika-brand-logo" src="/amazonika-logo.svg" alt="Logomarca Amazônika Engenharia" />
           <div>
             <strong>AMAZÔNIKA</strong>
             <span>GEOESPACIAL</span>
@@ -931,6 +975,16 @@ export default function Home() {
             <FileSearch size={18} /> Análises
           </button>
           <button
+            className={activeView === "pieces" ? "nav-active" : ""}
+            onClick={() => { setActiveView("pieces"); setMobileSidebarOpen(false); }}
+          >
+            <FileText size={18} /> Peças Técnicas
+          </button>
+          <button className={activeView === "thematic" ? "nav-active" : ""}
+            onClick={() => { setActiveView("thematic"); setMobileSidebarOpen(false); }}>
+            <Layers3 size={18}/> Mapas Temáticos
+          </button>
+          <button
             className={activeView === "sources" ? "nav-active" : ""}
             onClick={() => { setActiveView("sources"); setMobileSidebarOpen(false); }}
           >
@@ -950,7 +1004,7 @@ export default function Home() {
             className={activeView === "settings" ? "nav-active" : ""}
             onClick={() => { setActiveView("settings"); setMobileSidebarOpen(false); }}
           >
-            <Settings size={18} /> Configurações
+            <Settings size={19} /><span className="sr-only">Configurações</span>
           </button>
           <div className="user-card authenticated-user-card">
             <div className="avatar">
@@ -1007,6 +1061,8 @@ export default function Home() {
                   ? "Gestão SIGEF"
                   : activeView === "analyses"
                     ? "Análises"
+                    : activeView === "thematic"
+                      ? "Mapas Temáticos"
                     : activeView === "sources"
                       ? "Gestão das fontes"
                       : activeView === "users"
@@ -1016,13 +1072,12 @@ export default function Home() {
           </div>
           {activeView === "map" && (
             <div className="top-actions">
-              <div className="search-box">
-                <Search size={17} />
-                <input
-                  aria-label="Pesquisar projeto"
-                  placeholder="Buscar projeto ou imóvel"
-                />
-              </div>
+              <button type="button" className="status-toggle" aria-expanded={showStatusStrip}
+                onClick={() => setShowStatusStrip(current => !current)}
+                title={showStatusStrip ? "Ocultar indicadores" : "Mostrar indicadores"}>
+                {showStatusStrip ? <ChevronUp size={17}/> : <ChevronDown size={17}/>}
+                {showStatusStrip ? "Ocultar indicadores" : "Mostrar indicadores"}
+              </button>
               <Button className="mobile-layers-button" onClick={() => setLayerManagerOpen(true)}>
                 <Layers3 size={17} /> Camadas
               </Button>
@@ -1032,9 +1087,9 @@ export default function Home() {
             </div>
           )}
         </header>
-        {activeView === "map" && (
+        <div style={{ display: activeView === "map" ? "contents" : "none" }}>
           <>
-            <div className="status-strip">
+            {showStatusStrip && <div className="status-strip">
               <div>
                 <span
                   className={`status-icon ${apiOnline ? "green" : "amber"}`}
@@ -1082,7 +1137,7 @@ export default function Home() {
                   </small>
                 </p>
               </div>
-            </div>
+            </div>}
             <div className={`map-layout ${layerPanelCollapsed ? "layer-panel-collapsed" : ""} ${mobileLayerPanelOpen ? "mobile-layer-panel-open" : ""}`}>
               <section className="layer-panel">
                 <div className="panel-heading">
@@ -1233,6 +1288,9 @@ export default function Home() {
                   />
                 )}
                 <GeoMap
+                  restorePiece={restorePiece}
+                  onPieceSaved={() => setPieceRevision((value) => value + 1)}
+                  analysisId={analysis?.status === "COMPLETED" ? analysis.analysis_id : null}
                   incraUf={incraUf}
                   resetNonce={analysisResetNonce}
                   hideAdvancedTools={layerManagerOpen || analysisSessionOpen}
@@ -1391,7 +1449,7 @@ export default function Home() {
               </section>
             </div>
           </>
-        )}
+        </div>
         {activeView === "sigef" && (
           <SigefModule
             onVersionChanged={(version) => setSigefCurrent(version)}
@@ -1402,7 +1460,20 @@ export default function Home() {
           />
         )}
         {activeView === "analyses" && <AnalysesModule />}
+        {activeView === "pieces" && (
+          <TechnicalPiecesModule revision={pieceRevision}
+            onOpen={(piece) => {
+              setRestorePiece((previous) => ({
+                id: piece.id,
+                snapshot: piece.snapshot,
+                nonce: (previous?.nonce ?? 0) + 1,
+              }));
+              setActiveView("map");
+            }}
+          />
+        )}
 
+        {activeView === "thematic" && <ThematicMapsModule />}
         {activeView === "sources" && <SourcesModule />}
 
         {activeView === "users" &&

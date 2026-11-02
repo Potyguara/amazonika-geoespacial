@@ -45,6 +45,45 @@ class MemorialParcel(BaseModel):
     altitudes_m: list[float | None] | None = None
 
 
+class ProfessionalDocumentOverride(BaseModel):
+    """Dados editáveis para uma única peça; não atualiza o perfil da conta."""
+    full_name: str | None = Field(default=None, max_length=255)
+    rg: str | None = Field(default=None, max_length=50)
+    cpf: str | None = Field(default=None, max_length=18)
+    profession: str | None = Field(default=None, max_length=150)
+    specialization: str | None = Field(default=None, max_length=255)
+    crea: str | None = Field(default=None, max_length=100)
+    visto: str | None = Field(default=None, max_length=100)
+    incra_code: str | None = Field(default=None, max_length=80)
+    art: str | None = Field(default=None, max_length=120)
+
+
+class PlantElements(BaseModel):
+    title: bool = True
+    grid: bool = True
+    north: bool = True
+    scale_text: bool = True
+    scale_bar: bool = False
+    vertex_labels: bool = True
+    azimuths: bool = True
+    distances: bool = True
+    confrontants: bool = True
+    coordinates: bool = True
+    situation: bool = True
+    technical_stamp: bool = True
+    magnetic_declination: bool = False
+
+
+def _document_professional(user: User, payload: "MemorialRequest") -> dict:
+    professional = {"full_name": user.full_name, **(user.professional_profile_json or {})}
+    if payload.professional_override is not None:
+        professional.update({
+            key: value.strip() if isinstance(value, str) else value
+            for key, value in payload.professional_override.model_dump(exclude_none=True).items()
+        })
+    return professional
+
+
 class MemorialRequest(BaseModel):
     geometry: dict[str, Any] | None = None
     parcels: list[MemorialParcel] | None = None
@@ -63,6 +102,11 @@ class MemorialRequest(BaseModel):
     owner_name: str | None = Field(default=None, max_length=255)
     responsible_name: str | None = Field(default=None, max_length=255)
     vertex_prefix: str = Field(default="V", min_length=1, max_length=8)
+    professional_override: ProfessionalDocumentOverride | None = None
+    edited_memorial: str | None = Field(default=None, max_length=100000)
+    plant_elements: PlantElements = Field(default_factory=PlantElements)
+    magnetic_declination_degrees: float | None = Field(default=None, ge=-30, le=30)
+    survey_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _format_dms(value: float, axis: str) -> str:
@@ -306,7 +350,7 @@ def memorial_draft(
                 prepared, title=payload.title, owner=payload.owner_name,
                 responsible=payload.responsible_name,
                 croqui=payload.include_croqui_warning,
-                professional={"full_name": user.full_name, **(user.professional_profile_json or {})},
+                professional=_document_professional(user, payload),
                 owner_rg=payload.owner_rg,
                 owner_cpf=payload.owner_cpf,
                 property_address=payload.property_address,
@@ -381,7 +425,7 @@ def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_use
         raise HTTPException(422, "Selecione pelo menos uma área para o memorial.")
     try:
         parcels = prepare_parcels(raw)
-        profile = {"full_name": user.full_name, **(user.professional_profile_json or {})}
+        profile = _document_professional(user, payload)
         contents = build_memorial_docx(
             parcels=parcels,
             title=payload.title,
@@ -392,6 +436,7 @@ def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_use
             property_address=payload.property_address,
             professional=profile,
             include_warning=payload.include_croqui_warning,
+            edited_memorial=payload.edited_memorial,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -455,7 +500,7 @@ def plant_memorial_pdf(
         document_id = uuid4()
         site = get_settings().public_base_url.rstrip("/")
         download_url = f"{site}/documentos/{document_id}"
-        professional = {"full_name": user.full_name, **(user.professional_profile_json or {})}
+        professional = _document_professional(user, payload)
         pdf, page_name, scale = make_joint_pdf(
             parcels=prepared,
             title=payload.title,
@@ -463,7 +508,7 @@ def plant_memorial_pdf(
             owner_rg=payload.owner_rg,
             owner_cpf=payload.owner_cpf,
             property_address=payload.property_address,
-            responsible_name=user.full_name,
+            responsible_name=professional.get("full_name") or user.full_name,
             professional=professional,
             croqui=payload.include_croqui_warning,
             raster_b64=payload.raster_b64,
@@ -474,6 +519,10 @@ def plant_memorial_pdf(
             paper_format=payload.paper_format,
             scale_denominator=payload.scale_denominator,
             orientation=payload.orientation,
+            edited_memorial=payload.edited_memorial,
+            plant_elements=payload.plant_elements.model_dump(),
+            magnetic_declination_degrees=payload.magnetic_declination_degrees,
+            survey_date=payload.survey_date,
         )
         folder = _generated_documents_dir()
         stem = document_id.hex

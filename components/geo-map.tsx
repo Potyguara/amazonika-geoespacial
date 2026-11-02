@@ -28,6 +28,9 @@ import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "o
 import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
+import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile } from "@/components/pecas-tecnicas-workspace";
+import type { SituationSnapshot } from "@/components/situation-map-preview";
+import type { TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
 import { parseManualCoordinates, type ManualCoordinateMode } from "@/lib/geospatial-tools";
 import {
   ArrowLeft,
@@ -56,6 +59,9 @@ interface GeoMapProps {
   focusRequest?: { sourceId: string; nonce: number } | null;
   incraUf: string;
   resetNonce?: number;
+  analysisId?: string | null;
+  restorePiece?: { id: string; snapshot: TechnicalPieceSnapshot; nonce: number } | null;
+  onPieceSaved?: () => void;
   layers: Array<{
     id?: string;
     slug?: string;
@@ -212,10 +218,13 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, restorePiece = null, onPieceSaved }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
+  const measureSourceRef = useRef(new VectorSource());
+  const [measureMode, setMeasureMode] = useState<"LineString" | "Polygon" | null>(null);
+  const [measureValue, setMeasureValue] = useState("");
   const officialSourceRef = useRef(new VectorSource());
   const snapLayerSourceRef = useRef(new VectorSource());
   const vertexLabelSourceRef = useRef(new VectorSource());
@@ -249,6 +258,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [drawKind, setDrawKind] = useState<DrawKind>(null);
   const [modifyActive, setModifyActive] = useState(false);
   const [identifyActive, setIdentifyActive] = useState(false);
+  const [featurePanelOffset, setFeaturePanelOffset] = useState({ x: 0, y: 0 });
+  const featureDragRef = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const [identifiedFeature, setIdentifiedFeature] =
     useState<IdentifiedFeature | null>(null);
   const [identifyLoading, setIdentifyLoading] = useState(false);
@@ -272,6 +283,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [manualText, setManualText] = useState("");
   const [manualError, setManualError] = useState<string | null>(null);
   const [basemap, setBasemap] = useState("osm");
+  const [googleTilesEnabled, setGoogleTilesEnabled] = useState(false);
+  const [mapboxTilesEnabled, setMapboxTilesEnabled] = useState(false);
+  const [googleCopyright, setGoogleCopyright] = useState("");
+  const [googleBasemapError, setGoogleBasemapError] = useState("");
   const [extentMessage, setExtentMessage] = useState<string | null>(null);
   const [importingVector, setImportingVector] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -280,8 +295,49 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     perimeterMeters: number | null;
     vertices: number;
   }>({ areaHectares: null, perimeterMeters: null, vertices: 0 });
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [documentProfessional, setDocumentProfessional] = useState<ProfessionalDocumentProfile | null>(null);
+  const [documentProfessionalLoading, setDocumentProfessionalLoading] = useState(false);
+  const [documentProfessionalError, setDocumentProfessionalError] = useState("");
+  const documentProfessionalEdited = useRef(false);
+  const [reloadProfessional, setReloadProfessional] = useState(0);
+  const [situationSnapshot, setSituationSnapshot] = useState<SituationSnapshot | null>(null);
+  const [plantElements, setPlantElements] = useState<PlantElementFlags>({ ...DEFAULT_PLANT_ELEMENTS });
+  const [magneticDeclination, setMagneticDeclination] = useState("");
+  const [currentPieceId, setCurrentPieceId] = useState<string | null>(null);
+  const [lastGeneratedPdfId, setLastGeneratedPdfId] = useState<string | null>(null);
+  const [loadedMemorialDraft, setLoadedMemorialDraft] = useState<string | null>(null);
+  const restoreNonceRef = useRef(0);
+  useEffect(() => {
+    if (!workspaceOpen) return;
+    let active = true;
+    setDocumentProfessionalLoading(true);
+    setDocumentProfessionalError("");
+    void fetch(`${getApiUrl()}/auth/me/professional-profile`, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Não foi possível consultar o cadastro do responsável técnico.");
+        return response.json();
+      })
+      .then((profile) => {
+        if (!active || documentProfessionalEdited.current) return;
+        const fields = ["full_name", "rg", "cpf", "profession", "specialization", "crea", "visto", "incra_code", "art"] as const;
+        const draft = {} as ProfessionalDocumentProfile;
+        for (const key of fields) draft[key] = String(profile[key] ?? "");
+        setDocumentProfessional(draft);
+      })
+      .catch((error) => { if (active) setDocumentProfessionalError(error instanceof Error ? error.message : "Erro ao consultar perfil técnico."); })
+      .finally(() => { if (active) setDocumentProfessionalLoading(false); });
+    return () => { active = false; };
+  }, [workspaceOpen, reloadProfessional]);
+
+  const refreshDocumentProfessional = () => {
+    documentProfessionalEdited.current = false;
+    setReloadProfessional((previous) => previous + 1);
+  };
+
   const [memorialLoading, setMemorialLoading] = useState(false);
   const [memorialText, setMemorialText] = useState("");
+  const [editedMemorial, setEditedMemorial] = useState<string | null>(null);
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
   const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
@@ -289,6 +345,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
   const [scaleChoice, setScaleChoice] = useState("auto");
   const [customScale, setCustomScale] = useState("1500");
+  const [surveyDate, setSurveyDate] = useState("");
   const [ownerRg, setOwnerRg] = useState("");
   const [ownerCpf, setOwnerCpf] = useState("");
   const [propertyAddress, setPropertyAddress] = useState("");
@@ -439,6 +496,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     polygonFeatures().filter((feature) =>
       selectedPolygonIds.includes(String(feature.get("workPolygonId"))),
     );
+  // Identidade geométrica: nomes/confrontantes não invalidam o recorte escolhido.
+  const situationGeoJson = () => new GeoJSON().writeFeaturesObject(
+    selectedFeatures().map((feature) => new Feature({
+      geometry: feature.getGeometry()!.clone(),
+    })),
+    { featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 8 },
+  );
 
   const setPolygonName = (id: string, name: string) => {
     const feature = polygonFeatures().find((item) => item.get("workPolygonId") === id);
@@ -598,6 +662,43 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       ),
     }));
     return parcels;
+  };
+
+  const saveCurrentPiece = async (editedMemorial: string) => {
+    const features = new GeoJSON().writeFeaturesObject(polygonFeatures(), {
+      featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
+    });
+    const snapshot = {
+      features,
+      selected_ids: selectedPolygonIds,
+      data: {
+        title: memorialTitle, plantHeading, memorialHeading,
+        owner: memorialOwner, rg: ownerRg, cpf: ownerCpf,
+        address: propertyAddress, croqui: croquiNote,
+        format: paperFormat, orientation: paperOrientation,
+        scale: scaleChoice, customScale,
+      },
+      professional: documentProfessional,
+      elements: plantElements,
+      magnetic_declination: magneticDeclination,
+      survey_date: surveyDate,
+      memorial_edited: editedMemorial.trim() ? editedMemorial : null,
+      generated_pdf_id: lastGeneratedPdfId,
+      situation: situationSnapshot,
+    };
+    const url = currentPieceId
+      ? `${getApiUrl()}/technical-pieces/${currentPieceId}`
+      : `${getApiUrl()}/technical-pieces`;
+    const response = await fetch(url, {
+      method: currentPieceId ? "PUT" : "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: memorialTitle || "Imóvel sem nome", snapshot }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.detail ?? "Não foi possível salvar a peça.");
+    setCurrentPieceId(result.id);
+    onPieceSaved?.();
   };
 
   const exportIndividualPolygon = async (id: string, format: "txt" | "kml" | "shp") => {
@@ -974,6 +1075,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           source: sourceRef.current,
           zIndex: 3,
           style: subjectStyle,
+        }),
+        new VectorLayer({
+          source: measureSourceRef.current, zIndex: 5,
+          style: new Style({
+            stroke: new Stroke({ color: "#eab308", width: 3, lineDash: [7, 5] }),
+            fill: new Fill({ color: "rgba(234,179,8,0.16)" }),
+            image: new CircleStyle({ radius: 5, fill: new Fill({ color: "#eab308" }),
+              stroke: new Stroke({ color: "#fff", width: 2 }) }),
+          }),
         }),
         new VectorLayer({
           source: vertexLabelSourceRef.current,
@@ -1470,10 +1580,30 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !measureMode) return;
+    const draw = new Draw({ source: measureSourceRef.current, type: measureMode });
+    draw.on("drawend", ({ feature }) => {
+      const geom = feature.getGeometry();
+      if (geom instanceof LineString) {
+        const meters = getLength(geom, { projection: map.getView().getProjection() });
+        setMeasureValue(meters >= 1000
+          ? `Distância: ${(meters / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} km`
+          : `Distância: ${meters.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m`);
+      } else if (geom instanceof Polygon) {
+        const m2 = getArea(geom, { projection: map.getView().getProjection() });
+        setMeasureValue(`Área: ${(m2 / 10000).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha | ${m2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²`);
+      }
+    });
+    map.addInteraction(draw);
+    return () => { map.removeInteraction(draw); };
+  }, [measureMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map) return;
     if (drawRef.current) map.removeInteraction(drawRef.current);
     drawRef.current = null;
-    if (!drawKind) return;
+    if (!drawKind || measureMode) return;
 
     const draw = new Draw({ source: sourceRef.current, type: drawKind });
     // Mantém os polígonos previamente desenhados, possibilitando loteamentos.
@@ -1765,29 +1895,120 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     }
   };
 
-  const changeBasemap = (value: string) => {
+  useEffect(() => {
+    let active = true;
+    void fetch(`${getApiUrl()}/google-tiles/status`, { credentials: "include" })
+      .then((response) => response.ok ? response.json() : { enabled: false })
+      .then((data) => { if (active) setGoogleTilesEnabled(Boolean(data.enabled)); })
+      .catch(() => { if (active) setGoogleTilesEnabled(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetch(`${getApiUrl()}/mapbox-satellite/status`, { credentials: "include" })
+      .then(response => response.ok ? response.json() : { enabled: false })
+      .then(data => { if (active) setMapboxTilesEnabled(Boolean(data.enabled)); })
+      .catch(() => { if (active) setMapboxTilesEnabled(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (basemap !== "google-satellite") {
+      setGoogleCopyright("");
+      return;
+    }
+    const map = mapRef.current;
+    if (!map) return;
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    const updateAttribution = () => {
+      const size = map.getSize();
+      if (!size) return;
+      const extent = map.getView().calculateExtent(size);
+      const sw = toLonLat([extent[0], extent[1]]);
+      const ne = toLonLat([extent[2], extent[3]]);
+      const south = Math.max(-89.999, Math.min(89.999, sw[1]));
+      const north = Math.max(-89.999, Math.min(89.999, ne[1]));
+      const west = Math.max(-179.999, Math.min(179.999, sw[0]));
+      const east = Math.max(-179.999, Math.min(179.999, ne[0]));
+      if (south >= north || west >= east) return;
+      controller?.abort();
+      controller = new AbortController();
+      const params = new URLSearchParams({
+        north: String(north), south: String(south),
+        east: String(east), west: String(west),
+        zoom: String(Math.max(0, Math.min(22, Math.round(map.getView().getZoom() ?? 0)))),
+      });
+      void fetch(`${getApiUrl()}/google-tiles/attribution?${params}`, {
+        credentials: "include", signal: controller.signal,
+      }).then(async (response) => {
+        if (!response.ok) throw new Error("Atribuição indisponível");
+        return response.json();
+      }).then((data) => {
+        if (!cancelled) setGoogleCopyright(String(data.copyright ?? ""));
+      }).catch((error) => {
+        if (!cancelled && error?.name !== "AbortError") setGoogleCopyright("Atribuição temporariamente indisponível");
+      });
+    };
+    map.on("moveend", updateAttribution);
+    updateAttribution();
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      map.un("moveend", updateAttribution);
+    };
+  }, [basemap]);
+
+  const changeBasemap = async (value: string) => {
     const layer = baseLayerRef.current;
     if (!layer) return;
+    setGoogleBasemapError("");
+    if (value === "mapbox-satellite") {
+      if (!mapboxTilesEnabled) {
+        setGoogleBasemapError("Mapbox indisponível ou bloqueada pelo limite mensal. Verifique Configurações → Controle de custos.");
+        return;
+      }
+      layer.setSource(new XYZ({
+        url: `${getApiUrl()}/mapbox-satellite/tiles/{z}/{x}/{y}`,
+        maxZoom: 20, crossOrigin: "use-credentials",
+        attributions: "© Mapbox",
+      }));
+      setBasemap(value);
+      return;
+    }
+    if (value === "google-satellite") {
+      if (!googleTilesEnabled) {
+        setGoogleBasemapError("Integração Google não habilitada na API deste ambiente.");
+        return;
+      }
+      try {
+        const response = await fetch(`${getApiUrl()}/google-tiles/session`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("Sessão Google Map Tiles indisponível. Confira a API e a chave no servidor.");
+        layer.setSource(new XYZ({
+          url: `${getApiUrl()}/google-tiles/tiles/{z}/{x}/{y}`,
+          maxZoom: 20,
+          crossOrigin: "use-credentials",
+          attributions: "Google Maps",
+        }));
+        setBasemap(value);
+      } catch (error) {
+        setGoogleBasemapError(error instanceof Error ? error.message : "Erro na conexão Google.");
+      }
+      return;
+    }
     if (value === "esri-imagery") {
-      layer.setSource(
-        new XYZ({
-          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          // Limita as consultas a um nível com cobertura mais ampla.
-          // O OpenLayers amplia o último tile quando o usuário aproxima mais.
-          maxZoom: 19,
-          crossOrigin: "anonymous",
-          attributions: "Tiles © Esri",
-        }),
-      );
+      layer.setSource(new XYZ({
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        maxZoom: 19, crossOrigin: "anonymous", attributions: "Tiles © Esri",
+      }));
     } else if (value === "esri-topo") {
-      layer.setSource(
-        new XYZ({
-          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
-          maxZoom: 19,
-          crossOrigin: "anonymous",
-          attributions: "Tiles © Esri",
-        }),
-      );
+      layer.setSource(new XYZ({
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+        maxZoom: 19, crossOrigin: "anonymous", attributions: "Tiles © Esri",
+      }));
     } else {
       layer.setSource(new OSM({ maxZoom: 19 }));
     }
@@ -1815,6 +2036,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           owner_cpf: ownerCpf || null,
           property_address: propertyAddress || null,
           include_croqui_warning: croquiNote,
+          professional_override: documentProfessional,
+          edited_memorial: editedMemorial,
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -1848,6 +2071,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           owner_cpf: ownerCpf || null,
           property_address: propertyAddress || null,
           include_croqui_warning: croquiNote,
+          professional_override: documentProfessional,
+          edited_memorial: editedMemorial,
         }),
       });
       if (!response.ok) {
@@ -1864,72 +2089,169 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       anchor.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (error) {
-      setMemorialText(`ERRO: ${error instanceof Error ? error.message : "Falha no Word."}`);
+      throw new Error(error instanceof Error ? error.message : "Falha no Word.");
     } finally {
       setMemorialLoading(false);
     }
   };
 
-  const downloadPlantMemorialPdf = async () => {
+  // Serviço PDF único para pré-visualização e download; o mapa continua montado.
+  const buildPlantMemorialPdfBlob = async (): Promise<Blob> => {
     const geometry = currentGeometryGeoJson();
-    if (!geometry) return;
-    setMemorialLoading(true);
+    if (!geometry) throw new Error("Selecione um polígono válido.");
+    const parcels = documentParcels();
+
+    const geometryKey = JSON.stringify(situationGeoJson());
+    if (situationSnapshot && situationSnapshot.geometry_key !== geometryKey) {
+      throw new Error("A geometria selecionada mudou. Volte à etapa Dados do imóvel e registre novamente o enquadramento da Planta de Situação.");
+    }
+    const capture = situationSnapshot ?? await captureMapSituation();
+    const { raster_b64, raster_source } = capture;
+    const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parcels,
+        title: memorialTitle,
+        plant_heading: plantHeading,
+        memorial_heading: memorialHeading,
+        owner_name: memorialOwner || null,
+        owner_rg: ownerRg || null,
+        owner_cpf: ownerCpf || null,
+        property_address: propertyAddress || null,
+        include_croqui_warning: croquiNote,
+        professional_override: documentProfessional,
+        edited_memorial: editedMemorial,
+        raster_b64,
+        raster_source,
+        paper_format: paperFormat,
+        orientation: paperOrientation,
+        plant_elements: plantElements,
+        magnetic_declination_degrees: plantElements.magnetic_declination && magneticDeclination.trim()
+          ? Number(magneticDeclination) : null,
+        survey_date: surveyDate || null,
+        scale_denominator: scaleChoice === "auto"
+          ? null : scaleChoice === "custom"
+            ? Number(customScale)
+            : Number(scaleChoice),
+      }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      const detail = payload?.detail;
+      const message = typeof detail === "string" ? detail
+        : Array.isArray(detail) ? detail.map((issue: { loc?: unknown[]; msg?: string }) =>
+            `${Array.isArray(issue.loc) ? issue.loc.join(".") + ": " : ""}${issue.msg ?? "Campo inválido"}`
+          ).join("; ")
+        : "Não foi possível gerar o PDF.";
+      throw new Error(message);
+    }
+    setLastGeneratedPdfId(response.headers.get("X-Document-Id"));
+    return response.blob();
+  };
+
+  const downloadSigefOds = async () => {
+    if (!analysisId) throw new Error("Conclua uma análise espacial antes de exportar o ODS SIGEF.");
+    const response = await fetch(`${getApiUrl()}/analyses/${analysisId}/sigef-ods`, {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.detail ?? "Não foi possível exportar o ODS SIGEF.");
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `SIMULACAO_SIGEF_${analysisId.slice(0, 8)}.ods`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+  };
+
+  useEffect(() => {
+    if (!restorePiece || restorePiece.nonce === restoreNonceRef.current) return;
+    const snapshot = restorePiece.snapshot;
+    const data = snapshot.data ?? {};
     try {
-      const parcels = documentParcels();
-      const { raster_b64, raster_source } = await captureMapSituation();
-      const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parcels,
-          title: memorialTitle,
-          plant_heading: plantHeading,
-          memorial_heading: memorialHeading,
-          owner_name: memorialOwner || null,
-          owner_rg: ownerRg || null,
-          owner_cpf: ownerCpf || null,
-          property_address: propertyAddress || null,
-          include_croqui_warning: croquiNote,
-          raster_b64,
-          raster_source,
-          paper_format: paperFormat,
-          orientation: paperOrientation,
-          scale_denominator: scaleChoice === "auto"
-            ? null : scaleChoice === "custom"
-              ? Number(customScale)
-              : Number(scaleChoice),
+      const features = new GeoJSON().readFeatures(snapshot.features ?? {
+        type: "FeatureCollection", features: [],
+      }, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
+      sourceRef.current.clear();
+      sourceRef.current.addFeatures(features as Feature[]);
+      polygonSequenceRef.current = Math.max(
+        polygonSequenceRef.current,
+        ...features.map((feature) => {
+          const id = String(feature.get("workPolygonId") ?? "");
+          return Number(id.match(/^POL-(\d+)$/)?.[1] ?? 0);
         }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail ?? "Não foi possível gerar o PDF.");
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${memorialTitle.trim().replace(/[^a-zA-Z0-9_-]+/g, "-") || "planta-memorial"}-planta-memorial.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setMemorialText(
-        `ERRO: ${error instanceof Error ? error.message : "Falha ao gerar PDF."}`,
       );
-    } finally {
-      setMemorialLoading(false);
+      setSelectedPolygonIds(Array.isArray(snapshot.selected_ids) ? snapshot.selected_ids : []);
+      setMemorialTitle(String(data.title ?? "Área analisada"));
+      setPlantHeading(String(data.plantHeading ?? "PLANTA GEORREFERENCIADA"));
+      setMemorialHeading(String(data.memorialHeading ?? "MEMORIAL DESCRITIVO"));
+      setMemorialOwner(String(data.owner ?? ""));
+      setOwnerRg(String(data.rg ?? ""));
+      setOwnerCpf(String(data.cpf ?? ""));
+      setPropertyAddress(String(data.address ?? ""));
+      setCroquiNote(Boolean(data.croqui));
+      setPaperFormat((data.format as typeof paperFormat) ?? "A4");
+      setPaperOrientation((data.orientation as typeof paperOrientation) ?? "paisagem");
+      setScaleChoice(String(data.scale ?? "auto"));
+      setCustomScale(String(data.customScale ?? "1500"));
+      if (snapshot.professional) {
+        setDocumentProfessional(snapshot.professional as ProfessionalDocumentProfile);
+        documentProfessionalEdited.current = true;
+      }
+      if (snapshot.elements) setPlantElements(snapshot.elements as PlantElementFlags);
+      setMagneticDeclination(String(snapshot.magnetic_declination ?? ""));
+      setSurveyDate(String(snapshot.survey_date ?? ""));
+      setSituationSnapshot((snapshot.situation ?? null) as SituationSnapshot | null);
+      setLoadedMemorialDraft(String(snapshot.memorial_edited ?? ""));
+      setEditedMemorial(snapshot.memorial_edited ? String(snapshot.memorial_edited) : null);
+      setCurrentPieceId(restorePiece.id);
+      setLastGeneratedPdfId(typeof snapshot.generated_pdf_id === "string" ? snapshot.generated_pdf_id : null);
+      setMemorialText("");
+      emitGeometry();
+      const extent = sourceRef.current.getExtent();
+      if (extent.every(Number.isFinite)) mapRef.current?.getView().fit(extent, {
+        padding: [75, 75, 75, 75], maxZoom: 16,
+      });
+      setWorkspaceOpen(true);
+      restoreNonceRef.current = restorePiece.nonce;
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : "Não foi possível restaurar a peça.");
+    }
+  }, [restorePiece?.nonce]);
+
+  const changePecasData = (key: keyof PecasData, value: string | boolean) => {
+    switch (key) {
+      case "title": setMemorialTitle(String(value)); break;
+      case "plantHeading": setPlantHeading(String(value)); break;
+      case "memorialHeading": setMemorialHeading(String(value)); break;
+      case "owner": setMemorialOwner(String(value)); break;
+      case "rg": setOwnerRg(String(value)); break;
+      case "cpf": setOwnerCpf(String(value)); break;
+      case "address": setPropertyAddress(String(value)); break;
+      case "croqui": setCroquiNote(Boolean(value)); break;
+      case "format": setPaperFormat(value as typeof paperFormat); break;
+      case "orientation": setPaperOrientation(value as typeof paperOrientation); break;
+      case "scale": setScaleChoice(String(value)); break;
+      case "customScale": setCustomScale(String(value)); break;
     }
   };
 
   const activateDraw = (kind: Exclude<DrawKind, null>) => {
+    setMeasureMode(null);
     setIdentifyActive(false);
     setModifyActive(false);
     setDrawKind((current) => (current === kind ? null : kind));
   };
 
   const toggleModify = () => {
+    setMeasureMode(null);
     if (sourceRef.current.getFeatures().length === 0) return;
 
     setDrawKind(null);
@@ -1937,7 +2259,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     setModifyActive((current) => !current);
   };
 
+  const toggleMeasure = (mode: "LineString" | "Polygon") => {
+    setIdentifyActive(false);
+    setDrawKind(null);
+    setModifyActive(false);
+    setMeasureValue("");
+    setMeasureMode(current => current === mode ? null : mode);
+  };
+
   const toggleIdentify = () => {
+    setMeasureMode(null);
     setDrawKind(null);
     setModifyActive(false);
     setIdentifyActive((current) => !current);
@@ -1996,6 +2327,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             }}
           />
         </label>
+        <button className={measureMode === "LineString" ? "active" : ""}
+          onClick={() => toggleMeasure("LineString")} title="Medir distâncias em metros ou quilômetros">
+          <Ruler size={16} /><span>Distância</span>
+        </button>
+        <button className={measureMode === "Polygon" ? "active" : ""}
+          onClick={() => toggleMeasure("Polygon")} title="Medir áreas em hectares e metros quadrados">
+          <Pentagon size={16} /><span>Área</span>
+        </button>
         <button onClick={locate} title="Minha localização">
           <Crosshair size={16} />
           <span>Localizar</span>
@@ -2005,6 +2344,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <span>Limpar</span>
         </button>
       </div>
+      {(measureMode || measureValue) && (
+        <div className="geo-measure-panel" role="status">
+          <strong>{measureValue || (measureMode === "LineString"
+            ? "Clique nos pontos e dê dois cliques para concluir a distância"
+            : "Clique nos vértices e dê dois cliques para concluir a área")}</strong>
+          <button type="button" onClick={() => { measureSourceRef.current.clear(); setMeasureValue(""); }}>Limpar medição</button>
+          <button type="button" onClick={() => setMeasureMode(null)}>Concluir</button>
+        </div>
+      )}
       {!hideAdvancedTools && <div className="geo-advanced-tools" aria-label="Ferramentas avançadas">
         <button className={advancedPanel === "coordinates" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "coordinates" ? null : "coordinates")} title="Inserir coordenadas manualmente"><MapPin size={18} /></button>
         <button className={snapSubjectEnabled || snapLayersEnabled ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "snap" ? null : "snap")} title="Configurar Snap"><Magnet size={18} /></button>
@@ -2043,10 +2391,25 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <button className={basemap === "osm" ? "active" : ""} onClick={() => changeBasemap("osm")}>OpenStreetMap</button>
           <button className={basemap === "esri-imagery" ? "active" : ""} onClick={() => changeBasemap("esri-imagery")}>Esri World Imagery</button>
           <button className={basemap === "esri-topo" ? "active" : ""} onClick={() => changeBasemap("esri-topo")}>Esri World Topographic</button>
-          <small>Google Map Tiles, Azure Maps e outros provedores serão habilitados somente por conexão oficial/configurada.</small>
+          <button disabled={!googleTilesEnabled} className={basemap === "google-satellite" ? "active" : ""}
+            onClick={() => void changeBasemap("google-satellite")}>
+            Google Satélite {googleTilesEnabled ? "(visualização)" : "(aguardando configuração)"}
+          </button>
+          <button disabled={!mapboxTilesEnabled} className={basemap === "mapbox-satellite" ? "active" : ""}
+            onClick={() => void changeBasemap("mapbox-satellite")}>
+            Mapbox Satellite {mapboxTilesEnabled ? "(visualização)" : "(indisponível ou limite atingido)"}
+          </button>
+          {googleBasemapError && <small role="alert">{googleBasemapError}</small>}
+          <small>Google e Mapbox são exibidos para visualização online, sem captura ou exportação PDF nesta integração.</small>
         </aside>
       )}
 
+      {basemap === "google-satellite" && (
+        <aside className="geo-google-attribution" aria-label="Créditos das imagens Google">
+          <strong aria-label="Google Maps">Google Maps</strong>
+          <span>{googleCopyright || "Google Maps — carregando créditos"}</span>
+        </aside>
+      )}
       {!hideAdvancedTools && advancedPanel === "polygons" && (
         <aside className="geo-advanced-panel polygons-panel">
           <header>
@@ -2146,68 +2509,70 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       {!hideAdvancedTools && advancedPanel === "memorial" && (
         <aside className="geo-advanced-panel memorial-panel">
           <header><strong>Planta e memorial</strong><button onClick={() => setAdvancedPanel(null)}><X size={17} /></button></header>
-          <label><span>Título da planta</span><input value={plantHeading} onChange={(event) => setPlantHeading(event.target.value)} /></label>
-          <label><span>Título do memorial</span><input value={memorialHeading} onChange={(event) => setMemorialHeading(event.target.value)} /></label>
-          <label><span>Denominação do imóvel/lote</span><input value={memorialTitle} onChange={(event) => setMemorialTitle(event.target.value)} /></label>
-          <label><span>Nome completo do detentor / posseiro</span><input value={memorialOwner} onChange={(event) => setMemorialOwner(event.target.value)} /></label>
-          <label><span>RG do detentor</span><input value={ownerRg} onChange={(event) => setOwnerRg(event.target.value)} /></label>
-          <label><span>CPF do detentor</span><input value={ownerCpf} onChange={(event) => setOwnerCpf(event.target.value)} /></label>
-          <label><span>Endereço/localização do imóvel/lote</span><input value={propertyAddress} onChange={(event) => setPropertyAddress(event.target.value)} /></label>
-          <small>Carimbo técnico: nome completo, RG/CPF, profissão, CREA, visto e ART são preenchidos a partir de Configurações → Meu perfil e carimbo profissional. A ART deve ser conferida em cada emissão.</small>
-          <small><strong>{selectedPolygonIds.length} polígono(s) selecionado(s)</strong>. Para escolher áreas e renomear vértices, abra a ferramenta “Polígonos” na paleta.</small>
-          <label className="work-croqui-toggle">
-            <input type="checkbox" checked={croquiNote} onChange={(event) => setCroquiNote(event.target.checked)} />
-            <span>Inserir ressalva opcional de croqui na planta e no memorial</span>
-          </label>
-          <small>Planta de situação: imagem raster capturada obrigatoriamente do mapa atual. Ajuste o enquadramento e escolha a base antes de gerar o PDF. Fontes e créditos serão registrados.</small>
-          <div className="plant-print-options">
-            <strong>Formato e escala para impressão</strong>
-            <small>Escolha como no SIGEF. A opção automática calcula a melhor escala para o papel selecionado, sem distorcer a geometria.</small>
-            <div className="plant-print-grid">
-              <label>
-                <span>Formato (série A)</span>
-                <select value={paperFormat} onChange={(event) => setPaperFormat(event.target.value as typeof paperFormat)}>
-                  {(["A4", "A3", "A2", "A1", "A0"] as const).map((format) =>
-                    <option key={format} value={format}>{format}</option>
-                  )}
-                </select>
-              </label>
-              <label>
-                <span>Escala nominal</span>
-                <select value={scaleChoice} onChange={(event) => setScaleChoice(event.target.value)}>
-                  <option value="auto">Automática para este formato</option>
-                  {["500", "1000", "1500", "2000", "2500", "5000", "10000", "25000", "50000"].map((scale) =>
-                    <option key={scale} value={scale}>1:{Number(scale).toLocaleString("pt-BR")}</option>
-                  )}
-                  <option value="custom">Outra escala...</option>
-                </select>
-              </label>
-            </div>
-            <label><span>Orientação da folha</span><select
-              value={paperOrientation}
-              onChange={(event) => setPaperOrientation(event.target.value as typeof paperOrientation)}
-            >
-              <option value="paisagem">Paisagem (deitada)</option>
-              <option value="retrato">Retrato (em pé)</option>
-            </select></label>
-            {scaleChoice === "custom" && (
-              <label>
-                <span>Denominador da escala (1:...)</span>
-                <input type="number" min="50" max="1000000" step="1"
-                  value={customScale} onChange={(event) => setCustomScale(event.target.value)} />
-              </label>
-            )}
-            <small>Se a escala não comportar a área no formato selecionado, a geração informará a escala mínima compatível. Imprima o PDF em tamanho real (100%), sem ajustar à página.</small>
-          </div>
+          <p>Elabore as peças técnicas em cinco etapas, com dados, vértices, memorial, conferência do PDF e exportações.</p>
+          <small><strong>{selectedPolygonIds.length} polígono(s) selecionado(s)</strong>. O mapa, as geometrias e os serviços atuais serão preservados.</small>
           <div className="memorial-actions">
-            <button className="geo-tool-primary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void generateMemorial()}>{memorialLoading ? "Gerando…" : "Gerar texto do memorial"}</button>
-            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadPlantMemorialPdf()}>Gerar Planta + Memorial PDF</button>
-            <button className="geo-tool-secondary" disabled={memorialLoading || !selectedPolygonIds.length} onClick={() => void downloadMemorialDocx()}>Baixar memorial em Word (.docx)</button>
+            <button type="button" className="geo-tool-primary" disabled={!selectedPolygonIds.length}
+              onClick={() => { setAdvancedPanel(null); setWorkspaceOpen(true); }}>
+              Avançar — elaborar peças técnicas
+            </button>
           </div>
-          {memorialText && <textarea className="memorial-output" readOnly value={memorialText} rows={12} />}
-          <small>O PDF usa o modelo institucional salvo em Configurações, com logomarca, responsável, vértices, escala, área e perímetro.</small>
         </aside>
       )}
+
+      <PecasTecnicasWorkspace
+        open={workspaceOpen}
+        onClose={() => setWorkspaceOpen(false)}
+        data={{
+          title: memorialTitle, plantHeading, memorialHeading, owner: memorialOwner,
+          rg: ownerRg, cpf: ownerCpf, address: propertyAddress, croqui: croquiNote,
+          format: paperFormat, orientation: paperOrientation,
+          scale: scaleChoice, customScale,
+        }}
+        onDataChange={changePecasData}
+        polygons={polygons}
+        selectedIds={selectedPolygonIds}
+        rtProfile={documentProfessional}
+        rtLoading={documentProfessionalLoading}
+        rtError={documentProfessionalError}
+        onRtChange={(key, value) => {
+          documentProfessionalEdited.current = true;
+          setDocumentProfessional((previous) => previous ? { ...previous, [key]: value } : previous);
+        }}
+        onRtReload={refreshDocumentProfessional}
+        situationGeometry={situationGeoJson() as unknown as Record<string, unknown>}
+        situationKey={JSON.stringify(situationGeoJson())}
+        situationSaved={situationSnapshot}
+        onSaveSituation={setSituationSnapshot}
+        elements={plantElements}
+        onToggleElement={(key: PlantElementKey, checked: boolean) =>
+          setPlantElements((previous) => ({ ...previous, [key]: checked }))
+        }
+        declination={magneticDeclination}
+        onDeclinationChange={setMagneticDeclination}
+        surveyDate={surveyDate}
+        onSurveyDateChange={setSurveyDate}
+        rasterKey={JSON.stringify([mapRef.current?.getView().getCenter(), mapRef.current?.getView().getZoom(), basemap, situationSnapshot?.token])}
+        onSelect={(id, checked) => setSelectedPolygonIds((current) =>
+          checked ? [...new Set([...current, id])] : current.filter((item) => item !== id)
+        )}
+        onRenamePolygon={setPolygonName}
+        onRenameVertex={renameVertex}
+        onConfrontant={(id, index, value) => updateParcelVertexData(id, index, "confrontants", value)}
+        memorialText={memorialText}
+        memorialLoading={memorialLoading}
+        externalError={documentError}
+        onGenerateMemorial={generateMemorial}
+        onBuildPdf={buildPlantMemorialPdfBlob}
+        onDownloadDocx={downloadMemorialDocx}
+        onExportPolygon={exportIndividualPolygon}
+        onDownloadSigef={downloadSigefOds}
+        onSavePiece={saveCurrentPiece}
+        onSaveMemorial={setEditedMemorial}
+        loadedPieceId={currentPieceId}
+        loadedMemorialDraft={loadedMemorialDraft}
+        sigefAvailable={Boolean(analysisId)}
+      />
 
       {sourceRef.current.getFeatures().length > 0 && (
         <div className="geometry-metrics-card">
@@ -2274,11 +2639,33 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       {identifiedFeature && (
         <aside
           className="feature-info-panel"
+          style={{ transform: `translate(${featurePanelOffset.x}px, ${featurePanelOffset.y}px)` }}
           aria-label="Informações da feição identificada"
         >
-          <header>
+          <header className="feature-info-drag-handle" title="Arraste para mover a janela"
+            onPointerDown={(event) => {
+              if ((event.target as HTMLElement).closest("button")) return;
+              featureDragRef.current = {
+                x: event.clientX, y: event.clientY,
+                originX: featurePanelOffset.x, originY: featurePanelOffset.y,
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              const drag = featureDragRef.current;
+              if (!drag) return;
+              setFeaturePanelOffset({
+                x: Math.max(-window.innerWidth + 360, Math.min(window.innerWidth - 380, drag.originX + event.clientX - drag.x)),
+                y: Math.max(-window.innerHeight + 240, Math.min(window.innerHeight - 200, drag.originY + event.clientY - drag.y)),
+              });
+            }}
+            onPointerUp={(event) => {
+              featureDragRef.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => { featureDragRef.current = null; }}>
             <div>
-              <small>FEIÇÃO IDENTIFICADA</small>
+              <small>FEIÇÃO IDENTIFICADA · ARRASTE PARA MOVER</small>
               <strong>{identifiedFeature.title}</strong>
               <span>{identifiedFeature.layer}</span>
             </div>
