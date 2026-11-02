@@ -18,7 +18,15 @@ payload={
  "style":{"grid":"border","context":"balanced"},
  "layers":[
    {"name":"Área de teste", "role":"property","color":"#d02020","geometry":property_polygon},
-   {"name":"Classe de exemplo","role":"theme","color":"#45956e","geometry":theme_polygon}
+   {"name":"Classes de uso do solo","role":"theme","color":"#45956e",
+    "class_field":"classe",
+    "classes":[{"value":"Floresta","label":"Floresta","color":"#238b45"},
+               {"value":"Pastagem","label":"Pastagem","color":"#edc36a"}],
+    "features":[
+      {"type":"Feature","properties":{"classe":"Floresta"},"geometry":theme_polygon},
+      {"type":"Feature","properties":{"classe":"Pastagem"},"geometry":{
+       "type":"Polygon","coordinates":[[[-51.139,-0.119],[-51.134,-0.119],[-51.134,-0.114],[-51.139,-0.114],[-51.139,-0.119]]]}}
+    ]}
  ]
 }
 request=urllib.request.Request("http://127.0.0.1:8090/render",
