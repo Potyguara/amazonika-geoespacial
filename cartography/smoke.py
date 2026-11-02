@@ -16,6 +16,7 @@ payload={
  "subtitle":"Teste automatizado do motor PyQGIS",
  "source":"Geometrias sintéticas de teste, não utilizar em peças oficiais",
  "style":{"grid":"border","context":"balanced"},
+ "metadata":{"property_name":"Área de homologação", "municipality":"Macapá", "state":"AP", "responsible":"Teste técnico (fictício)"},
  "layers":[
    {"name":"Área de teste", "role":"property","color":"#d02020","geometry":property_polygon},
    {"name":"Classes de uso do solo","role":"theme","color":"#45956e",
