@@ -50,3 +50,17 @@ from pathlib import Path
 output=Path("/tmp/amazonika-pyqgis-homologacao.pdf")
 output.write_bytes(result)
 print("PYQGIS_SMOKE_OK",len(result),"bytes",str(output))
+
+# Validate that oversized legends fail explicitly rather than overlap metadata.
+from urllib.error import HTTPError
+oversized=json.loads(json.dumps(payload))
+theme=oversized["layers"][1]
+theme["classes"]=[{"value":f"Classe {i}","label":f"Classe {i}","color":"#238b45"} for i in range(16)]
+bad=urllib.request.Request("http://127.0.0.1:8090/render",
+ data=json.dumps(oversized).encode(),headers={"Content-Type":"application/json"},method="POST")
+try:
+ urllib.request.urlopen(bad,timeout=90)
+ raise AssertionError("Legenda com 16 classes deveria ser rejeitada")
+except HTTPError as exc:
+ assert exc.code == 422, f"Erro inesperado: {exc.code}"
+print("PYQGIS_LEGEND_LIMIT_OK")
