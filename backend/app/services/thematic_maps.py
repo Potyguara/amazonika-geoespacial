@@ -57,12 +57,12 @@ def _projected(layers):
     return projected, epsg
 
 
-def _draw_geometry(pdf, geometry, xy, stroke, fill, property_outline=False):
+def _draw_geometry(pdf, geometry, xy, stroke, fill, property_outline=False, property_fill=False):
     if geometry.is_empty:
         return
     if isinstance(geometry, (MultiPolygon, MultiLineString, MultiPoint, GeometryCollection)):
         for g in geometry.geoms:
-            _draw_geometry(pdf, g, xy, stroke, fill, property_outline)
+            _draw_geometry(pdf, g, xy, stroke, fill, property_outline, property_fill)
     elif isinstance(geometry, Polygon):
         path = pdf.beginPath()
         for ring_index, ring in enumerate([geometry.exterior, *geometry.interiors]):
@@ -76,7 +76,8 @@ def _draw_geometry(pdf, geometry, xy, stroke, fill, property_outline=False):
         pdf.setStrokeColor(stroke)
         pdf.setLineWidth(2.6 if property_outline else 0.55)
         if property_outline:
-            pdf.drawPath(path, stroke=1, fill=0)
+            pdf.setFillColor(fill)
+            pdf.drawPath(path, stroke=1, fill=int(property_fill))
         else:
             pdf.setFillColor(fill)
             pdf.drawPath(path, stroke=1, fill=1, fillMode=0)
@@ -113,7 +114,25 @@ def category_shade(hex_color: str, index: int, count: int) -> str:
     return "#" + "".join(f"{round(v*255):02x}" for v in (rr, gg, bb))
 
 
-def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=False):
+def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=False, style=None):
+    style = style or {}
+    mode = style.get("mode", "minimalista")
+    grid_mode = style.get("grid", "border")
+    property_mode = style.get("property", "outline")
+    context = style.get("context", "balanced")
+    explicit_scale = style.get("scale")
+    buffer_m = style.get("buffer_m")
+    if mode not in ("minimalista", "tecnico", "analitico"):
+        raise ValueError("Perfil cartográfico inválido.")
+    if grid_mode not in ("off", "border", "subtle", "full"):
+        raise ValueError("Grade inválida.")
+    if property_mode not in ("outline", "fill", "transparent"):
+        raise ValueError("Estilo do imóvel inválido.")
+    if context not in ("close", "balanced", "regional"):
+        raise ValueError("Enquadramento inválido.")
+    if explicit_scale is not None and (not isinstance(explicit_scale, (float,int)) or not 1000 <= explicit_scale <= 5000000):
+        raise ValueError("Escala fora do intervalo permitido.")
+
     if not layers or len(layers) > 60:
         raise ValueError("Informe de 1 a 60 camadas.")
     projected, epsg = _projected(layers)
@@ -121,12 +140,20 @@ def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=F
     focus = props[0]
     minx, miny, maxx, maxy = focus.bounds
     span = max(maxx - minx, maxy - miny, 200)
-    margin = span * 0.38
+    margin = float(buffer_m) if buffer_m is not None else span * {"close":.12,"balanced":.26,"regional":.60}[context]
+    if not math.isfinite(margin) or margin < 0 or margin > 1000000:
+        raise ValueError("Margem inválida.")
     minx -= margin; maxx += margin; miny -= margin; maxy += margin
     width_m, height_m = maxx - minx, maxy - miny
     page_w, page_h = landscape(A3)
     map_left, map_bottom, map_w, map_h = 42, 82, page_w * .67 - 54, page_h - 138
-    scale_factor = min(map_w / width_m, map_h / height_m)
+    raw_factor = min(map_w / width_m, map_h / height_m)
+    raw_denominator = 72 / (raw_factor * .0254)
+    scales = [1000,2500,5000,10000,25000,50000,100000,250000,500000,1000000,2500000,5000000]
+    denominator = float(explicit_scale) if explicit_scale else next((v for v in scales if v >= raw_denominator), 5000000)
+    if denominator < raw_denominator:
+        raise ValueError("Escala manual não comporta a área no papel A3.")
+    scale_factor = 72 / (denominator * .0254)
     canvas_w, canvas_h = width_m * scale_factor, height_m * scale_factor
     left = map_left + (map_w - canvas_w) / 2
     bottom = map_bottom + (map_h - canvas_h) / 2
