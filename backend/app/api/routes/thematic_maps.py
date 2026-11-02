@@ -277,6 +277,16 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
     radius = max(bounds[2]-bounds[0], bounds[3]-bounds[1], .01)
     roi = box(bounds[0]-radius*.4,bounds[1]-radius*.4,
               bounds[2]+radius*.4,bounds[3]+radius*.4)
+    if os.environ.get("THEMATIC_RENDERER", "matplotlib") == "pyqgis":
+        from app.services.thematic_pyqgis_package import render_package_pyqgis
+        try:
+            result = render_package_pyqgis(path, payload, prop, roi)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)[:220]) from exc
+        except Exception as exc:
+            raise HTTPException(502, "Serviço PyQGIS indisponível ou falhou na renderização.") from exc
+        return Response(content=result, media_type="application/pdf",
+                        headers={"Content-Disposition": 'attachment; filename="mapa-tematico.pdf"'})
     layers = []
     available = set([row[0] for row in pyogrio.list_layers(str(path)) if row[1]])
     if any(name not in available for name in payload.selected_layers):
