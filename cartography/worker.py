@@ -4,7 +4,7 @@ import json
 import math
 import os
 import tempfile
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -41,6 +41,7 @@ def render(request):
             path = Path(tmp.name) / f"layer_{i}.geojson"
             path.write_text(json.dumps(feature), encoding="utf-8")
             layer = QgsVectorLayer(str(path), str(item.get("name", "Camada"))[:120], "ogr")
+            layer.setCrs(QgsCoordinateReferenceSystem('EPSG:4674'))
             if not layer.isValid():
                 raise ValueError("Geometria inválida na camada " + str(i))
             if layer.geometryType() == 2:
@@ -66,7 +67,7 @@ def render(request):
         lat = center.center().y()
         # SIRGAS UTM zone selected from property's geographic center.
         zone = max(1, min(60, int((lon + 180)//6)+1))
-        projected = QgsCoordinateReferenceSystem(f"EPSG:{31960+zone if lat<0 else 31900+zone}")
+        projected = QgsCoordinateReferenceSystem(f"EPSG:{31960+zone if lat<0 else 31954+zone}")
         project.setCrs(projected)
         transformed = QgsCoordinateTransform(src, projected, project)
         rect = transformed.transformBoundingBox(center)
@@ -199,4 +200,4 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(500,"Falha na renderização cartográfica")
 
 if __name__=="__main__":
-    ThreadingHTTPServer(("0.0.0.0",8090),Handler).serve_forever()
+    HTTPServer(("0.0.0.0",8090),Handler).serve_forever()
