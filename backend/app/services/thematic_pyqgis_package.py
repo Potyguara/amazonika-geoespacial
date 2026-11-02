@@ -85,7 +85,10 @@ def render_package_pyqgis(path, payload, prop, roi):
     request = {
         "title":payload.title, "subtitle":payload.subtitle,
         "source":payload.source_text, "branding":payload.include_branding,
-        "style":payload.style.model_dump(), "layers":output_layers
+        "style":payload.style.model_dump(), "layers":output_layers,
+        "metadata": {"property_name": payload.property_name,
+                     "municipality":payload.municipality, "state":payload.state,
+                     "responsible":payload.responsible}
     }
     data = json.dumps(request, ensure_ascii=False, allow_nan=False).encode("utf-8")
     if len(data) > MAX_REQUEST_BYTES:
