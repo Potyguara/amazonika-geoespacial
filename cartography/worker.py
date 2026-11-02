@@ -15,7 +15,7 @@ from qgis.core import (
     QgsLayoutPoint, QgsLayoutSize, QgsMapLayer, QgsPrintLayout,
     QgsLayoutExporter, QgsProject, QgsRectangle, QgsSingleSymbolRenderer,
     QgsVectorLayer, QgsSimpleMarkerSymbolLayer, QgsLineSymbol,
-    QgsMarkerSymbol,
+    QgsMarkerSymbol, QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsLegendStyle,
 )
 from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtCore import Qt
@@ -37,7 +37,12 @@ def render(request):
             color = item.get("color", "#73c6ad")
             if not isinstance(color, str) or len(color) != 7 or QColor(color).isValid() is False:
                 raise ValueError("Cor inválida")
-            feature = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{},"geometry":item["geometry"]}]}
+            features = item.get("features")
+            if features is None:
+                features = [{"type":"Feature","properties":{},"geometry":item["geometry"]}]
+            if not isinstance(features,list) or not features or len(features)>3000:
+                raise ValueError("Quantidade inválida de feições")
+            feature = {"type":"FeatureCollection","features":features}
             path = Path(tmp.name) / f"layer_{i}.geojson"
             path.write_text(json.dumps(feature), encoding="utf-8")
             layer = QgsVectorLayer(str(path), str(item.get("name", "Camada"))[:120], "ogr")
@@ -52,7 +57,22 @@ def render(request):
                 symbol = QgsLineSymbol.createSimple({"line_color":color,"line_width":"0.45"})
             else:
                 symbol = QgsMarkerSymbol.createSimple({"name":"circle","color":color,"size":"2"})
-            layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+            field = item.get("class_field")
+            classes = item.get("classes")
+            if field and classes and layer.fields().indexFromName(field) >= 0:
+                if not isinstance(classes,list) or len(classes)>40:
+                    raise ValueError("Quantidade de classes inválida (máximo 40)")
+                categories=[]
+                for klass in classes:
+                    class_color=klass.get("color",color)
+                    if not isinstance(class_color,str) or not QColor(class_color).isValid():
+                        raise ValueError("Cor de classe inválida")
+                    class_symbol=symbol.clone()
+                    class_symbol.setColor(QColor(class_color))
+                    categories.append(QgsRendererCategory(klass["value"],class_symbol,str(klass.get("label",klass["value"]))[:70]))
+                layer.setRenderer(QgsCategorizedSymbolRenderer(field,categories))
+            else:
+                layer.setRenderer(QgsSingleSymbolRenderer(symbol))
             project.addMapLayer(layer)
             layers.append(layer)
         property_layers = [l for l, item in zip(layers,layers_in) if item.get("role")=="property"]
@@ -139,6 +159,10 @@ def render(request):
         for layer in reversed(layers):
             root.addLayer(layer)
         legend.attemptMove(QgsLayoutPoint(319,49))
+        legend.setSymbolWidth(7)
+        legend.setSymbolHeight(4)
+        legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("DejaVu Sans",7))
+        legend.setMaximumSize(QgsLayoutSize(91,132))
         label("N ↑",321,188,15,True)
         label("REFERÊNCIA CARTOGRÁFICA",321,210,9,True)
         label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],321,220,7)
