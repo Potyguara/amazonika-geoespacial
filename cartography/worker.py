@@ -112,7 +112,7 @@ def render(request):
             obj.setFontColor(QColor("#173b32"))
             layout.addLayoutItem(obj)
             obj.attemptMove(QgsLayoutPoint(x,y))
-            obj.attemptResize(QgsLayoutSize(95 if x>=320 else 300,10))
+            obj.attemptResize(QgsLayoutSize(94 if x>=303 else (200 if x>=190 else 280),10))
             return obj
         metadata = request.get("metadata") or {}
         if not isinstance(metadata, dict):
@@ -168,6 +168,17 @@ def render(request):
                          QgsLayoutItemMapGrid.Top, QgsLayoutItemMapGrid.Bottom):
                 grid.setAnnotationPosition(QgsLayoutItemMapGrid.InsideMapFrame, side)
             grid.setAnnotationFrameDistance(1.5)
+        # Reserve the legend band (49–174 mm) and prevent silent clipping
+        # when source categories are too numerous for this A3 template.
+        legend_rows = sum(
+            len(item.get("classes") or []) if item.get("classes") else 1
+            for item in layers_in
+        )
+        if legend_rows > 15:
+            raise ValueError(
+                "A legenda excede a capacidade da prancha A3 (15 itens). "
+                "Reduza as classes/camadas ou utilize um layout com legenda complementar."
+            )
         label("LEGENDA",309,36,11,True)
         legend=QgsLayoutItemLegend(layout)
         layout.addLayoutItem(legend)
@@ -183,8 +194,9 @@ def render(request):
         legend.setSymbolHeight(4)
         legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("DejaVu Sans",7))
         # Dedicated orientation marker in the sidebar.
-        label("N",351,181,12,True)
-        label("↑",348,186,19,True)
+        label("ORIENTAÇÃO",309,178,9,True)
+        label("N",351,189,12,True)
+        label("↑",348,194,19,True)
         label("REFERÊNCIA CARTOGRÁFICA",309,210,9,True)
         label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],309,220,7)
         label("FONTES: "+str(request.get("source",""))[:85],309,238,7)
