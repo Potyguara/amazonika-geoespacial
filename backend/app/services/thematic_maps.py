@@ -174,31 +174,39 @@ def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=F
     clip_path=pdf.beginPath()
     clip_path.rect(map_left,map_bottom,map_w,map_h)
     pdf.clipPath(clip_path,stroke=0)
-    step = 10 ** math.floor(math.log10(max(width_m,height_m)/5))
-    step = max(10,step)
-    pdf.setLineWidth(.3)
-    pdf.setStrokeColor(colors.HexColor("#d6dfdb"))
-    for i in range(int(math.floor(minx/step)),int(math.ceil(maxx/step))+1):
-        x=i*step
-        pdf.line(xy(x,miny)[0],map_bottom,xy(x,miny)[0],map_bottom+map_h)
-    for i in range(int(math.floor(miny/step)),int(math.ceil(maxy/step))+1):
-        y=i*step
-        pdf.line(map_left,xy(minx,y)[1],map_left+map_w,xy(minx,y)[1])
+    step = max(10,10 ** math.floor(math.log10(max(width_m,height_m)/5)))
+    if grid_mode in ("subtle", "full"):
+        pdf.setLineWidth(.25 if grid_mode == "subtle" else .5)
+        pdf.setStrokeColor(colors.HexColor("#e6ece8" if grid_mode == "subtle" else "#b8c8be"))
+        for i in range(int(math.floor(minx/step)),int(math.ceil(maxx/step))+1):
+            px = xy(i*step,miny)[0]
+            pdf.line(px,map_bottom,px,map_bottom+map_h)
+        for i in range(int(math.floor(miny/step)),int(math.ceil(maxy/step))+1):
+            py = xy(minx,i*step)[1]
+            pdf.line(map_left,py,map_left+map_w,py)
     # Layers are thematic overlays; the property outline always appears on top.
     for role in ("theme", "property"):
         for layer, geom in zip(layers,projected):
             if layer.role != role:
                 continue
             c=_color(layer.color)
-            _draw_geometry(pdf,geom,xy,c,c,property_outline=role=="property")
+            if role == "property" and property_mode == "transparent":
+                pdf.saveState()
+                pdf.setFillAlpha(.15)
+                _draw_geometry(pdf,geom,xy,c,c,property_outline=True,property_fill=True)
+                pdf.restoreState()
+                _draw_geometry(pdf,geom,xy,c,c,property_outline=True)
+            else:
+                _draw_geometry(pdf,geom,xy,c,c,property_outline=role=="property",
+                               property_fill=role=="property" and property_mode=="fill")
     pdf.restoreState()
     pdf.setFont("Helvetica",7)
     pdf.setFillColor(colors.HexColor("#285c4a"))
-    for i in range(int(math.floor(minx/step)),int(math.ceil(maxx/step))+1):
+    for i in (range(int(math.floor(minx/step)),int(math.ceil(maxx/step))+1) if grid_mode != "off" else []):
         x=i*step; p=xy(x,miny)[0]
         if map_left+10 <= p <= map_left+map_w-10:
             pdf.drawCentredString(p,map_bottom-10,f"{x:,.0f}")
-    for i in range(int(math.floor(miny/step)),int(math.ceil(maxy/step))+1):
+    for i in (range(int(math.floor(miny/step)),int(math.ceil(maxy/step))+1) if grid_mode != "off" else []):
         y=i*step; p=xy(minx,y)[1]
         if map_bottom+10 <= p <= map_bottom+map_h-10:
             pdf.drawRightString(map_left-4,p,f"{y:,.0f}")
@@ -232,7 +240,7 @@ def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=F
     for i,line in enumerate(wrap(sources,53)[:4]):
         pdf.setFont("Helvetica",6.7);pdf.drawString(panel_x,85-i*10,line)
     # Scale and north are computed for the map's physical print dimensions.
-    scale=72/(scale_factor*.0254)
+    scale=denominator
     pdf.setFont("Helvetica-Bold",9)
     pdf.drawString(42,53,f"ESCALA 1:{scale:,.0f}".replace(",","." ))
     bar_length_m=max(10,round(85/scale_factor/10)*10)
