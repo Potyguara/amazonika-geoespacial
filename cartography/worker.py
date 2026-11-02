@@ -92,7 +92,7 @@ def render(request):
         transformed = QgsCoordinateTransform(src, projected, project)
         rect = transformed.transformBoundingBox(center)
         context = request.get("style",{}).get("context","balanced")
-        m = max(rect.width(),rect.height(),200)*{"close":.13,"balanced":.35,"regional":.65}.get(context,.35)
+        m = max(rect.width(),rect.height(),200)*{"close":.08,"balanced":.14,"regional":.35}.get(context,.14)
         buffer_m = request.get("style",{}).get("buffer_m")
         if buffer_m is not None:
             m=float(buffer_m)
@@ -129,8 +129,9 @@ def render(request):
         scale=request.get("style",{}).get("scale")
         raw=w/(296/1000)
         if scale is None:
-            standards=[1000,2500,5000,10000,25000,50000,100000,250000,500000,1000000,2500000,5000000,10000000,25000000]
-            scale=next((v for v in standards if v>=raw), math.ceil(raw/1000000)*1000000)
+            # Choose a rounded, close-fitting scale instead of jumping from 1:10k to 1:25k.
+            magnitude=10**math.floor(math.log10(max(raw,1)))
+            scale=math.ceil(raw/(magnitude/10))*(magnitude/10)
         else:
             scale=float(scale)
             if not math.isfinite(scale) or scale<raw:
