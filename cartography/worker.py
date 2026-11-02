@@ -114,6 +114,9 @@ def render(request):
             obj.attemptMove(QgsLayoutPoint(x,y))
             obj.attemptResize(QgsLayoutSize(95 if x>=320 else 300,10))
             return obj
+        metadata = request.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            raise ValueError("Metadados cartográficos inválidos")
         # A3 horizontal: fixed map, sidebar, and technical footer zones.
         panel = QgsLayoutItemShape(layout)
         panel.setShapeType(QgsLayoutItemShape.Rectangle)
@@ -125,6 +128,8 @@ def render(request):
         panel.attemptResize(QgsLayoutSize(104,232))
         label(str(request.get("title","MAPA TEMÁTICO"))[:105].upper(),14,7,16,True)
         label(str(request.get("subtitle",""))[:140],14,18,9)
+        if metadata.get("property_name"):
+            label("IMÓVEL: " + str(metadata["property_name"])[:100],14,24,7)
         map_item=QgsLayoutItemMap(layout)
         layout.addLayoutItem(map_item)
         map_item.attemptMove(QgsLayoutPoint(14,32))
@@ -184,7 +189,6 @@ def render(request):
         label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],309,220,7)
         label("FONTES: "+str(request.get("source",""))[:85],309,238,7)
         from datetime import datetime, timezone
-        metadata = request.get("metadata") or {}
         label("DATA: " + str(metadata.get("date") or datetime.now(timezone.utc).strftime("%d/%m/%Y"))[:25],
               309,249,7)
         bar=QgsLayoutItemScaleBar(layout)
@@ -198,6 +202,14 @@ def render(request):
         bar.attemptMove(QgsLayoutPoint(14,270))
         label("ESCALA 1:"+f"{scale:,.0f}".replace(",","."),90,268,9,True)
         label("SIRGAS 2000 · " + projected.authid(),14,281,7)
+        locality = " / ".join(filter(None, [
+            str(metadata.get("municipality") or "")[:55],
+            str(metadata.get("state") or "")[:2]
+        ]))
+        if locality:
+            label("LOCALIZAÇÃO: " + locality,190,268,7)
+        if metadata.get("responsible"):
+            label("RESPONSÁVEL: " + str(metadata["responsible"])[:75],190,280,7)
         if request.get("branding"):
             label("AMAZONIKA GEOESPACIAL",309,277,8,True)
         output=Path(tmp.name)/"result.pdf"
