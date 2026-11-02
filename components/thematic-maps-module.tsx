@@ -19,6 +19,11 @@ export function ThematicMapsModule() {
   const [packageLayers,setPackageLayers] = useState<string[]>([]);
   const [selectedPackageLayers,setSelectedPackageLayers] = useState<string[]>([]);
   const [includeBranding,setIncludeBranding] = useState(false);
+  const [styleMode,setStyleMode] = useState("minimalista");
+  const [gridMode,setGridMode] = useState("border");
+  const [propertyMode,setPropertyMode] = useState("outline");
+  const [contextMode,setContextMode] = useState("balanced");
+  const [mapScale,setMapScale] = useState("auto");
   const [design,setDesign] = useState<{layer:string;class_field:string|null;color:string;reason:string}[]>([]);
   const [availableFields,setAvailableFields] = useState<Record<string,string[]>>({});
   const [aiUsed,setAiUsed] = useState(false);
@@ -111,12 +116,14 @@ export function ThematicMapsModule() {
     try{
       const property=layers.find(l=>l.role==="property");
       const endpoint=packageId ? "package/pdf" : "pdf";
+      const style={mode:styleMode,grid:gridMode,property:propertyMode,context:contextMode,
+        scale:mapScale==="auto"?null:Number(mapScale)};
       const body=packageId ? {
-        package_id:packageId,property_geometry:property?.geometry,title,subtitle,
+        package_id:packageId,property_geometry:property?.geometry,title,subtitle,style,
         selected_layers:selectedPackageLayers,include_branding:includeBranding,source_text:sourceText,
         class_fields:Object.fromEntries(design.filter(d=>d.class_field).map(d=>[d.layer,d.class_field])),
         layer_colors:Object.fromEntries(design.map(d=>[d.layer,d.color]))
-      } : {title,subtitle,source_text:sourceText,include_branding:includeBranding,
+      } : {title,subtitle,style,source_text:sourceText,include_branding:includeBranding,
         layers:layers.map(({features,...layer})=>layer)};
       const r=await fetch(`${API}/thematic-maps/${endpoint}`,{method:"POST",credentials:"include",
         headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
@@ -197,7 +204,45 @@ export function ThematicMapsModule() {
           <small>{item.reason}</small>
         </div>)}
       </div>}
-      <h3>5. Composição cartográfica</h3>
+      <h3>5. Estilo e enquadramento do mapa</h3>
+      <div className="thematic-style-grid">
+        <label>Perfil visual
+          <select value={styleMode} onChange={e=>{setStyleMode(e.target.value);setGridMode(e.target.value==="minimalista"?"border":e.target.value==="tecnico"?"subtle":"full");}}>
+            <option value="minimalista">Minimalista</option>
+            <option value="tecnico">Técnico</option>
+            <option value="analitico">Analítico</option>
+          </select>
+        </label>
+        <label>Propriedade
+          <select value={propertyMode} onChange={e=>setPropertyMode(e.target.value)}>
+            <option value="outline">Vazada — somente contorno</option>
+            <option value="transparent">Translúcida</option>
+            <option value="fill">Preenchida</option>
+          </select>
+        </label>
+        <label>Grade georreferenciada
+          <select value={gridMode} onChange={e=>setGridMode(e.target.value)}>
+            <option value="border">Coordenadas apenas nas bordas</option>
+            <option value="subtle">Grade discreta</option>
+            <option value="full">Grade completa</option>
+            <option value="off">Ocultar grade e coordenadas</option>
+          </select>
+        </label>
+        <label>Enquadramento
+          <select value={contextMode} onChange={e=>setContextMode(e.target.value)}>
+            <option value="close">Foco na propriedade</option>
+            <option value="balanced">Equilibrado</option>
+            <option value="regional">Contexto regional</option>
+          </select>
+        </label>
+        <label>Escala para impressão A3
+          <select value={mapScale} onChange={e=>setMapScale(e.target.value)}>
+            <option value="auto">Automática — escala padronizada</option>
+            {[2500,5000,10000,25000,50000,100000,250000,500000,1000000].map(n=><option key={n} value={String(n)}>1:{n.toLocaleString("pt-BR")}</option>)}
+          </select>
+        </label>
+      </div>
+      <h3>6. Composição cartográfica</h3>
       <div className="thematic-fields">
         <label>Título<input value={title} onChange={e=>setTitle(e.target.value)}/></label>
         <label>Subtítulo<input value={subtitle} onChange={e=>setSubtitle(e.target.value)}/></label>
