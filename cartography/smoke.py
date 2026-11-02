@@ -1,6 +1,7 @@
 """Run inside cartography-worker: /usr/bin/python3 /srv/smoke.py"""
 import json
 import urllib.request
+import time
 
 property_polygon={
  "type":"Polygon",
@@ -22,6 +23,16 @@ payload={
 }
 request=urllib.request.Request("http://127.0.0.1:8090/render",
  data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"},method="POST")
+deadline=time.monotonic()+90
+while True:
+ try:
+  with urllib.request.urlopen("http://127.0.0.1:8090/health",timeout=3) as ready:
+   if ready.status==200:
+    break
+ except (OSError,TimeoutError):
+  if time.monotonic()>=deadline:
+   raise RuntimeError("PyQGIS não iniciou em 90 segundos; consulte docker logs")
+  time.sleep(1)
 with urllib.request.urlopen(request,timeout=90) as response:
  result=response.read()
 assert result.startswith(b"%PDF"), "Saída não é PDF"
