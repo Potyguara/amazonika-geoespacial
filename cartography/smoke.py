@@ -26,4 +26,7 @@ with urllib.request.urlopen(request,timeout=90) as response:
  result=response.read()
 assert result.startswith(b"%PDF"), "Saída não é PDF"
 assert len(result)>1000, "PDF inesperadamente pequeno"
-print("PYQGIS_SMOKE_OK",len(result),"bytes")
+from pathlib import Path
+output=Path("/tmp/amazonika-pyqgis-homologacao.pdf")
+output.write_bytes(result)
+print("PYQGIS_SMOKE_OK",len(result),"bytes",str(output))
