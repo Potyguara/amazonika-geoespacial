@@ -186,8 +186,10 @@ def package_fields(package_id: str, user: User = Depends(get_current_user)):
         if not geometry_type:
             continue
         info = pyogrio.read_info(str(path), layer=name)
-        field_names = list(info.get("fields") or [])
-        field_types = list(info.get("dtypes") or [])
+        raw_fields = info.get("fields")
+        raw_types = info.get("dtypes")
+        field_names = list(raw_fields) if raw_fields is not None else []
+        field_types = list(raw_types) if raw_types is not None else []
         fields = [
             {"name": str(field), "type": str(field_types[i]) if i < len(field_types) else ""}
             for i, field in enumerate(field_names)
