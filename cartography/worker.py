@@ -15,9 +15,10 @@ from qgis.core import (
     QgsLayoutPoint, QgsLayoutSize, QgsMapLayer, QgsPrintLayout,
     QgsLayoutExporter, QgsProject, QgsRectangle, QgsSingleSymbolRenderer,
     QgsVectorLayer, QgsSimpleMarkerSymbolLayer, QgsLineSymbol,
-    QgsMarkerSymbol, QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsLegendStyle,
+    QgsMarkerSymbol, QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsLegendStyle, QgsLayoutItemShape, QgsLayoutItemPolyline,
 )
-from qgis.PyQt.QtGui import QColor, QFont
+from qgis.PyQt.QtGui import QColor, QFont, QPolygonF
+from qgis.PyQt.QtCore import QPointF
 from qgis.PyQt.QtCore import Qt
 
 qgs = QgsApplication([], False)
@@ -114,6 +115,15 @@ def render(request):
             obj.attemptMove(QgsLayoutPoint(x,y))
             obj.attemptResize(QgsLayoutSize(95 if x>=320 else 300,10))
             return obj
+        # A3 horizontal: fixed map, sidebar, and technical footer zones.
+        panel = QgsLayoutItemShape(layout)
+        panel.setShapeType(QgsLayoutItemShape.Rectangle)
+        panel.setSymbol(QgsFillSymbol.createSimple({
+            "color":"#f6f8f5", "outline_color":"#c4d0c7", "outline_width":"0.24"
+        }))
+        layout.addLayoutItem(panel)
+        panel.attemptMove(QgsLayoutPoint(303,32))
+        panel.attemptResize(QgsLayoutSize(104,232))
         label(str(request.get("title","MAPA TEMÁTICO"))[:105].upper(),14,7,16,True)
         label(str(request.get("subtitle",""))[:140],14,18,9)
         map_item=QgsLayoutItemMap(layout)
@@ -137,7 +147,7 @@ def render(request):
             if not math.isfinite(scale) or scale<raw:
                 raise ValueError("Escala manual não comporta o mapa")
         map_item.zoomToExtent(QgsRectangle(rect.center().x()-scale*.280/2,rect.center().y()-scale*.228/2,
-                                           rect.center().x()+scale*.296/2,rect.center().y()+scale*.232/2))
+                                           rect.center().x()+scale*.280/2,rect.center().y()+scale*.228/2))
         map_item.setFrameEnabled(True)
         grid_mode=request.get("style",{}).get("grid","border")
         if grid_mode in ("border","subtle","full"):
@@ -168,10 +178,23 @@ def render(request):
         legend.setSymbolWidth(7)
         legend.setSymbolHeight(4)
         legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("DejaVu Sans",7))
-        label("N ↑",309,188,15,True)
+        # Dedicated orientation marker in the sidebar.
+        label("N",351,181,12,True)
+        arrow = QgsLayoutItemPolyline(
+            QPolygonF([QPointF(357,207), QPointF(357,190)]), layout
+        )
+        layout.addLayoutItem(arrow)
+        arrow.setSymbol(QgsLineSymbol.createSimple({
+            "line_color":"#173b32", "line_width":"0.7"
+        }))
+        label("↑",348,186,19,True)
         label("REFERÊNCIA CARTOGRÁFICA",309,210,9,True)
         label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],309,220,7)
-        label("FONTES: "+str(request.get("source",""))[:85],309,236,7)
+        label("FONTES: "+str(request.get("source",""))[:85],309,238,7)
+        from datetime import datetime, timezone
+        metadata = request.get("metadata") or {}
+        label("DATA: " + str(metadata.get("date") or datetime.now(timezone.utc).strftime("%d/%m/%Y"))[:25],
+              309,249,7)
         bar=QgsLayoutItemScaleBar(layout)
         bar.setStyle("Single Box")
         bar.setLinkedMap(map_item)
@@ -182,6 +205,7 @@ def render(request):
         layout.addLayoutItem(bar)
         bar.attemptMove(QgsLayoutPoint(14,270))
         label("ESCALA 1:"+f"{scale:,.0f}".replace(",","."),90,268,9,True)
+        label("SIRGAS 2000 · " + projected.authid(),14,281,7)
         if request.get("branding"):
             label("AMAZONIKA GEOESPACIAL",309,277,8,True)
         output=Path(tmp.name)/"result.pdf"
