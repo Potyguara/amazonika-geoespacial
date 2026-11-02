@@ -18,6 +18,7 @@ from shapely.geometry import mapping, shape, Polygon, MultiPolygon, GeometryColl
 from app.services.auth import require_permission, get_current_user
 from app.models.auth import User
 from app.services.thematic_maps import Layer, TEMPLATES, PALETTE, render_thematic_pdf
+from app.services.thematic_matplotlib import render_matplotlib
 
 router = APIRouter(prefix="/thematic-maps", tags=["Mapas temáticos"],
                    dependencies=[Depends(require_permission("analysis.execute"))])
@@ -112,7 +113,7 @@ def generate_pdf(payload: MapRequest):
             if geom.is_empty or not geom.is_valid:
                 raise ValueError(f"Geometria inválida: {layer.name}.")
             layers.append(Layer(layer.name, layer.source, geom, layer.color, layer.role))
-        pdf = render_thematic_pdf(payload.title, payload.subtitle, layers, payload.source_text, include_branding=payload.include_branding, style=payload.style.model_dump())
+        pdf = render_matplotlib(payload.title, payload.subtitle, layers, payload.source_text, branding=payload.include_branding, style=payload.style.model_dump())
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": 'attachment; filename="mapa-tematico.pdf"'})
     except ValueError as exc:
@@ -315,8 +316,9 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
         raise HTTPException(422, "Nenhuma camada temática intersecta o entorno da propriedade.")
     layers.append(Layer("Propriedade", "Geometria fornecida pelo usuário",
                         prop, "#d02020", "property"))
-    result = render_thematic_pdf(payload.title,payload.subtitle,layers,
-                                 payload.source_text, include_branding=payload.include_branding, style=payload.style.model_dump())
+    result = render_matplotlib(payload.title,payload.subtitle,layers,
+                                payload.source_text, branding=payload.include_branding,
+                                style=payload.style.model_dump())
     return Response(content=result,media_type="application/pdf",
                     headers={"Content-Disposition": 'attachment; filename="mapa-tematico.pdf"'})
 
