@@ -1,0 +1,3 @@
+FROM amazonika-api-homologacao:latest
+RUN pip install --no-cache-dir "pytest>=8,<9"
+ENTRYPOINT ["python","-m","pytest"]

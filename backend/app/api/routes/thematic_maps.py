@@ -175,6 +175,63 @@ def list_packages(user: User = Depends(get_current_user)):
     return _catalog(user)
 
 
+@router.get("/package/{package_id}/fields")
+def package_fields(package_id: str, user: User = Depends(get_current_user)):
+    """Inspect classifiable fields from an owned GeoPackage, without exposing rows."""
+    path = _user_package(user, package_id)
+    if not path.is_file():
+        raise HTTPException(404, "GeoPackage não localizado.")
+    result = []
+    for name, geometry_type in pyogrio.list_layers(str(path)):
+        if not geometry_type:
+            continue
+        info = pyogrio.read_info(str(path), layer=name)
+        raw_fields = info.get("fields")
+        raw_types = info.get("dtypes")
+        field_names = list(raw_fields) if raw_fields is not None else []
+        field_types = list(raw_types) if raw_types is not None else []
+        fields = [
+            {"name": str(field), "type": str(field_types[i]) if i < len(field_types) else ""}
+            for i, field in enumerate(field_names)
+        ]
+        result.append({
+            "name": name, "features": info.get("features"),
+            "geometry_type": str(info.get("geometry_type") or geometry_type),
+            "fields": fields
+        })
+    return {"package_id": package_id, "layers": result}
+
+
+@router.get("/package/{package_id}/classes")
+def package_classes(package_id: str, layer: str, field: str,
+                    user: User = Depends(get_current_user)):
+    """Return bounded class values for a field in an owned GeoPackage."""
+    path = _user_package(user, package_id)
+    if not path.is_file():
+        raise HTTPException(404, "GeoPackage não localizado.")
+    available = {row[0] for row in pyogrio.list_layers(str(path)) if row[1]}
+    if layer not in available:
+        raise HTTPException(422, "Camada não existe no pacote.")
+    info = pyogrio.read_info(str(path), layer=layer)
+    raw_fields = info.get("fields")
+    fields = list(raw_fields) if raw_fields is not None else []
+    if field not in fields:
+        raise HTTPException(422, "Campo não existe na camada.")
+    frame = gpd.read_file(path, layer=layer, columns=[field])
+    if len(frame) > 100_000:
+        raise HTTPException(422, "Camada possui mais de 100.000 feições para pré-visualização.")
+    values = frame[field].fillna("Não classificado").astype(str).str.slice(0, 200)
+    counts = values.value_counts(dropna=False)
+    if len(counts) > 40:
+        raise HTTPException(422, "Campo possui mais de 40 categorias; selecione outro atributo.")
+    return {
+        "package_id": package_id, "layer": layer, "field": field,
+        "classes": [{"value": str(value), "count": int(count)}
+                    for value, count in sorted(counts.items(), key=lambda x: x[0])],
+        "total_features": len(frame),
+    }
+
+
 @router.post("/package")
 async def upload_package(file: UploadFile = File(...), user: User = Depends(get_current_user)):
     if Path(file.filename or "").suffix.lower() != ".gpkg":
@@ -230,6 +287,10 @@ class PackageMapRequest(BaseModel):
     layer_colors: dict[str, str] = Field(default_factory=dict)
     include_branding: bool = False
     source_text: str = Field(default="", max_length=600)
+    property_name: str = Field(default="", max_length=120)
+    municipality: str = Field(default="", max_length=80)
+    state: str = Field(default="", max_length=2)
+    responsible: str = Field(default="", max_length=120)
 
 
 def normalize_property_polygon(value: dict):
@@ -277,6 +338,16 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
     radius = max(bounds[2]-bounds[0], bounds[3]-bounds[1], .01)
     roi = box(bounds[0]-radius*.4,bounds[1]-radius*.4,
               bounds[2]+radius*.4,bounds[3]+radius*.4)
+    if os.environ.get("THEMATIC_RENDERER", "matplotlib") == "pyqgis":
+        from app.services.thematic_pyqgis_package import render_package_pyqgis
+        try:
+            result = render_package_pyqgis(path, payload, prop, roi)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)[:220]) from exc
+        except Exception as exc:
+            raise HTTPException(502, "Serviço PyQGIS indisponível ou falhou na renderização.") from exc
+        return Response(content=result, media_type="application/pdf",
+                        headers={"Content-Disposition": 'attachment; filename="mapa-tematico.pdf"'})
     layers = []
     available = set([row[0] for row in pyogrio.list_layers(str(path)) if row[1]])
     if any(name not in available for name in payload.selected_layers):

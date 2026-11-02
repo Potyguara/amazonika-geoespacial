@@ -47,6 +47,29 @@ def _plot(ax, geom, color, outline=False, opacity=1):
 
 def render_matplotlib(title, subtitle, layers, source, style=None, branding=False, fmt="pdf"):
     style=style or {}
+    if __import__("os").environ.get("THEMATIC_RENDERER", "matplotlib") == "pyqgis":
+        import json
+        import urllib.request
+        from shapely.geometry import mapping
+        body = json.dumps({
+            "title": title, "subtitle": subtitle, "source": source,
+            "branding": branding, "style": style,
+            "layers": [{
+                "name": item.name, "color": item.color,
+                "role": item.role, "geometry": mapping(item.geometry)
+            } for item in layers],
+        }).encode("utf-8")
+        endpoint = __import__("os").environ.get("CARTOGRAPHY_URL", "http://cartography-worker:8090").rstrip("/")
+        try:
+            req = urllib.request.Request(endpoint + "/render", data=body,
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=90) as response:
+                result = response.read(30_000_001)
+            if len(result)>30_000_000 or not result.startswith(b"%PDF"):
+                raise ValueError("O renderizador PyQGIS retornou um PDF inválido.")
+            return result
+        except Exception as exc:
+            raise ValueError("Não foi possível gerar o mapa com PyQGIS: " + str(exc)[:180]) from exc
     projected,epsg=_projected(layers)
     property_parts=[g for l,g in zip(layers,projected) if l.role=="property"]
     if not property_parts: raise ValueError("Propriedade obrigatória.")
