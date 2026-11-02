@@ -15,10 +15,9 @@ from qgis.core import (
     QgsLayoutPoint, QgsLayoutSize, QgsMapLayer, QgsPrintLayout,
     QgsLayoutExporter, QgsProject, QgsRectangle, QgsSingleSymbolRenderer,
     QgsVectorLayer, QgsSimpleMarkerSymbolLayer, QgsLineSymbol,
-    QgsMarkerSymbol, QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsLegendStyle, QgsLayoutItemShape, QgsLayoutItemPolyline,
+    QgsMarkerSymbol, QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsLegendStyle, QgsLayoutItemShape,
 )
-from qgis.PyQt.QtGui import QColor, QFont, QPolygonF
-from qgis.PyQt.QtCore import QPointF
+from qgis.PyQt.QtGui import QColor, QFont
 from qgis.PyQt.QtCore import Qt
 
 qgs = QgsApplication([], False)
@@ -180,13 +179,6 @@ def render(request):
         legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("DejaVu Sans",7))
         # Dedicated orientation marker in the sidebar.
         label("N",351,181,12,True)
-        arrow = QgsLayoutItemPolyline(
-            QPolygonF([QPointF(357,207), QPointF(357,190)]), layout
-        )
-        layout.addLayoutItem(arrow)
-        arrow.setSymbol(QgsLineSymbol.createSimple({
-            "line_color":"#173b32", "line_width":"0.7"
-        }))
         label("↑",348,186,19,True)
         label("REFERÊNCIA CARTOGRÁFICA",309,210,9,True)
         label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],309,220,7)
