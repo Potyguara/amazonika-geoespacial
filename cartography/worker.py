@@ -162,7 +162,6 @@ def render(request):
         legend.setSymbolWidth(7)
         legend.setSymbolHeight(4)
         legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("DejaVu Sans",7))
-        legend.setMaximumSize(QgsLayoutSize(91,132))
         label("N ↑",321,188,15,True)
         label("REFERÊNCIA CARTOGRÁFICA",321,210,9,True)
         label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],321,220,7)
