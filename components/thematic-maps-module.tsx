@@ -26,6 +26,9 @@ export function ThematicMapsModule() {
   const [mapScale,setMapScale] = useState("auto");
   const [design,setDesign] = useState<{layer:string;class_field:string|null;color:string;reason:string}[]>([]);
   const [availableFields,setAvailableFields] = useState<Record<string,string[]>>({});
+  const [classFields,setClassFields] = useState<Record<string,string>>({});
+  const [classPreviews,setClassPreviews] = useState<Record<string,{value:string;count:number}[]>>({});
+  const [classColors,setClassColors] = useState<Record<string,string>>({});
   const [aiUsed,setAiUsed] = useState(false);
   const [aiTokens,setAiTokens] = useState<number|null>(null);
   const [previewUrl,setPreviewUrl] = useState<string|null>(null);
@@ -42,9 +45,33 @@ export function ThematicMapsModule() {
     }catch { /* biblioteca offline */ }
   };
   useEffect(()=>{void loadPackages();},[]);
+  const loadFields=async(id:string)=>{
+    const response=await fetch(API+"/thematic-maps/package/"+encodeURIComponent(id)+"/fields",{credentials:"include"});
+    const body=await response.json();
+    if(!response.ok)throw new Error(body.detail||"Falha ao consultar atributos.");
+    setAvailableFields(Object.fromEntries((body.layers as {name:string;fields:{name:string}[]}[])
+      .map(layer=>[layer.name,layer.fields.map(field=>field.name)])));
+  };
+  const loadClasses=async(id:string,layer:string,field:string)=>{
+    if(!field){setClassPreviews(prev=>({...prev,[layer]:[]}));return;}
+    try{
+      const query=new URLSearchParams({layer,field});
+      const response=await fetch(API+"/thematic-maps/package/"+encodeURIComponent(id)+"/classes?"+query,{credentials:"include"});
+      const body=await response.json();
+      if(!response.ok)throw new Error(body.detail||"Falha ao consultar classes.");
+      setClassPreviews(prev=>({...prev,[layer]:body.classes}));
+    }catch(err){setMessage(err instanceof Error?err.message:"Erro nas classes.");}
+  };
+  const selectClassField=(layer:string,field:string)=>{
+    setClassFields(old=>({...old,[layer]:field}));
+    setClassPreviews(old=>({...old,[layer]:[]}));
+    if(packageId)void loadClasses(packageId,layer,field);
+  };
   const usePackage=(item:{package_id:string;layers:{name:string}[]})=>{
     const names=item.layers.map(layer=>layer.name);
     setPackageId(item.package_id);setPackageLayers(names);setSelectedPackageLayers(names);setDesign([]);
+    setClassFields({});setClassPreviews({});setClassColors({});setAvailableFields({});
+    void loadFields(item.package_id).catch(err=>setMessage(err instanceof Error?err.message:"Falha nos atributos."));
     setMessage("Base carregada da biblioteca. Selecione as camadas e gere seu mapa.");
   };
   const importPackage=async(file:File)=>{
@@ -55,6 +82,8 @@ export function ThematicMapsModule() {
       const payload=await r.json();
       if(!r.ok)throw new Error(payload.detail||"Falha no pacote GeoPackage.");
       setPackageId(payload.package_id);setDesign([]);
+      setClassFields({});setClassPreviews({});setClassColors({});setAvailableFields({});
+      await loadFields(payload.package_id);
       setPackageLayers(payload.layers.map((layer:{name:string})=>layer.name));
       setSelectedPackageLayers(payload.layers.map((layer:{name:string})=>layer.name));
       setMessage(`Pacote gravado na biblioteca: ${payload.layers.length} camadas.`);
@@ -89,6 +118,11 @@ export function ThematicMapsModule() {
       const result=await r.json();
       if(!r.ok)throw new Error(result.detail||"Erro na proposta cartográfica.");
       setDesign(result.design);
+      setClassFields(Object.fromEntries((result.design as {layer:string;class_field:string|null}[])
+        .filter(item=>item.class_field).map(item=>[item.layer,item.class_field as string])));
+      for(const item of result.design as {layer:string;class_field:string|null}[]){
+        if(item.class_field)void loadClasses(packageId,item.layer,item.class_field);
+      }
       setAvailableFields(Object.fromEntries((result.metadata as {name:string;fields:{field:string}[]}[])
         .map(layer=>[layer.name,layer.fields.map(f=>f.field)])));
       setAiUsed(Boolean(result.ai_used));
@@ -121,7 +155,8 @@ export function ThematicMapsModule() {
       const body=packageId ? {
         package_id:packageId,property_geometry:property?.geometry,title,subtitle,style,
         selected_layers:selectedPackageLayers,include_branding:includeBranding,source_text:sourceText,
-        class_fields:Object.fromEntries(design.filter(d=>d.class_field).map(d=>[d.layer,d.class_field])),
+        class_fields:Object.fromEntries(Object.entries(classFields).filter(([,field])=>Boolean(field))),
+        class_colors:classColors,
         layer_colors:Object.fromEntries(design.map(d=>[d.layer,d.color]))
       } : {title,subtitle,style,source_text:sourceText,include_branding:includeBranding,
         layers:layers.map(({features,...layer})=>layer)};
@@ -188,6 +223,28 @@ export function ThematicMapsModule() {
           {name}
         </label>)}
       </div>}
+      {packageId&&selectedPackageLayers.length>0&&<div className="thematic-design-review">
+        <h3>Classificação por atributos do GeoPackage</h3>
+        <p>Selecione um campo para consultar as categorias. As quantidades são de feições, não hectares.</p>
+        {selectedPackageLayers.map(layer=><div key={layer}>
+          <strong>{layer}</strong>
+          <label>Campo de classificação
+            <select value={classFields[layer]||""} onChange={e=>selectClassField(layer,e.target.value)}>
+              <option value="">Classificação automática</option>
+              {(availableFields[layer]||[]).map(field=><option value={field} key={field}>{field}</option>)}
+            </select>
+          </label>
+          {(classPreviews[layer]||[]).map((item,index)=>{
+            const key=layer+": "+item.value;
+            return <div key={key} className="thematic-layer-row">
+              <input type="color" aria-label={"Cor da classe "+item.value}
+                value={classColors[key]||COLORS[index%COLORS.length]}
+                onChange={e=>setClassColors(old=>({...old,[key]:e.target.value}))}/>
+              <span>{item.value}</span><small>{item.count} feições</small>
+            </div>;
+          })}
+        </div>)}
+      </div>}
       <h3>4. Assistente cartográfico de IA</h3>
       <p>A IA analisa nomes, amostras de atributos e tipos geométricos, sem enviar coordenadas. A aplicação das sugestões depende da sua revisão.</p>
       <button type="button" className="thematic-ai-button" disabled={busy||!packageId||selectedPackageLayers.length===0}
@@ -197,7 +254,7 @@ export function ThematicMapsModule() {
         {design.map(item=><div className="thematic-layer-row" key={item.layer}>
           <strong>{item.layer}</strong>
           <label>Cor <input type="color" value={item.color} onChange={e=>setDesign(old=>old.map(x=>x.layer===item.layer?{...x,color:e.target.value}:x))}/></label>
-          <label>Classificação <select value={item.class_field||""} onChange={e=>setDesign(old=>old.map(x=>x.layer===item.layer?{...x,class_field:e.target.value||null}:x))}>
+          <label>Classificação <select value={item.class_field||""} onChange={e=>{selectClassField(item.layer,e.target.value);setDesign(old=>old.map(x=>x.layer===item.layer?{...x,class_field:e.target.value||null}:x));}}>
             <option value="">Automática</option>
             {(availableFields[item.layer]||[]).map(field=><option key={field} value={field}>{field}</option>)}
           </select></label>
