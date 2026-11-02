@@ -6498,3 +6498,5 @@ input {
 .thematic-pdf-preview button {border:1px solid #d0ded6;border-radius:6px;padding:5px 10px;background:white;}
 .thematic-pdf-preview iframe {width:100%;height:min(75vh,750px);border:1px solid #d7e1da;}
 .thematic-design-review select {max-width:220px;padding:6px;border:1px solid #d0ded6;border-radius:6px;background:white;}
+
+.thematic-style-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:14px 0}.thematic-style-grid label{display:flex;flex-direction:column;gap:6px;color:#17503a;font-size:13px}.thematic-style-grid select{width:100%;padding:11px;border:1px solid #c6d9cf;border-radius:7px;background:#fff;color:#153e2e}
