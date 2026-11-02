@@ -175,6 +175,31 @@ def list_packages(user: User = Depends(get_current_user)):
     return _catalog(user)
 
 
+@router.get("/package/{package_id}/fields")
+def package_fields(package_id: str, user: User = Depends(get_current_user)):
+    """Inspect classifiable fields from an owned GeoPackage, without exposing rows."""
+    path = _user_package(user, package_id)
+    if not path.is_file():
+        raise HTTPException(404, "GeoPackage não localizado.")
+    result = []
+    for name, geometry_type in pyogrio.list_layers(str(path)):
+        if not geometry_type:
+            continue
+        info = pyogrio.read_info(str(path), layer=name)
+        field_names = list(info.get("fields") or [])
+        field_types = list(info.get("dtypes") or [])
+        fields = [
+            {"name": str(field), "type": str(field_types[i]) if i < len(field_types) else ""}
+            for i, field in enumerate(field_names)
+        ]
+        result.append({
+            "name": name, "features": info.get("features"),
+            "geometry_type": str(info.get("geometry_type") or geometry_type),
+            "fields": fields
+        })
+    return {"package_id": package_id, "layers": result}
+
+
 @router.post("/package")
 async def upload_package(file: UploadFile = File(...), user: User = Depends(get_current_user)):
     if Path(file.filename or "").suffix.lower() != ".gpkg":
