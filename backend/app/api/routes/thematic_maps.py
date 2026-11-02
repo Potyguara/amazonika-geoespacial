@@ -202,6 +202,36 @@ def package_fields(package_id: str, user: User = Depends(get_current_user)):
     return {"package_id": package_id, "layers": result}
 
 
+@router.get("/package/{package_id}/classes")
+def package_classes(package_id: str, layer: str, field: str,
+                    user: User = Depends(get_current_user)):
+    """Return bounded class values for a field in an owned GeoPackage."""
+    path = _user_package(user, package_id)
+    if not path.is_file():
+        raise HTTPException(404, "GeoPackage não localizado.")
+    available = {row[0] for row in pyogrio.list_layers(str(path)) if row[1]}
+    if layer not in available:
+        raise HTTPException(422, "Camada não existe no pacote.")
+    info = pyogrio.read_info(str(path), layer=layer)
+    raw_fields = info.get("fields")
+    fields = list(raw_fields) if raw_fields is not None else []
+    if field not in fields:
+        raise HTTPException(422, "Campo não existe na camada.")
+    frame = gpd.read_file(path, layer=layer, columns=[field])
+    if len(frame) > 100_000:
+        raise HTTPException(422, "Camada possui mais de 100.000 feições para pré-visualização.")
+    values = frame[field].fillna("Não classificado").astype(str).str.slice(0, 200)
+    counts = values.value_counts(dropna=False)
+    if len(counts) > 40:
+        raise HTTPException(422, "Campo possui mais de 40 categorias; selecione outro atributo.")
+    return {
+        "package_id": package_id, "layer": layer, "field": field,
+        "classes": [{"value": str(value), "count": int(count)}
+                    for value, count in sorted(counts.items(), key=lambda x: x[0])],
+        "total_features": len(frame),
+    }
+
+
 @router.post("/package")
 async def upload_package(file: UploadFile = File(...), user: User = Depends(get_current_user)):
     if Path(file.filename or "").suffix.lower() != ".gpkg":
