@@ -29,11 +29,21 @@ class MapLayer(BaseModel):
     role: str = Field(default="theme")
     geometry: dict
 
+class CartographicStyle(BaseModel):
+    mode: str = "minimalista"
+    grid: str = "border"
+    property: str = "outline"
+    context: str = "balanced"
+    scale: float | None = None
+    buffer_m: float | None = None
+
+
 class MapRequest(BaseModel):
     title: str = Field(min_length=1, max_length=150)
     subtitle: str = Field(default="", max_length=150)
     source_text: str = Field(default="", max_length=600)
     layers: list[MapLayer] = Field(min_length=1, max_length=60)
+    style: CartographicStyle = Field(default_factory=CartographicStyle)
     include_branding: bool = False
 
 
@@ -102,7 +112,7 @@ def generate_pdf(payload: MapRequest):
             if geom.is_empty or not geom.is_valid:
                 raise ValueError(f"Geometria inválida: {layer.name}.")
             layers.append(Layer(layer.name, layer.source, geom, layer.color, layer.role))
-        pdf = render_thematic_pdf(payload.title, payload.subtitle, layers, payload.source_text, include_branding=payload.include_branding)
+        pdf = render_thematic_pdf(payload.title, payload.subtitle, layers, payload.source_text, include_branding=payload.include_branding, style=payload.style.model_dump())
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": 'attachment; filename="mapa-tematico.pdf"'})
     except ValueError as exc:
@@ -214,6 +224,7 @@ class PackageMapRequest(BaseModel):
     subtitle: str = Field(default="", max_length=150)
     selected_layers: list[str] = Field(min_length=1, max_length=60)
     class_fields: dict[str, str] = Field(default_factory=dict)
+    style: CartographicStyle = Field(default_factory=CartographicStyle)
     class_colors: dict[str, str] = Field(default_factory=dict)
     layer_colors: dict[str, str] = Field(default_factory=dict)
     include_branding: bool = False
@@ -305,7 +316,7 @@ def render_package_pdf(payload: PackageMapRequest, user: User = Depends(get_curr
     layers.append(Layer("Propriedade", "Geometria fornecida pelo usuário",
                         prop, "#d02020", "property"))
     result = render_thematic_pdf(payload.title,payload.subtitle,layers,
-                                 payload.source_text, include_branding=payload.include_branding)
+                                 payload.source_text, include_branding=payload.include_branding, style=payload.style.model_dump())
     return Response(content=result,media_type="application/pdf",
                     headers={"Content-Disposition": 'attachment; filename="mapa-tematico.pdf"'})
 
