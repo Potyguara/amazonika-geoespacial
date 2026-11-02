@@ -230,6 +230,10 @@ class PackageMapRequest(BaseModel):
     layer_colors: dict[str, str] = Field(default_factory=dict)
     include_branding: bool = False
     source_text: str = Field(default="", max_length=600)
+    property_name: str = Field(default="", max_length=120)
+    municipality: str = Field(default="", max_length=80)
+    state: str = Field(default="", max_length=2)
+    responsible: str = Field(default="", max_length=120)
 
 
 def normalize_property_polygon(value: dict):
