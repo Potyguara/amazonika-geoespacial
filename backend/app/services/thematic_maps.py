@@ -146,7 +146,7 @@ def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=F
     minx -= margin; maxx += margin; miny -= margin; maxy += margin
     width_m, height_m = maxx - minx, maxy - miny
     page_w, page_h = landscape(A3)
-    map_left, map_bottom, map_w, map_h = 42, 82, page_w * .67 - 54, page_h - 138
+    map_left, map_bottom, map_w, map_h = 40, 105, page_w * .76 - 50, page_h - 190
     raw_factor = min(map_w / width_m, map_h / height_m)
     raw_denominator = 72 / (raw_factor * .0254)
     scales = [1000,2500,5000,10000,25000,50000,100000,250000,500000,1000000,2500000,5000000]
@@ -163,11 +163,16 @@ def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=F
     pdf = Canvas(buffer, pagesize=(page_w,page_h))
     pdf.setTitle(title)
     pdf.setFillColor(colors.HexColor("#123e30"))
-    pdf.setFont("Helvetica-Bold",16)
-    pdf.drawString(42,page_h-43,title[:83].upper())
-    pdf.setFont("Helvetica",9)
-    pdf.drawString(42,page_h-58,subtitle[:110])
-    pdf.setStrokeColor(colors.HexColor("#678d82"))
+    pdf.setStrokeColor(colors.HexColor("#b6c8bc"))
+    pdf.setLineWidth(.65)
+    pdf.roundRect(24,22,page_w-48,page_h-44,7,stroke=1,fill=0)
+    pdf.setFont("Helvetica-Bold",18)
+    pdf.drawCentredString(page_w/2,page_h-52,title[:76].upper())
+    if subtitle:
+        pdf.setFont("Helvetica",9)
+        pdf.drawCentredString(page_w/2,page_h-69,subtitle[:110])
+    pdf.setStrokeColor(colors.HexColor("#637f78"))
+    pdf.setLineWidth(.7)
     pdf.rect(map_left,map_bottom,map_w,map_h)
     # Render only clipped geometries, in source order, with property always last.
     pdf.saveState()
@@ -184,9 +189,15 @@ def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=F
         for i in range(int(math.floor(miny/step)),int(math.ceil(maxy/step))+1):
             py = xy(minx,i*step)[1]
             pdf.line(map_left,py,map_left+map_w,py)
-    # Layers are thematic overlays; the property outline always appears on top.
+    # White opaque background prevents the reference grid from crossing polygons.
+    # Draw polygons first, then hydrology/roads, then the property perimeter.
+    ordered_layers = sorted(zip(layers,projected), key=lambda pair: (
+        2 if pair[0].role=="property" else
+        0 if pair[1].geom_type in ("Polygon","MultiPolygon") else
+        1
+    ))
     for role in ("theme", "property"):
-        for layer, geom in zip(layers,projected):
+        for layer, geom in ordered_layers:
             if layer.role != role:
                 continue
             c=_color(layer.color)
@@ -211,48 +222,64 @@ def render_thematic_pdf(title, subtitle, layers, source_text, include_branding=F
         if map_bottom+10 <= p <= map_bottom+map_h-10:
             pdf.drawRightString(map_left-4,p,f"{y:,.0f}")
     panel_x=map_left+map_w+20
-    pdf.setFont("Helvetica-Bold",11); pdf.drawString(panel_x,page_h-92,"LEGENDA")
-    y=page_h-115
+    panel_w=page_w-panel_x-40
+    pdf.setStrokeColor(colors.HexColor("#d4dfd9"))
+    pdf.roundRect(panel_x-9,230,panel_w+8,page_h-326,6,stroke=1,fill=0)
+    pdf.setFillColor(colors.HexColor("#194c39"))
+    pdf.setFont("Helvetica-Bold",11); pdf.drawString(panel_x,page_h-112,"LEGENDA")
+    pdf.setStrokeColor(colors.HexColor("#b7c8bf"))
+    pdf.line(panel_x,page_h-120,panel_x+panel_w-5,page_h-120)
+    y=page_h-142
     for layer in layers:
         c=_color(layer.color)
         pdf.setStrokeColor(c); pdf.setFillColor(c)
+        g=layer.geometry
         if layer.role=="property":
-            pdf.rect(panel_x,y-3,13,9,stroke=1,fill=0)
-        else: pdf.rect(panel_x,y-3,13,9,stroke=1,fill=1)
+            pdf.setLineWidth(2)
+            pdf.rect(panel_x,y-3,15,10,stroke=1,fill=int(property_mode=="fill"))
+        elif g.geom_type in ("LineString","MultiLineString"):
+            pdf.setLineWidth(2)
+            pdf.line(panel_x,y+2,panel_x+15,y+2)
+        elif g.geom_type in ("Point","MultiPoint"):
+            pdf.circle(panel_x+7,y+2,3.5,stroke=1,fill=1)
+        else:
+            pdf.rect(panel_x,y-3,15,10,stroke=1,fill=1)
         pdf.setFillColor(colors.black);pdf.setFont("Helvetica",8)
         from textwrap import wrap
-        lines=wrap(layer.name,36) or [layer.name]
+        label=layer.name.split(": ",1)[1] if ": " in layer.name else layer.name
+        lines=wrap(label,26) or [label]
         for index,line in enumerate(lines[:3]):
             pdf.drawString(panel_x+20,y-9*index,line)
         y-=max(22,len(lines[:3])*10+8)
-        if y<210:
+        if y<250:
             pdf.setFont("Helvetica-Oblique",7)
             pdf.drawString(panel_x,y,"Legenda extensa: reduza as camadas.")
             break
     pdf.setFont("Helvetica-Bold",9)
-    pdf.drawString(panel_x,180,"INFORMAÇÕES CARTOGRÁFICAS")
+    pdf.drawString(panel_x,192,"REFERÊNCIA CARTOGRÁFICA")
     pdf.setFont("Helvetica",8)
     for i,line in enumerate(["Datum: SIRGAS 2000","Projeção: UTM","SRC de trabalho: EPSG:"+str(epsg),"Unidade: metros"]):
-        pdf.drawString(panel_x,163-i*13,line)
-    pdf.setFont("Helvetica-Bold",8);pdf.drawString(panel_x,98,"FONTES")
+        pdf.drawString(panel_x,177-i*13,line)
+    pdf.setFont("Helvetica-Bold",8);pdf.drawString(panel_x,117,"FONTES")
     from textwrap import wrap
     sources=source_text or "; ".join(dict.fromkeys(l.source for l in layers))
     for i,line in enumerate(wrap(sources,53)[:4]):
-        pdf.setFont("Helvetica",6.7);pdf.drawString(panel_x,85-i*10,line)
+        pdf.setFont("Helvetica",6.7);pdf.drawString(panel_x,104-i*10,line)
     # Scale and north are computed for the map's physical print dimensions.
     scale=denominator
     pdf.setFont("Helvetica-Bold",9)
-    pdf.drawString(42,53,f"ESCALA 1:{scale:,.0f}".replace(",","." ))
+    pdf.drawString(42,75,f"ESCALA 1:{scale:,.0f}".replace(",","." ))
     bar_length_m=max(10,round(85/scale_factor/10)*10)
     bar_pts=bar_length_m*scale_factor
     pdf.setStrokeColor(colors.black);pdf.setLineWidth(3)
-    pdf.line(220,51,220+bar_pts,51)
+    pdf.line(220,75,220+bar_pts,75)
     pdf.setFont("Helvetica",7);pdf.drawString(220,39,"0")
-    pdf.drawRightString(220+bar_pts,39,f"{bar_length_m:,} m")
-    pdf.setFont("Helvetica-Bold",15);pdf.drawCentredString(map_left+map_w-18,map_bottom+map_h-22,"N")
-    pdf.line(map_left+map_w-18,map_bottom+map_h-50,map_left+map_w-18,map_bottom+map_h-30)
-    pdf.line(map_left+map_w-18,map_bottom+map_h-30,map_left+map_w-24,map_bottom+map_h-41)
-    pdf.line(map_left+map_w-18,map_bottom+map_h-30,map_left+map_w-12,map_bottom+map_h-41)
+    pdf.drawRightString(220+bar_pts,62,f"{bar_length_m:,} m")
+    pdf.setFont("Helvetica-Bold",15);pdf.drawCentredString(panel_x+panel_w/2,254,"N")
+    nx=panel_x+panel_w/2
+    pdf.line(nx,212,nx,243)
+    pdf.line(nx,243,nx-8,227)
+    pdf.line(nx,243,nx+8,227)
     if include_branding:
         pdf.setFont("Helvetica",7);pdf.drawString(42,23,"AMAZÔNIKA GEOESPACIAL  |  MAPAS TEMÁTICOS")
     pdf.showPage();pdf.save()
