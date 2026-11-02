@@ -119,15 +119,15 @@ def render(request):
         map_item=QgsLayoutItemMap(layout)
         layout.addLayoutItem(map_item)
         map_item.attemptMove(QgsLayoutPoint(14,32))
-        map_item.attemptResize(QgsLayoutSize(296,232))
+        map_item.attemptResize(QgsLayoutSize(280,228))
         map_item.setCrs(projected)
         map_item.setLayers(list(reversed(layers)))
         map_item.setKeepLayerSet(True)
-        ratio=296/232
+        ratio=280/228
         w=max(w,h*ratio)
         h=max(h,w/ratio)
         scale=request.get("style",{}).get("scale")
-        raw=w/(296/1000)
+        raw=w/(280/1000)
         if scale is None:
             # Choose a rounded, close-fitting scale instead of jumping from 1:10k to 1:25k.
             magnitude=10**math.floor(math.log10(max(raw,1)))
@@ -136,7 +136,7 @@ def render(request):
             scale=float(scale)
             if not math.isfinite(scale) or scale<raw:
                 raise ValueError("Escala manual não comporta o mapa")
-        map_item.zoomToExtent(QgsRectangle(rect.center().x()-scale*.296/2,rect.center().y()-scale*.232/2,
+        map_item.zoomToExtent(QgsRectangle(rect.center().x()-scale*.280/2,rect.center().y()-scale*.228/2,
                                            rect.center().x()+scale*.296/2,rect.center().y()+scale*.232/2))
         map_item.setFrameEnabled(True)
         grid_mode=request.get("style",{}).get("grid","border")
@@ -148,8 +148,13 @@ def render(request):
             grid.setAnnotationPrecision(0)
             grid.setIntervalX(max(100,round(scale*.05/100)*100))
             grid.setIntervalY(max(100,round(scale*.05/100)*100))
-            grid.setAnnotationFont(QFont("DejaVu Sans",7))
-        label("LEGENDA",321,36,11,True)
+            grid.setAnnotationFont(QFont("DejaVu Sans",6))
+            # Keep east/north labels in the map frame, away from the sidebar.
+            for side in (QgsLayoutItemMapGrid.Left, QgsLayoutItemMapGrid.Right,
+                         QgsLayoutItemMapGrid.Top, QgsLayoutItemMapGrid.Bottom):
+                grid.setAnnotationPosition(QgsLayoutItemMapGrid.InsideMapFrame, side)
+            grid.setAnnotationFrameDistance(1.5)
+        label("LEGENDA",309,36,11,True)
         legend=QgsLayoutItemLegend(layout)
         layout.addLayoutItem(legend)
         legend.setTitle("")
@@ -159,14 +164,14 @@ def render(request):
         root.clear()
         for layer in reversed(layers):
             root.addLayer(layer)
-        legend.attemptMove(QgsLayoutPoint(319,49))
+        legend.attemptMove(QgsLayoutPoint(307,49))
         legend.setSymbolWidth(7)
         legend.setSymbolHeight(4)
         legend.setStyleFont(QgsLegendStyle.SymbolLabel, QFont("DejaVu Sans",7))
-        label("N ↑",321,188,15,True)
-        label("REFERÊNCIA CARTOGRÁFICA",321,210,9,True)
-        label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],321,220,7)
-        label("FONTES: "+str(request.get("source",""))[:85],321,236,7)
+        label("N ↑",309,188,15,True)
+        label("REFERÊNCIA CARTOGRÁFICA",309,210,9,True)
+        label("SIRGAS 2000 / UTM  |  EPSG:"+projected.authid().split(":")[-1],309,220,7)
+        label("FONTES: "+str(request.get("source",""))[:85],309,236,7)
         bar=QgsLayoutItemScaleBar(layout)
         bar.setStyle("Single Box")
         bar.setLinkedMap(map_item)
@@ -176,9 +181,9 @@ def render(request):
         bar.setUnitsPerSegment(max(100,round(scale*.025/100)*100))
         layout.addLayoutItem(bar)
         bar.attemptMove(QgsLayoutPoint(14,270))
-        label("ESCALA 1:"+f"{scale:,.0f}".replace(",","."),125,268,9,True)
+        label("ESCALA 1:"+f"{scale:,.0f}".replace(",","."),90,268,9,True)
         if request.get("branding"):
-            label("AMAZONIKA GEOESPACIAL",320,277,8,True)
+            label("AMAZONIKA GEOESPACIAL",309,277,8,True)
         output=Path(tmp.name)/"result.pdf"
         exporter=QgsLayoutExporter(layout)
         status=exporter.exportToPdf(str(output),QgsLayoutExporter.PdfExportSettings())
