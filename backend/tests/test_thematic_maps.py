@@ -5,6 +5,23 @@ from app.services.thematic_maps import Layer, TEMPLATES, render_thematic_pdf, _p
 
 
 class ThematicTests(unittest.TestCase):
+    def test_minimal_and_property_transparent(self):
+        prop=Polygon([(-51.1, .01),(-51.09, .01),(-51.09, .02),(-51.1, .02)])
+        layers=[Layer("Propriedade","Usuário",prop,"#cf2424","property"),
+                Layer("Geologia","IBGE",prop,"#7ab152","theme")]
+        for style in [
+            {"mode":"minimalista","grid":"border","property":"outline","context":"balanced"},
+            {"mode":"tecnico","grid":"subtle","property":"transparent","context":"regional"},
+            {"mode":"analitico","grid":"full","property":"fill","context":"close"},
+        ]:
+            pdf=render_thematic_pdf("Mapa técnico","",layers,"IBGE",style=style)
+            self.assertTrue(pdf.startswith(b"%PDF"))
+
+    def test_invalid_manual_scale(self):
+        prop=Polygon([(-51.1,.01),(-51.09,.01),(-51.09,.02),(-51.1,.02)])
+        with self.assertRaisesRegex(ValueError,"escala|Escala"):
+            render_thematic_pdf("Teste","",[Layer("Propriedade","Usuário",prop,"#c22222","property")],"",style={"scale":1000,"context":"regional"})
+
     def test_categories_have_distinct_colors(self):
         self.assertNotEqual(category_shade("#70b88a",0,4),category_shade("#70b88a",1,4))
         self.assertEqual(category_shade("#70b88a",0,1),"#70b88a")
