@@ -43,13 +43,10 @@ def _request_geojson(bounds, uf: str | None, limit: int, timeout: int) -> list:
         "VERSION": "1.0.0",
         "REQUEST": "GetFeature",
         "TYPENAME": "sigef_geo",
-        "SRSNAME": "EPSG:4326",
         "OUTPUTFORMAT": "application/json",
         "BBOX": ",".join(str(v) for v in bounds),
         "MAXFEATURES": str(limit),
     }
-    if uf and uf.upper() != "ALL":
-        params["CQL_FILTER"] = f"uf_id={IBGE_UF[uf.upper()]}"
     url = SIGEF_WFS + "?" + urlencode(params)
     request = Request(url, headers={
         "User-Agent": "Amazonika-Geoespacial/1.0",
@@ -63,7 +60,16 @@ def _request_geojson(bounds, uf: str | None, limit: int, timeout: int) -> list:
     if len(raw) > 12 * 1024 * 1024:
         raise ValueError("Resposta SIGEF WFS excedeu 12 MB.")
     if "json" not in content_type:
-        raise ValueError("SIGEF WFS não retornou GeoJSON.")
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(raw)
+            errors = [str(node.text or "").strip() for node in root.iter()
+                      if node.tag.split("}")[-1] in {"ServiceException", "ExceptionText"}]
+            if errors:
+                raise ValueError("SIGEF WFS rejeitou a consulta: " + errors[0][:260])
+        except ET.ParseError:
+            pass
+        raise ValueError("SIGEF WFS não retornou GeoJSON (tipo: " + content_type[:90] + ").")
     payload = json.loads(raw)
     if not isinstance(payload, dict) or payload.get("type") != "FeatureCollection":
         raise ValueError("Resposta SIGEF WFS não contém FeatureCollection.")
@@ -72,7 +78,20 @@ def _request_geojson(bounds, uf: str | None, limit: int, timeout: int) -> list:
         raise ValueError("Resposta SIGEF WFS sem lista de feições.")
     if len(features) >= limit:
         raise ValueError("Consulta SIGEF WFS atingiu o limite de feições; área deve ser reduzida para não omitir parcelas.")
-    return [item for item in features if isinstance(item, dict) and item.get("geometry")]
+    expected_uf = IBGE_UF.get(uf.upper()) if uf and uf.upper() != "ALL" else None
+    validated = [item for item in features if isinstance(item, dict) and item.get("geometry")]
+    if expected_uf is not None:
+        # The official GetFeature form verified on the VPS only used BBOX.
+        # Filter returned candidates locally, after the completeness check.
+        # Reject features missing uf_id rather than assuming a state.
+        missing_uf = [item for item in validated if item.get("properties", {}).get("uf_id") is None]
+        if missing_uf:
+            raise ValueError("SIGEF WFS retornou parcelas sem uf_id; filtragem estadual inconclusiva.")
+        validated = [
+            item for item in validated
+            if str(item.get("properties", {}).get("uf_id")) == str(expected_uf)
+        ]
+    return validated
 
 
 def fetch_sigef_geojson(bounds, uf: str | None, *, purpose: str) -> dict:
