@@ -59,6 +59,7 @@ type CatalogLayer = {
   wmsEnabled?: boolean;
   wmsTheme?: string;
   wmsFixedLayer?: string;
+  wmsGlobal?: boolean;
   wmsAvailableUfs?: string[];
   scopeUf?: string;
 };
@@ -513,6 +514,7 @@ export default function Home() {
                   typeof source.metadata_json?.wms_fixed_layer === "string"
                     ? source.metadata_json.wms_fixed_layer
                     : undefined,
+                wmsGlobal: source.metadata_json?.wms_global === true,
                 scopeUf:
                   typeof source.metadata_json?.scope_uf === "string"
                     ? source.metadata_json.scope_uf.toUpperCase()
@@ -1307,6 +1309,7 @@ export default function Home() {
                     wmsEnabled: layer.wmsEnabled,
                     wmsTheme: layer.wmsTheme,
                     wmsFixedLayer: layer.wmsFixedLayer,
+                    wmsGlobal: layer.wmsGlobal,
                     wmsAvailableUfs: layer.wmsAvailableUfs,
                   }))}
                 />
