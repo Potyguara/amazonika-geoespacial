@@ -1408,11 +1408,33 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             const features = Array.isArray(payload?.features) ? payload.features : [];
             if (features.length === 0) continue;
             const attrs = features[0]?.properties ?? {};
+            let catalogueModified: string | null = null;
+            if (candidate.wmsFixedLayer === "sigef_geo") {
+              try {
+                const infoResponse = await fetch(
+                  `${getApiUrl()}/sources/incra/sigef/metadata`,
+                  { credentials: "include" },
+                );
+                const metadata = infoResponse.ok ? await infoResponse.json() : null;
+                if (metadata?.available && typeof metadata.last_modified === "string") {
+                  const parsed = new Date(metadata.last_modified);
+                  if (!Number.isNaN(parsed.getTime())) {
+                    catalogueModified = new Intl.DateTimeFormat("pt-BR", {
+                      dateStyle: "short", timeStyle: "short",
+                      timeZone: "America/Belem",
+                    }).format(parsed);
+                  }
+                }
+              } catch { /* Metadados indisponíveis não impedem a identificação */ }
+            }
             setIdentifiedFeature({
               title: String(attrs.nome ?? attrs.nome_imovel ?? attrs.codigo ?? features[0]?.id ?? "Parcela SIGEF"),
               layer: candidate.name + " · WMS oficial",
               attributes: [
                 ["origem_consulta", "GeoNode INCRA — GetFeatureInfo"],
+                ...(candidate.wmsFixedLayer === "sigef_geo"
+                  ? [["Última modificação no catálogo GeoNode", catalogueModified ?? "Não informada"] as [string, unknown]]
+                  : []),
                 ...Object.entries(attrs).filter(([key]) => key !== "geometry"),
               ],
             });
