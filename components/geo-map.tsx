@@ -188,6 +188,13 @@ function officialStyle(color: string) {
   return officialStyleCache.get(color)!;
 }
 
+const SIGEF_UF_IBGE: Record<string, number> = {
+  AC: 12, AL: 27, AP: 16, AM: 13, BA: 29, CE: 23, DF: 53,
+  ES: 32, GO: 52, MA: 21, MT: 51, MS: 50, MG: 31, PA: 15,
+  PB: 25, PR: 41, PE: 26, PI: 22, RJ: 33, RN: 24, RS: 43,
+  RO: 11, RR: 14, SC: 42, SP: 35, SE: 28, TO: 17,
+};
+
 const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   AC: { center: [-70.3, -9.0], zoom: 6.4 },
   AL: { center: [-36.6, -9.6], zoom: 7.6 },
@@ -1491,6 +1498,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       // ou no Brasil inteiro. O próprio endpoint MVT aplica o filtro
       // estadual quando uma UF específica é selecionada.
       const tileUf = incraUf === "ALL" ? "all" : incraUf.toLowerCase();
+      // Não desenhar duas vezes a mesma fonte SIGEF quando o WMS
+      // nacional estiver ativo. O PostGIS continua disponível para
+      // identificação, análises espaciais e consulta de atributos.
+      if (layer.source === "INCRA" && layer.wmsGlobal && layer.wmsEnabled &&
+          layer.wmsFixedLayer === "sigef_geo") continue;
       desiredVectorTiles.add(layer.id);
 
       const existingVectorTile = vectorTileLayersRef.current.get(layer.id);
@@ -1578,15 +1590,25 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         layer.wmsFixedLayer ?? `${layer.wmsTheme}_${ufSuffix}`;
       const url =
         `${getApiUrl()}/sources/${layer.id}/wms?uf=${effectiveUf.toLowerCase()}`;
+      // GeoServer aplica CQL_FILTER no próprio GetMap. O valor uf_id
+      // precisa ser confirmado contra WFS para garantir que corresponde
+      // ao código IBGE de cada estado antes de implantar.
+      const sigefNationwide = layer.source === "INCRA" &&
+        layer.wmsGlobal && layerName === "sigef_geo";
+      const stateCode = incraUf !== "ALL" ? SIGEF_UF_IBGE[incraUf] : undefined;
+      const cql = sigefNationwide && stateCode != null
+        ? `uf_id=${stateCode}` : undefined;
       const existing = wmsLayersRef.current.get(layer.id);
       if (existing) {
-        existing.getSource()?.setUrl(url);
-        existing.getSource()?.updateParams({ LAYERS: layerName });
+        const imageSource = existing.getSource();
+        if (imageSource?.getUrl() !== url) imageSource?.setUrl(url);
+        imageSource?.updateParams({ LAYERS: layerName, CQL_FILTER: cql });
       } else {
         const imageSource = new ImageWMS({
           url,
           params: {
             LAYERS: layerName,
+            ...(cql ? { CQL_FILTER: cql } : {}),
             VERSION: "1.1.1",
             FORMAT: "image/png",
             TRANSPARENT: true,
