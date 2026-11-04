@@ -943,7 +943,7 @@ def build_analysis_map(
         width=7,
     )
     # Number each highlighted polygon to match the individual report table.
-    for feature in detailed_map:
+    for feature in detailed_map[:40]:
         try:
             clipped = shapely_shape(feature["intersection"])
             if clipped.is_empty:
@@ -1070,6 +1070,14 @@ def build_analysis_map(
         )
 
         legend_y += 30
+
+    if detailed_map:
+        draw.text(
+            (55, min(legend_y + 12, 995)),
+            "Numeracao das parcelas: consulte a tabela individual no relatorio",
+            font=small_font,
+            fill="#566d64",
+        )
 
     result_count = sum(
         1
