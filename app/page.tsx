@@ -1326,7 +1326,7 @@ export default function Home() {
                         {analysis
                           ? analysis.source_statuses?.some((item) => item.status === "FAILED" || item.status === "UNAVAILABLE")
                             ? "Análise inconclusiva — fonte indisponível"
-                            : `${overlaps.length} interferência${overlaps.length === 1 ? "" : "s"} encontrada${overlaps.length === 1 ? "" : "s"}`
+                            : `${overlaps.reduce((total, item) => total + (item.matched_features ?? 0), 0)} feição(ões) interferente(s) em ${overlaps.length} fonte(s)`
                           : subjectGeometry
                             ? "Geometria pronta para análise"
                             : "Desenhe ou importe uma geometria"}
