@@ -145,6 +145,15 @@ function SourceSettingsDialog({
     setWmsTest(null);
     setError(null);
     try {
+      // The proxy uses persisted source settings; testing unsaved edits would
+      // silently probe the previous URL/layer and produce misleading results.
+      if (
+        wmsUrl.trim() !== String(source.metadata_json.wms_url ?? "").trim() ||
+        wmsLayer.trim() !== String(source.metadata_json.wms_fixed_layer ?? source.metadata_json.wms_layer ?? "").trim() ||
+        (isIncra && wmsGlobal !== Boolean(source.metadata_json.wms_global))
+      ) {
+        throw new Error("Salve a configuração antes de testar o novo endereço e a camada WMS.");
+      }
       const params = new URLSearchParams({
         uf: "ap",
         service: "WMS",
@@ -157,16 +166,21 @@ function SourceSettingsDialog({
       );
       const body = await response.text();
       if (!response.ok) {
-        let detail = body;
-        try {
-          detail = JSON.parse(body)?.detail ?? body;
-        } catch {
-          /* resposta textual */
+        let detail = "O proxy WMS não respondeu (HTTP " + response.status + ").";
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          try {
+            const parsed = JSON.parse(body);
+            if (typeof parsed?.detail === "string") detail = parsed.detail.slice(0, 250);
+          } catch { /* mantém mensagem segura */ }
         }
-        throw new Error(detail || "O servidor WMS não respondeu.");
+        if (response.status === 502) {
+          detail = "Falha na conexão com o WMS (HTTP 502). Verifique a API e o serviço oficial.";
+        }
+        throw new Error(detail);
       }
       const expected = String(
-        source.metadata_json.wms_theme ?? wmsLayer,
+        source.metadata_json.wms_fixed_layer || source.metadata_json.wms_theme || wmsLayer,
       ).toLowerCase();
       if (
         !/WMT_MS_Capabilities|WMS_Capabilities/i.test(body) ||
