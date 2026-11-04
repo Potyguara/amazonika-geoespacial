@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from html import escape
 import io
 import json
 import math
@@ -2001,6 +2002,68 @@ def build_report_pdf(
         )
 
         story.append(overlap_tbl)
+
+        story.append(Spacer(1, 5 * mm))
+        story.append(Paragraph(
+            "5.1. DETALHAMENTO INDIVIDUAL DAS FEIÇÕES INTERFERENTES",
+            styles["AmazonikaSection"],
+        ))
+        story.append(Paragraph(
+            "As áreas individuais correspondem à interseção de cada feição "
+            "com a área analisada. Quando as feições se sobrepõem entre si, "
+            "a soma das áreas individuais pode superar a área única "
+            "informada no resumo por fonte.",
+            styles["AmazonikaBody"],
+        ))
+        for source_row in overlaps:
+            features = source_row.get("features") or []
+            if not features:
+                raise ValueError(
+                    "Não foi possível obter o detalhamento das feições "
+                    f"da fonte {source_row.get('source_name')}. "
+                    "A emissão individualizada foi interrompida."
+                )
+            story.append(Spacer(1, 3 * mm))
+            story.append(Paragraph(
+                escape(str(source_row.get("source_name") or "Fonte territorial")),
+                styles["AmazonikaSection"],
+            ))
+            feature_table = [[
+                "Nº", "Identificação da feição", "Interseção (ha)", "Atributos da base",
+            ]]
+            for feature in features:
+                fields = feature.get("attributes") or {}
+                info = "; ".join(
+                    f"{key}: {str(value)}"
+                    for key, value in fields.items()
+                    if str(value).strip()
+                )
+                code = (
+                    feature.get("name") or feature.get("external_id")
+                    or feature.get("feature_id") or "—"
+                )
+                feature_table.append([
+                    str(feature.get("index") or "—"),
+                    Paragraph(escape(str(code)), styles["AmazonikaTable"]),
+                    _fmt_number(feature.get("overlap_hectares") or 0, 4),
+                    Paragraph(escape(info or "Sem atributos descritivos adicionais"),
+                              styles["AmazonikaTable"]),
+                ])
+            table = Table(
+                feature_table, repeatRows=1, hAlign="LEFT",
+                colWidths=[12 * mm, 48 * mm, 29 * mm, 83 * mm],
+            )
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), green_1),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), sans_bold),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.25, green_line),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.append(table)
 
     # --------------------------------------------------------
     # ADVERTÊNCIAS SANITIZADAS
