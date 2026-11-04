@@ -1417,7 +1417,7 @@ def build_report_pdf(
         if row.get("status") == "ANALYZED"
     )
     overlap_count = sum(
-        1 for row in execution_rows
+        int(row.get("matched_features") or 0) for row in execution_rows
         if row.get("status") == "ANALYZED"
         and row.get("intersects") is True
     )
