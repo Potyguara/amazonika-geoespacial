@@ -153,6 +153,7 @@ function SourceSettingsDialog({
       });
       const response = await fetch(
         `${API_URL}/sources/${source.id}/wms?${params}`,
+        { credentials: "include" },
       );
       const body = await response.text();
       if (!response.ok) {
