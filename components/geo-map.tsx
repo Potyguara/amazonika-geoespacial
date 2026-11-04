@@ -1373,8 +1373,49 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         return;
       }
 
-      // WMS é somente referência visual. A ferramenta Identificar
-      // trabalha exclusivamente com geometrias vetoriais presentes no PostGIS.
+      // Fallback 2: dados da camada WMS oficial, quando a parcela não
+      // está identificável no snapshot local. Não converte imagem em vetor.
+      const wmsCandidates = enabledLayers.filter((layer) =>
+        layer.wmsEnabled && layer.wmsFixedLayer && layer.id &&
+        wmsLayersRef.current.has(layer.id)
+      );
+      if (wmsCandidates.length > 0) {
+        setIdentifyLoadingMessage("Consultando atributos oficiais via WMS…");
+        for (const candidate of wmsCandidates) {
+          const imageSource = wmsLayersRef.current.get(candidate.id!)?.getSource();
+          const infoUrl = imageSource?.getFeatureInfoUrl(
+            event.coordinate,
+            map.getView().getResolution() ?? 1,
+            map.getView().getProjection(),
+            {
+              INFO_FORMAT: "application/json",
+              FEATURE_COUNT: 5,
+              QUERY_LAYERS: candidate.wmsFixedLayer!,
+            },
+          );
+          if (!infoUrl) continue;
+          try {
+            const response = await fetch(infoUrl, { credentials: "include" });
+            if (!response.ok || !(response.headers.get("content-type") ?? "").includes("json")) continue;
+            const payload = await response.json();
+            const features = Array.isArray(payload?.features) ? payload.features : [];
+            if (features.length === 0) continue;
+            const attrs = features[0]?.properties ?? {};
+            setIdentifiedFeature({
+              title: String(attrs.nome ?? attrs.nome_imovel ?? attrs.codigo ?? features[0]?.id ?? "Parcela SIGEF"),
+              layer: candidate.name + " · WMS oficial",
+              attributes: [
+                ["origem_consulta", "GeoNode INCRA — GetFeatureInfo"],
+                ...Object.entries(attrs).filter(([key]) => key !== "geometry"),
+              ],
+            });
+            setIdentifyLoading(false);
+            return;
+          } catch (error) {
+            console.warn("GetFeatureInfo indisponível para esta camada WMS.", error);
+          }
+        }
+      }
       setIdentifyLoading(false);
       setIdentifiedFeature(null);
     };
