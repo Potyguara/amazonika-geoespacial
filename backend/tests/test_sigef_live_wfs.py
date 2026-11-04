@@ -35,7 +35,7 @@ def fake_feature(uf_id=16):
     }
 
 
-def test_live_wfs_ap_uses_ibge_filter_and_exact_bbox(monkeypatch):
+def test_live_wfs_ap_filters_ibge_locally_and_uses_verified_bbox_request(monkeypatch):
     captured = {}
 
     def fake_urlopen(request, timeout):
@@ -45,10 +45,20 @@ def test_live_wfs_ap_uses_ibge_filter_and_exact_bbox(monkeypatch):
     monkeypatch.setattr(wfs, "urlopen", fake_urlopen)
     features = wfs.fetch_sigef_geojson((-51.2, -0.2, -51.0, 0.0), "AP", purpose="analysis")
     query = parse_qs(urlsplit(captured["url"]).query)
-    assert query["CQL_FILTER"] == ["uf_id=16"]
+    assert "CQL_FILTER" not in query
+    assert "SRSNAME" not in query
     assert query["BBOX"] == ["-51.2,-0.2,-51.0,0.0"]
     assert query["TYPENAME"] == ["sigef_geo"]
     assert len(features["features"]) == 1
+
+def test_local_uf_filter_removes_other_state_geometries(monkeypatch):
+    monkeypatch.setattr(wfs, "urlopen", lambda *args, **kwargs: FakeResponse([
+        fake_feature(16), fake_feature(15),
+    ]))
+    result = wfs.fetch_sigef_geojson((-51.2, -0.2, -51.0, 0.0), "AP", purpose="analysis")
+    assert len(result["features"]) == 1
+    assert result["features"][0]["properties"]["uf_id"] == 16
+
 
 
 def test_snap_rejects_large_bbox_before_network(monkeypatch):
