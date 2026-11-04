@@ -281,6 +281,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [officialCount, setOfficialCount] = useState(0);
   const [snapSubjectEnabled, setSnapSubjectEnabled] = useState(true);
   const [snapLayersEnabled, setSnapLayersEnabled] = useState(false);
+  const [sigefSnapStatus, setSigefSnapStatus] = useState<string | null>(null);
   const [advancedPanel, setAdvancedPanel] = useState<"coordinates" | "snap" | "basemap" | "memorial" | "polygons" | null>(null);
   const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; confrontants: string[]; altitudes: string[]; areaHa: number; perimeterM: number }>>([]);
   const [selectedPolygonIds, setSelectedPolygonIds] = useState<string[]>([]);
@@ -1777,14 +1778,22 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         layer.enabled && layer.source === "INCRA" &&
         layer.wmsGlobal && layer.wmsFixedLayer === "sigef_geo"
       );
-      if (!useSigefWfs || (map.getView().getZoom() ?? 0) < 12) return;
+      if (!useSigefWfs) { setSigefSnapStatus(null); return; }
+      if ((map.getView().getZoom() ?? 0) < 12) {
+        setSigefSnapStatus("Aproxime o mapa para habilitar o Snap das parcelas SIGEF (zoom 12+).");
+        return;
+      }
       const lower = toLonLat([extent[0], extent[1]], map.getView().getProjection());
       const upper = toLonLat([extent[2], extent[3]], map.getView().getProjection());
       const bbox = [lower[0], lower[1], upper[0], upper[1]];
-      if (bbox[2] - bbox[0] > 0.15 || bbox[3] - bbox[1] > 0.15) return;
+      if (bbox[2] - bbox[0] > 0.15 || bbox[3] - bbox[1] > 0.15) {
+        setSigefSnapStatus("Aproxime o mapa: área visível muito grande para Snap SIGEF.");
+        return;
+      }
       snapFetchController?.abort();
       const controller = new AbortController();
       snapFetchController = controller;
+      setSigefSnapStatus("Carregando vértices SIGEF via WFS oficial…");
       const params = new URLSearchParams({
         bbox: bbox.map((x) => x.toFixed(6)).join(","),
         uf: incraUf,
@@ -1803,9 +1812,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         for (const feature of features) {
           if (feature.getGeometry()) snapLayerSourceRef.current.addFeature(feature as Feature);
         }
+        setSigefSnapStatus(features.length ? `Snap SIGEF disponível: ${features.length} parcelas.` : "WFS respondeu sem parcelas nesta área.");
       }).catch((error) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          setSigefSnapStatus("Snap SIGEF indisponível: WFS oficial não retornou geometrias.");
           console.warn("SIGEF WFS Snap indisponível; raster WMS não é usado para Snap.", error);
+        }
       });
     };
 
@@ -2511,6 +2523,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <label><input type="checkbox" checked={snapSubjectEnabled} onChange={(event) => setSnapSubjectEnabled(event.target.checked)} /><span>Vértices e arestas da geometria em edição</span></label>
           <label><input type="checkbox" checked={snapLayersEnabled} onChange={(event) => setSnapLayersEnabled(event.target.checked)} /><span>Camadas vetoriais carregadas no mapa</span></label>
           <small>O Snap pode ser ativado ou desligado a qualquer momento durante desenho e edição.</small>
+          {snapLayersEnabled && sigefSnapStatus && <small role="status">{sigefSnapStatus}</small>}
         </aside>
       )}
 
