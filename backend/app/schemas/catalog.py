@@ -21,6 +21,8 @@ class SourceUpdate(BaseModel):
     service_role:Literal["VECTOR_ANALYSIS","WMS_REFERENCE","VECTOR_DOWNLOAD","WMS_REFERENCE_WITH_VECTOR_SNAPSHOT"]|None=None
     wms_url:HttpUrl|None=None
     wms_layer:str|None=None
+    wms_fixed_layer:str|None=None
+    wms_global:bool|None=None
     wms_urls:dict[str,HttpUrl]|None=None
     wms_available_ufs:list[str]|None=None
     wms_enabled:bool|None=None
