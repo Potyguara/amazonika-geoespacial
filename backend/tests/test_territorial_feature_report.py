@@ -90,3 +90,58 @@ def test_refuse_truncated_feature_detail():
     import pytest
     with pytest.raises(ValueError, match="Divida a área"):
         _intersecting_features(FakeDB(), uuid4(), uuid4(), limit=1)
+
+
+def test_map_export_contains_individual_parcel_outlines_and_overlaps(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from app.services import territorial_report as report
+
+    subject = {
+        "type": "Polygon",
+        "coordinates": [[[-51.05, -0.1], [-51.01, -0.1], [-51.01, -0.06],
+                         [-51.05, -0.06], [-51.05, -0.1]]],
+    }
+    west = {
+        "type": "Polygon",
+        "coordinates": [[[-51.08, -0.12], [-51.03, -0.12], [-51.03, -0.07],
+                         [-51.08, -0.07], [-51.08, -0.12]]],
+    }
+    east = {
+        "type": "Polygon",
+        "coordinates": [[[-51.025, -0.09], [-50.99, -0.09], [-50.99, -0.04],
+                         [-51.025, -0.04], [-51.025, -0.09]]],
+    }
+    from shapely.geometry import shape, mapping
+    geometry_parts = [west, east]
+    clipped = [mapping(shape(g).intersection(shape(subject)))
+               for g in geometry_parts]
+    monkeypatch.setattr(report, "_subject_geojson", lambda *args: subject)
+    monkeypatch.setattr(report, "_context_extent_geojson", lambda *args: subject)
+    monkeypatch.setattr(report, "_context_geojson",
+                        lambda *args: ({"type": "GeometryCollection",
+                                       "geometries": geometry_parts}, 2))
+    monkeypatch.setattr(report, "_overlap_geojson",
+                        lambda *args: {"type": "GeometryCollection",
+                                       "geometries": clipped})
+    analysis = SimpleNamespace(id=uuid4(), created_at=datetime.now(timezone.utc))
+    snapshot = {
+        "area_hectares": 100, "tracking_code": "TESTE-RELATORIO",
+        "results": [{
+            "source_name": "SIGEF Brasil", "institution": "INCRA",
+            "source_version_id": str(uuid4()), "intersects": True,
+            "features": [
+                {"index": n+1, "name": f"Parcela {n+1}", "geometry": g,
+                 "intersection_geometry": overlap}
+                for n, (g, overlap) in enumerate(zip(geometry_parts, clipped))
+            ],
+        }],
+    }
+    target = tmp_path / "mapa.png"
+    report.build_analysis_map(None, analysis, snapshot, target)
+    assert target.exists()
+    with Image.open(target) as image:
+        assert image.size == (1600, 1050)
+        pixels = list(image.crop((60, 140, 1540, 780)).getdata())
+        reddish = sum(1 for r, g, b in pixels if r > 120 and r > g * 1.35 and r > b * 1.1)
+        assert reddish > 100
