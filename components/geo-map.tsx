@@ -1596,13 +1596,17 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       const sigefNationwide = layer.source === "INCRA" &&
         layer.wmsGlobal && layerName === "sigef_geo";
       const stateCode = incraUf !== "ALL" ? SIGEF_UF_IBGE[incraUf] : undefined;
-      const cql = sigefNationwide && stateCode != null
-        ? `uf_id=${stateCode}` : undefined;
+      const cql = sigefNationwide
+        ? (stateCode != null ? `uf_id=${stateCode}` : "INCLUDE")
+        : undefined;
       const existing = wmsLayersRef.current.get(layer.id);
       if (existing) {
         const imageSource = existing.getSource();
         if (imageSource?.getUrl() !== url) imageSource?.setUrl(url);
-        imageSource?.updateParams({ LAYERS: layerName, CQL_FILTER: cql });
+        imageSource?.updateParams({
+          LAYERS: layerName,
+          ...(sigefNationwide ? { CQL_FILTER: cql } : {}),
+        });
       } else {
         const imageSource = new ImageWMS({
           url,
