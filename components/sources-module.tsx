@@ -100,6 +100,7 @@ function SourceSettingsDialog({
   const [wmsUrl, setWmsUrl] = useState(""),
     [wmsLayer, setWmsLayer] = useState(""),
     [wmsEnabled, setWmsEnabled] = useState(false),
+    [wmsGlobal, setWmsGlobal] = useState(false),
     [allowLegacy, setAllowLegacy] = useState(false);
   const [file, setFile] = useState<File | null>(null),
     [referenceDate, setReferenceDate] = useState(
@@ -125,7 +126,8 @@ function SourceSettingsDialog({
     setLayerName(source.layer_name ?? "");
     setFrequency(source.update_frequency ?? "MENSAL");
     setWmsUrl(String(source.metadata_json.wms_url ?? ""));
-    setWmsLayer(String(source.metadata_json.wms_layer ?? ""));
+    setWmsLayer(String(source.metadata_json.wms_fixed_layer ?? source.metadata_json.wms_layer ?? ""));
+    setWmsGlobal(Boolean(source.metadata_json.wms_global));
     setWmsEnabled(Boolean(source.metadata_json.wms_enabled));
     setAllowLegacy(
       isIncra && Boolean(source.metadata_json.allow_insecure_tls),
@@ -199,6 +201,8 @@ function SourceSettingsDialog({
             update_frequency: frequency,
             wms_url: wmsUrl || null,
             wms_layer: wmsLayer || null,
+            wms_fixed_layer: wmsLayer || null,
+            wms_global: isIncra ? wmsGlobal : false,
             wms_enabled: wmsEnabled,
             allow_insecure_tls: isIncra ? allowLegacy : false,
             stale_after_days: 15,
@@ -499,6 +503,11 @@ function SourceSettingsDialog({
                     onCheckedChange={setWmsEnabled}
                   />
                 </div>
+                {isIncra && <div className="source-switch-field wide">
+                  <span>Camada nacional (sem sufixo por UF, como no GeoNode SIGEF)</span>
+                  <Switch className="source-config-switch" checked={wmsGlobal}
+                    onCheckedChange={setWmsGlobal}/>
+                </div>}
                 {isIncra && (
                   <div className="source-switch-field wide">
                     <span>
