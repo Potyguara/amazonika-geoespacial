@@ -82,3 +82,16 @@ def test_nationwide_query_omits_cql_filter(monkeypatch):
     monkeypatch.setattr(wfs, "urlopen", fake_urlopen)
     wfs.fetch_sigef_geojson((-51.1, -0.1, -51.09, -0.09), "ALL", purpose="analysis")
     assert "CQL_FILTER" not in parse_qs(urlsplit(captured["url"]).query)
+
+
+def test_analysis_schema_accepts_all_states_without_accepting_invalid_uf():
+    from app.schemas.analysis import AnalysisRequest
+    from pydantic import ValidationError
+
+    base = {"name": "Teste nacional", "geometry": {
+        "type": "Point", "coordinates": [-51.1, -0.1]
+    }}
+    assert AnalysisRequest(**base, incra_uf="ALL").incra_uf == "ALL"
+    assert AnalysisRequest(**base, incra_uf="AP").incra_uf == "AP"
+    with pytest.raises(ValidationError):
+        AnalysisRequest(**base, incra_uf="ABCDEF")
