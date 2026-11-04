@@ -1778,6 +1778,26 @@ def build_report_pdf(
         result_bg = red_light
         result_color = red
         result_title = "INTERFERÊNCIAS IDENTIFICADAS"
+    elif alert_count > 0:
+        conclusion = (
+            f"A análise não pôde consultar {alert_count} de {expected_count} "
+            "fonte(s) selecionada(s). Não é tecnicamente possível concluir "
+            "ausência de interferência em fontes indisponíveis. "
+            "Repita a análise após restabelecer a consulta oficial. "
+            "Resultados de fontes efetivamente analisadas permanecem "
+            "registrados nas seções anteriores."
+        )
+        result_bg = amber_light
+        result_color = amber
+        result_title = "ANÁLISE INCONCLUSIVA — FONTES INDISPONÍVEIS"
+    elif analyzed_count == 0:
+        conclusion = (
+            "Nenhuma base territorial foi efetivamente analisada. "
+            "Não é possível atestar presença ou ausência de sobreposição."
+        )
+        result_bg = amber_light
+        result_color = amber
+        result_title = "ANÁLISE INCONCLUSIVA — SEM BASES CONSULTADAS"
     else:
         conclusion = (
             "Não foram identificadas sobreposições espaciais entre a "
