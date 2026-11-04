@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
+from shapely.geometry import shape as shapely_shape, box as shapely_box, mapping as shapely_mapping
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -880,12 +881,20 @@ def build_analysis_map(
 
     # Full parcel perimeters (thin gray-blue) and their exact overlap
     # with the analyzed property (red). Draw these after aggregate contexts.
+    map_window = shapely_box(*bbox)
     for feature in detailed_map:
         if feature.get("geometry"):
-            _draw_geometry(
-                draw, feature["geometry"], project,
-                outline="#526b81", fill=None, width=3,
-            )
+            try:
+                clipped = shapely_shape(feature["geometry"]).intersection(map_window)
+                if clipped.is_empty:
+                    continue
+                _draw_geometry(
+                    draw, shapely_mapping(clipped), project,
+                    outline="#526b81", fill=None, width=3,
+                )
+            except Exception:
+                # Do not draw malformed/unclipped features outside the map frame.
+                continue
 
     # Sobreposição exata: somente a parcela da feição que realmente
     # intersecta a geometria analisada recebe preenchimento forte.
@@ -917,6 +926,23 @@ def build_analysis_map(
         fill="#1d9a6650",
         width=7,
     )
+    # Number each highlighted polygon to match the individual report table.
+    for feature in detailed_map:
+        try:
+            clipped = shapely_shape(feature["intersection"])
+            if clipped.is_empty:
+                continue
+            marker = clipped.representative_point()
+            cx, cy = project((marker.x, marker.y))
+            label = str(feature.get("index") or "")
+            if not label:
+                continue
+            draw.ellipse((cx-13, cy-13, cx+13, cy+13),
+                         fill="#ffffff", outline="#a72936", width=3)
+            draw.text((cx-5, cy-8), label, font=_font(15, True),
+                      fill="#a72936")
+        except Exception:
+            continue
 
     # Norte
     north_x = map_right - 65
@@ -2041,7 +2067,7 @@ def build_report_pdf(
                 styles["AmazonikaSection"],
             ))
             feature_table = [[
-                "Nº", "Identificação da feição", "Interseção (ha)", "Atributos da base",
+                "Nº", "Identificação", "Área (ha)", "% área", "Atributos da base",
             ]]
             for feature in features:
                 fields = feature.get("attributes") or {}
@@ -2058,12 +2084,16 @@ def build_report_pdf(
                     str(feature.get("index") or "—"),
                     Paragraph(escape(str(code)), styles["AmazonikaTable"]),
                     _fmt_number(feature.get("overlap_hectares") or 0, 4),
+                    _fmt_number(
+                        100 * float(feature.get("overlap_hectares") or 0) /
+                        float(snapshot.get("area_hectares") or 1), 2,
+                    ) if snapshot.get("area_hectares") else "—",
                     Paragraph(escape(info or "Sem atributos descritivos adicionais"),
                               styles["AmazonikaTable"]),
                 ])
             table = Table(
                 feature_table, repeatRows=1, hAlign="LEFT",
-                colWidths=[12 * mm, 48 * mm, 29 * mm, 83 * mm],
+                colWidths=[12 * mm, 42 * mm, 25 * mm, 19 * mm, 74 * mm],
             )
             table.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), green_2),
