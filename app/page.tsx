@@ -1296,6 +1296,7 @@ export default function Home() {
                   incraUf={incraUf}
                   resetNonce={analysisResetNonce}
                   hideAdvancedTools={layerManagerOpen || analysisSessionOpen}
+                  analysisPanelOpen={analysisSessionOpen}
                   focusRequest={focusRequest}
                   onGeometryChange={geometryChanged}
                   layers={catalog.map((layer, index) => ({
