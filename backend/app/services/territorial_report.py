@@ -569,10 +569,10 @@ def _intersecting_features(
             SELECT id, external_id, name, properties,
                    ST_AsGeoJSON(geom) AS geometry,
                    ST_AsGeoJSON(ST_Intersection(geom, area)) AS intersection,
-                   CASE WHEN ST_Dimension(ST_Intersection(geom, area)) = 2
-                        THEN ST_Area(ST_Transform(
-                            ST_Intersection(geom, area), 4326)::geography)/10000.0
-                        ELSE 0 END AS overlap_ha
+                   COALESCE(ST_Area(ST_Transform(
+                        ST_CollectionExtract(ST_Intersection(geom, area), 3),
+                        4326
+                   )::geography)/10000.0, 0) AS overlap_ha
             FROM candidates
         """),
         {"analysis_id": analysis_id, "version_id": version_id, "limit": limit + 1},
