@@ -2,7 +2,8 @@ from fastapi import APIRouter,BackgroundTasks,Depends,HTTPException,Response
 from fastapi.responses import HTMLResponse
 from html import escape
 from uuid import UUID
-from sqlalchemy import func,select
+from datetime import datetime, timezone
+from sqlalchemy import func,select,text
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.schemas.analysis import AnalysisAccepted,AnalysisRequest,AnalysisResponse
@@ -43,6 +44,7 @@ def list_analyses(
     query = (
         select(Analysis, User)
         .outerjoin(User, User.id == Analysis.created_by_user_id)
+        .where(text("(analyses.subject_json->>'_history_archived_at') IS NULL"))
         .order_by(Analysis.created_at.desc())
         .limit(500)
     )
@@ -113,6 +115,33 @@ def _get_authorized_analysis(
         raise HTTPException(404, "Análise não encontrada.")
 
     return analysis
+
+
+@router.delete("/{analysis_id}",status_code=204,dependencies=[Depends(require_permission("analysis.execute"))])
+def exclude_analysis_from_history(
+    analysis_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("analysis.execute")),
+):
+    """Remove from history while retaining analysis and issued report evidence.
+
+    ReportEmission has a foreign key to Analysis, so hard deletion would break
+    existing issued documents. The record is instead excluded from history.
+    """
+    analysis = _get_authorized_analysis(db, analysis_id, current_user)
+    if analysis.status in {"QUEUED", "PROCESSING"}:
+        raise HTTPException(
+            409, "Não é permitido excluir análises ainda em processamento."
+        )
+    subject = dict(analysis.subject_json or {})
+    if subject.get("_history_archived_at"):
+        raise HTTPException(404, "Análise não encontrada no histórico.")
+    subject["_history_archived_at"] = datetime.now(timezone.utc).isoformat()
+    subject["_history_archived_by"] = str(current_user.id)
+    analysis.subject_json = subject
+    db.add(analysis)
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.get("/{analysis_id}",response_model=AnalysisResponse)
