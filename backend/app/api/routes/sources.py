@@ -51,7 +51,7 @@ def _write_large_upload(upload_id:str,meta:dict)->None:
 
 class OfficialOnlyRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
-        allowed={"acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
+        allowed={"acervofundiario.incra.gov.br","geonodeincra.serpro.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
         if (urlsplit(newurl).hostname or "").lower() not in allowed:
             raise HTTPError(newurl,code,"Redirecionamento externo bloqueado",headers,fp)
         return super().redirect_request(req,fp,code,msg,headers,newurl)
@@ -1189,7 +1189,7 @@ def update_source(source_id:UUID,payload:SourceUpdate,db:Session=Depends(get_db)
     if not source: raise HTTPException(404,"Fonte não encontrada.")
     changes=payload.model_dump(exclude_unset=True,mode="json")
     metadata=dict(source.metadata_json or {})
-    for field in ("portal_url","requires_auth","access_mode","service_role","wms_url","wms_layer","wms_urls","wms_available_ufs","wms_enabled","allow_insecure_tls","stale_after_days"):
+    for field in ("portal_url","requires_auth","access_mode","service_role","wms_url","wms_layer","wms_fixed_layer","wms_global","wms_urls","wms_available_ufs","wms_enabled","allow_insecure_tls","stale_after_days"):
         if field in changes: metadata[field]=changes.pop(field)
     for field,value in changes.items(): setattr(source,field,value)
 
@@ -1232,13 +1232,13 @@ def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     theme=str(metadata.get("wms_theme") or "").strip()
     fixed_layer=str(metadata.get("wms_fixed_layer") or "").strip()
     state_urls=dict(metadata.get("wms_urls") or {})
-    available_ufs=set(metadata.get("wms_available_ufs") or state_urls.keys())
+    available_ufs=set() if metadata.get("wms_global") else set(metadata.get("wms_available_ufs") or state_urls.keys())
     if available_ufs and requested_uf not in available_ufs:
         raise HTTPException(404,f"A camada {source_name} não está publicada pelo INCRA para {requested_uf.upper()}.")
     incra_url=f"http://acervofundiario.incra.gov.br/i3geo/ogc.php?tema={theme}_{requested_uf}"
     raw_url=str(state_urls.get(requested_uf) or (incra_url if source_institution=="INCRA" and theme and not fixed_layer else metadata.get("wms_url") or ""))
     parsed=urlsplit(raw_url)
-    allowed_hosts={"acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
+    allowed_hosts={"acervofundiario.incra.gov.br","geonodeincra.serpro.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
     if parsed.scheme not in ("http","https") or (parsed.hostname or "").lower() not in allowed_hosts:
         raise HTTPException(400,"O proxy aceita somente os domínios oficiais configurados.")
     incoming=[(key,value) for key,value in request.query_params.multi_items() if key!="uf"]
