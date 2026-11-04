@@ -1193,6 +1193,20 @@ def update_source(source_id:UUID,payload:SourceUpdate,db:Session=Depends(get_db)
         if field in changes: metadata[field]=changes.pop(field)
     for field,value in changes.items(): setattr(source,field,value)
 
+    # GeoNode SIGEF nacional publica uma camada fixa, sem sufixo estadual.
+    # Não altera versões vetoriais já importadas no catálogo.
+    if source.institution.upper() == "INCRA" and metadata.get("wms_global"):
+        layer = str(metadata.get("wms_fixed_layer") or "").strip()
+        parsed_wms = urlsplit(str(metadata.get("wms_url") or ""))
+        if not layer or parsed_wms.scheme != "https" or parsed_wms.hostname != "geonodeincra.serpro.gov.br":
+            raise HTTPException(422, "SIGEF nacional exige camada fixa e URL HTTPS do GeoNode INCRA.")
+        metadata["wms_theme"] = layer
+        metadata["wms_layer"] = layer
+        metadata["wms_available_ufs"] = []
+        metadata["wms_urls"] = {}
+        metadata["allow_insecure_tls"] = False
+        metadata["allow_legacy_tls"] = False
+
     # SICAR e SPU oficiais podem manter WMS como referência visual, mas
     # nunca devem acionar WFS/ArcGIS sob demanda nem TLS legado para a
     # operação territorial. O vetor operacional vem das cargas por UF.
