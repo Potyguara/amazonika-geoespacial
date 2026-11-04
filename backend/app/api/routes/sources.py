@@ -20,6 +20,7 @@ from app.schemas.catalog import SourceCreate,SourceRead,SourceUpdate,VersionRead
 from app.services.auth import require_permission
 from app.services.importer import import_geopackage,import_vector_file,synchronize_source_data,sync_arcgis_bbox,sync_incra_wfs_bbox,sync_sicar_wfs_bbox
 from app.services.package_importer import ALLOWED_PACKAGE_GROUPS,import_package,inspect_package,package_sources
+from app.services.sigef_geonode_metadata import get_sigef_catalogue_metadata
 
 router=APIRouter(prefix="/sources",tags=["Fontes"],dependencies=[Depends(require_permission("sources.view"))])
 INCRA_UFS={"ac":"Acre","al":"Alagoas","ap":"Amapá","am":"Amazonas","ba":"Bahia","ce":"Ceará","df":"Distrito Federal","es":"Espírito Santo","go":"Goiás","ma":"Maranhão","mt":"Mato Grosso","ms":"Mato Grosso do Sul","mg":"Minas Gerais","pa":"Pará","pb":"Paraíba","pr":"Paraná","pe":"Pernambuco","pi":"Piauí","rj":"Rio de Janeiro","rn":"Rio Grande do Norte","rs":"Rio Grande do Sul","ro":"Rondônia","rr":"Roraima","sc":"Santa Catarina","sp":"São Paulo","se":"Sergipe","to":"Tocantins"}
@@ -100,6 +101,11 @@ def official_sources_health(force:bool=False,db:Session=Depends(get_db)):
     payload={"summary":summary,"sources":results,"cache_seconds":300}
     _health_cache.update({"expires":time.monotonic()+300,"payload":payload})
     return payload
+
+@router.get("/incra/sigef/metadata")
+def sigef_geonode_metadata():
+    """Public catalogue timestamp, separate from local vector import date."""
+    return get_sigef_catalogue_metadata()
 
 @router.get("/incra/catalog")
 def incra_wms_catalog(db:Session=Depends(get_db)):
