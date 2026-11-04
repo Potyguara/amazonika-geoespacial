@@ -40,8 +40,8 @@ def test_sigef_geonode_global_layer_routes_without_old_uf_suffix(monkeypatch):
         name="SIGEF — Brasil", institution="INCRA",
         metadata_json={
             "wms_enabled": True, "wms_global": True,
-            "wms_theme": "geonode:sigef_geo",
-            "wms_fixed_layer": "geonode:sigef_geo",
+            "wms_theme": "sigef_geo",
+            "wms_fixed_layer": "sigef_geo",
             "wms_available_ufs": [],
             "wms_url": "https://geonodeincra.serpro.gov.br/geoserver/geonode/sigef_geo/ows",
         },
@@ -71,13 +71,13 @@ def test_sigef_geonode_global_layer_routes_without_old_uf_suffix(monkeypatch):
     db = Database(source)
     response = sources.proxy_source_wms(
         uuid4(),
-        request_with_query("uf=ap&SERVICE=WMS&REQUEST=GetMap&LAYERS=geonode%3Asigef_geo"),
+        request_with_query("uf=ap&SERVICE=WMS&REQUEST=GetMap&LAYERS=sigef_geo"),
         db,
     )
     parsed = urlsplit(captured["url"])
     assert parsed.hostname == "geonodeincra.serpro.gov.br"
     assert parsed.path == "/geoserver/geonode/sigef_geo/ows"
-    assert parse_qs(parsed.query)["LAYERS"] == ["geonode:sigef_geo"]
+    assert parse_qs(parsed.query)["LAYERS"] == ["sigef_geo"]
     assert "tema=" not in parsed.query
     assert response.body == b"PNG-TEST"
     assert db.closed
@@ -88,7 +88,7 @@ def test_proxy_rejects_unapproved_hosts():
         name="SIGEF — Brasil", institution="INCRA",
         metadata_json={
             "wms_enabled": True, "wms_global": True,
-            "wms_fixed_layer": "geonode:sigef_geo",
+            "wms_fixed_layer": "sigef_geo",
             "wms_url": "https://example.org/evil",
         },
     )
