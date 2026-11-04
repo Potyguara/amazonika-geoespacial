@@ -593,6 +593,18 @@ def _intersecting_features(
         )
         attrs = {key: str(props[key])[:180] for key in keys
                  if props.get(key) not in (None, "")}
+        # Generic fallback for official datasets whose thematic attributes
+        # do not match the SIGEF naming convention.
+        private_names = {"cpf", "cnpj", "email", "telefone", "celular",
+                         "phone", "password", "senha", "token"}
+        for key, value in props.items():
+            if len(attrs) >= 12:
+                break
+            if key in attrs or key.lower() in private_names or value in (None, ""):
+                continue
+            if isinstance(value, (dict, list, tuple)):
+                continue
+            attrs[str(key)[:70]] = str(value)[:180]
         items.append({
             "index": index,
             "feature_id": str(row["id"]),
