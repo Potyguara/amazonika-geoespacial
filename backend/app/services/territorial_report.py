@@ -215,6 +215,11 @@ def _draw_geometry(
     geom_type = geometry.get("type")
     coordinates = geometry.get("coordinates") or []
 
+    if geom_type == "GeometryCollection":
+        for part in geometry.get("geometries") or []:
+            _draw_geometry(draw, part, project, outline=outline, fill=fill, width=width)
+        return
+
     if geom_type == "Point":
         x, y = project(coordinates)
         r = 8
@@ -744,6 +749,23 @@ def build_analysis_map(
                 }
             )
 
+    # Draw every individual intersecting feature from the frozen snapshot.
+    # ST_Collect/ST_Intersection may return GeometryCollection; supported by
+    # _draw_geometry above. For maps, the full geometries provide context and
+    # the intersected parts are shaded separately.
+    detailed_map = []
+    for result in snapshot["results"]:
+        if not result.get("intersects"):
+            continue
+        for feature in result.get("features") or []:
+            detailed_map.append({
+                "source_name": result["source_name"],
+                "name": feature.get("name") or feature.get("external_id") or "",
+                "index": feature.get("index"),
+                "geometry": feature.get("geometry"),
+                "intersection": feature.get("intersection_geometry"),
+            })
+
     # O enquadramento é determinado pelo buffer do imóvel, e não
     # somente pela extensão das áreas efetivamente sobrepostas.
     bbox = _bbox([extent_geometry])
@@ -843,6 +865,15 @@ def build_analysis_map(
             width=2,
         )
 
+    # Full parcel perimeters (thin gray-blue) and their exact overlap
+    # with the analyzed property (red). Draw these after aggregate contexts.
+    for feature in detailed_map:
+        if feature.get("geometry"):
+            _draw_geometry(
+                draw, feature["geometry"], project,
+                outline="#526b81", fill=None, width=3,
+            )
+
     # Sobreposição exata: somente a parcela da feição que realmente
     # intersecta a geometria analisada recebe preenchimento forte.
     for item in overlaps:
@@ -857,6 +888,13 @@ def build_analysis_map(
             fill=fill,
             width=4,
         )
+
+    for feature in detailed_map:
+        if feature.get("intersection"):
+            _draw_geometry(
+                draw, feature["intersection"], project,
+                outline="#c02c35", fill="#ed677680", width=5,
+            )
 
     _draw_geometry(
         draw,
