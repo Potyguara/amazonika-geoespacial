@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
   TriangleAlert,
 } from "lucide-react";
 
@@ -56,6 +57,7 @@ export function AnalysesModule() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadAnalyses = async () => {
     setLoading(true);
@@ -86,6 +88,34 @@ export function AnalysesModule() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const excludeAnalysis = async (item: AnalysisHistoryItem) => {
+    if (
+      !window.confirm(
+        `Excluir a análise "${item.name}" do histórico?\n\nOs relatórios já emitidos e seus códigos de verificação serão preservados.`,
+      )
+    ) return;
+
+    setDeletingId(item.id);
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/analyses/${item.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(
+          typeof body?.detail === "string" ? body.detail : "Não foi possível excluir a análise.",
+        );
+      }
+      setItems((existing) => existing.filter((row) => row.id !== item.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível excluir a análise.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -276,6 +306,19 @@ export function AnalysesModule() {
                       ODS SIGEF
                     </a>
                   </>
+                )}
+                {item.status !== "PROCESSING" && item.status !== "QUEUED" && (
+                  <button
+                    type="button"
+                    className="analyses-delete"
+                    disabled={deletingId !== null}
+                    onClick={() => void excludeAnalysis(item)}
+                    title="Excluir do histórico, preservando relatórios emitidos"
+                    aria-label={`Excluir análise ${item.name} do histórico`}
+                  >
+                    <Trash2 size={15} />
+                    {deletingId === item.id ? "Excluindo…" : "Excluir"}
+                  </button>
                 )}
               </div>
             </div>
