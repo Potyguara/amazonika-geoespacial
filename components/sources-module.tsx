@@ -2538,9 +2538,21 @@ export function SourcesModule() {
                   </dd>
                 </div>
                 <div>
-                  <dt>Última carga</dt>
+                  <dt>Última importação local</dt>
                   <dd>{formatDate(version?.imported_at)}</dd>
                 </div>
+                {version?.reference_date && (
+                  <div>
+                    <dt>Referência dos dados locais</dt>
+                    <dd>{new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${version.reference_date}T00:00:00Z`))}</dd>
+                  </div>
+                )}
+                {wms && (
+                  <div>
+                    <dt>Atualização do serviço WMS</dt>
+                    <dd>Não informada pelo serviço</dd>
+                  </div>
+                )}
                 <div>
                   <dt>Frequência</dt>
                   <dd>{formatFrequency(source.update_frequency)}</dd>
@@ -2548,7 +2560,7 @@ export function SourcesModule() {
                 {wms && (
                   <div>
                     <dt>Conexão oficial</dt>
-                    <dd className="source-wms-connected">WMS conectado</dd>
+                    <dd className="source-wms-connected">WMS configurado · consulte o teste de conexão</dd>
                   </div>
                 )}
                 {packageManaged && (
