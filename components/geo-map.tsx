@@ -60,6 +60,7 @@ interface GeoMapProps {
   incraUf: string;
   resetNonce?: number;
   analysisId?: string | null;
+  analysisPanelOpen?: boolean;
   restorePiece?: { id: string; snapshot: TechnicalPieceSnapshot; nonce: number } | null;
   onPieceSaved?: () => void;
   layers: Array<{
@@ -226,7 +227,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, restorePiece = null, onPieceSaved }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, analysisPanelOpen = false, restorePiece = null, onPieceSaved }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -1737,6 +1738,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const map = mapRef.current;
     if (!map) return;
 
+    let snapFetchController: AbortController | null = null;
     const refreshLayerSnapSource = () => {
       snapLayerSourceRef.current.clear();
       if (!snapLayersEnabled) return;
@@ -1769,6 +1771,42 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           imported += 1;
         }
       }
+
+      // WMS is raster imagery. Snapping requires actual WFS polygon geometry.
+      const useSigefWfs = layers.some((layer) =>
+        layer.enabled && layer.source === "INCRA" &&
+        layer.wmsGlobal && layer.wmsFixedLayer === "sigef_geo"
+      );
+      if (!useSigefWfs || (map.getView().getZoom() ?? 0) < 12) return;
+      const lower = toLonLat([extent[0], extent[1]], map.getView().getProjection());
+      const upper = toLonLat([extent[2], extent[3]], map.getView().getProjection());
+      const bbox = [lower[0], lower[1], upper[0], upper[1]];
+      if (bbox[2] - bbox[0] > 0.15 || bbox[3] - bbox[1] > 0.15) return;
+      snapFetchController?.abort();
+      const controller = new AbortController();
+      snapFetchController = controller;
+      const params = new URLSearchParams({
+        bbox: bbox.map((x) => x.toFixed(6)).join(","),
+        uf: incraUf,
+      });
+      void fetch(`${getApiUrl()}/sources/incra/sigef/snap?${params}`, {
+        signal: controller.signal, credentials: "include",
+      }).then(async (response) => {
+        if (!response.ok) throw new Error(`WFS Snap HTTP ${response.status}`);
+        return response.json();
+      }).then((payload) => {
+        if (controller.signal.aborted) return;
+        const features = new GeoJSON().readFeatures(payload, {
+          dataProjection: "EPSG:4326",
+          featureProjection: map.getView().getProjection(),
+        });
+        for (const feature of features) {
+          if (feature.getGeometry()) snapLayerSourceRef.current.addFeature(feature as Feature);
+        }
+      }).catch((error) => {
+        if (!controller.signal.aborted)
+          console.warn("SIGEF WFS Snap indisponível; raster WMS não é usado para Snap.", error);
+      });
     };
 
     if (snapSubjectRef.current) {
@@ -1813,18 +1851,19 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
     if (snapLayersEnabled) {
       map.on("moveend", refreshLayerSnapSource);
-      map.on("rendercomplete", refreshLayerSnapSource);
+      // No rendercomplete refresh: avoids a rerender/WFS request feedback loop.
     }
 
     return () => {
       if (snapLayersEnabled) {
         map.un("moveend", refreshLayerSnapSource);
-        map.un("rendercomplete", refreshLayerSnapSource);
+        snapFetchController?.abort();
       }
       if (subjectSnap) map.removeInteraction(subjectSnap);
       if (layerSnap) map.removeInteraction(layerSnap);
       if (snapSubjectRef.current === subjectSnap) snapSubjectRef.current = null;
       if (snapLayersRef.current === layerSnap) snapLayersRef.current = null;
+      snapFetchController?.abort();
       snapLayerSourceRef.current.clear();
     };
   }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive, layers, incraUf]);
@@ -2664,7 +2703,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         sigefAvailable={Boolean(analysisId)}
       />
 
-      {sourceRef.current.getFeatures().length > 0 && (
+      {!analysisPanelOpen && sourceRef.current.getFeatures().length > 0 && (
         <div className="geometry-metrics-card">
           <Ruler size={16} />
           <span>{geometryMetrics.areaHectares == null ? "Geometria pontual" : `${geometryMetrics.areaHectares.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha`}</span>
