@@ -2054,7 +2054,7 @@ def build_report_pdf(
                 colWidths=[12 * mm, 48 * mm, 29 * mm, 83 * mm],
             )
             table.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), green_1),
+                ("BACKGROUND", (0, 0), (-1, 0), green_2),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), sans_bold),
                 ("FONTSIZE", (0, 0), (-1, -1), 7),
