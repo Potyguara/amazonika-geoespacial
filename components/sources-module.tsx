@@ -1662,6 +1662,7 @@ export function SourcesModule() {
       {},
     ),
     [loading, setLoading] = useState(true),
+    [sigefCatalogueModified, setSigefCatalogueModified] = useState<string | null>(null),
     [syncing, setSyncing] = useState<string | null>(null),
     [editing, setEditing] = useState<Source | null>(null),
     [packageGroup, setPackageGroup] = useState<SourcePackageGroup | null>(null),
@@ -1723,6 +1724,19 @@ export function SourcesModule() {
         }),
       );
       setVersions(Object.fromEntries(pairs));
+      const nationalSigef = loaded.some((item) => item.slug === "incra-sigef-brasil");
+      if (nationalSigef) {
+        try {
+          const metadataResponse = await fetch(`${API_URL}/sources/incra/sigef/metadata`, { credentials: "include" });
+          const official = metadataResponse.ok ? await metadataResponse.json() : null;
+          setSigefCatalogueModified(
+            official?.available && typeof official.last_modified === "string"
+              ? official.last_modified : null
+          );
+        } catch {
+          setSigefCatalogueModified(null);
+        }
+      }
       setEditing((current) =>
         current
           ? (loaded.find((source) => source.id === current.id) ?? null)
@@ -2549,8 +2563,10 @@ export function SourcesModule() {
                 )}
                 {wms && (
                   <div>
-                    <dt>Atualização do serviço WMS</dt>
-                    <dd>Não informada pelo serviço</dd>
+                    <dt>{source.slug === "incra-sigef-brasil" ? "Última modificação no catálogo GeoNode" : "Atualização do serviço WMS"}</dt>
+                    <dd>{source.slug === "incra-sigef-brasil" && sigefCatalogueModified
+                      ? formatDate(sigefCatalogueModified)
+                      : "Não informada pelo serviço"}</dd>
                   </div>
                 )}
                 <div>
