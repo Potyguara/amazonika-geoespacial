@@ -21,6 +21,7 @@ from app.services.auth import require_permission
 from app.services.importer import import_geopackage,import_vector_file,synchronize_source_data,sync_arcgis_bbox,sync_incra_wfs_bbox,sync_sicar_wfs_bbox
 from app.services.package_importer import ALLOWED_PACKAGE_GROUPS,import_package,inspect_package,package_sources
 from app.services.sigef_geonode_metadata import get_sigef_catalogue_metadata
+from app.services.sigef_geonode_wfs import fetch_sigef_geojson,validate_bbox
 
 router=APIRouter(prefix="/sources",tags=["Fontes"],dependencies=[Depends(require_permission("sources.view"))])
 INCRA_UFS={"ac":"Acre","al":"Alagoas","ap":"Amapá","am":"Amazonas","ba":"Bahia","ce":"Ceará","df":"Distrito Federal","es":"Espírito Santo","go":"Goiás","ma":"Maranhão","mt":"Mato Grosso","ms":"Mato Grosso do Sul","mg":"Minas Gerais","pa":"Pará","pb":"Paraíba","pr":"Paraná","pe":"Pernambuco","pi":"Piauí","rj":"Rio de Janeiro","rn":"Rio Grande do Norte","rs":"Rio Grande do Sul","ro":"Rondônia","rr":"Roraima","sc":"Santa Catarina","sp":"São Paulo","se":"Sergipe","to":"Tocantins"}
@@ -101,6 +102,19 @@ def official_sources_health(force:bool=False,db:Session=Depends(get_db)):
     payload={"summary":summary,"sources":results,"cache_seconds":300}
     _health_cache.update({"expires":time.monotonic()+300,"payload":payload})
     return payload
+
+@router.get("/incra/sigef/snap")
+def sigef_wfs_snap(bbox: str, uf: str = "AP"):
+    """Read-only bounded WFS edges for snapping. No national full download."""
+    try:
+        bounds = tuple(float(value) for value in bbox.split(","))
+        validate_bbox(bounds, max_span=0.15)
+        return fetch_sigef_geojson(bounds, uf, purpose="snap")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)[:200]) from exc
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise HTTPException(503, "SIGEF WFS indisponível para Snap. Tente novamente.") from exc
+
 
 @router.get("/incra/sigef/metadata")
 def sigef_geonode_metadata():
