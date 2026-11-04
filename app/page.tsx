@@ -1324,7 +1324,9 @@ export default function Home() {
                       <small>ANÁLISE ESPACIAL</small>
                       <strong>
                         {analysis
-                          ? `${overlaps.length} interferência${overlaps.length === 1 ? "" : "s"} encontrada${overlaps.length === 1 ? "" : "s"}`
+                          ? analysis.source_statuses?.some((item) => item.status === "FAILED" || item.status === "UNAVAILABLE")
+                            ? "Análise inconclusiva — fonte indisponível"
+                            : `${overlaps.length} interferência${overlaps.length === 1 ? "" : "s"} encontrada${overlaps.length === 1 ? "" : "s"}`
                           : subjectGeometry
                             ? "Geometria pronta para análise"
                             : "Desenhe ou importe uma geometria"}
@@ -1411,7 +1413,7 @@ export default function Home() {
                       ))}
                     </div>
                   )}
-                  {analysisDraftReady && analysis && overlaps.length === 0 && (
+                  {analysisDraftReady && analysis && overlaps.length === 0 && !analysis.source_statuses?.some((item) => item.status === "FAILED" || item.status === "UNAVAILABLE") && (
                     <p className="no-overlap">
                       Nenhuma sobreposição identificada nas bases carregadas.
                     </p>
