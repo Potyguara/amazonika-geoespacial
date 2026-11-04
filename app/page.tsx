@@ -59,6 +59,7 @@ type CatalogLayer = {
   wmsEnabled?: boolean;
   wmsTheme?: string;
   wmsFixedLayer?: string;
+  wmsGlobal?: boolean;
   wmsAvailableUfs?: string[];
   scopeUf?: string;
 };
@@ -513,6 +514,7 @@ export default function Home() {
                   typeof source.metadata_json?.wms_fixed_layer === "string"
                     ? source.metadata_json.wms_fixed_layer
                     : undefined,
+                wmsGlobal: source.metadata_json?.wms_global === true,
                 scopeUf:
                   typeof source.metadata_json?.scope_uf === "string"
                     ? source.metadata_json.scope_uf.toUpperCase()
@@ -1294,6 +1296,7 @@ export default function Home() {
                   incraUf={incraUf}
                   resetNonce={analysisResetNonce}
                   hideAdvancedTools={layerManagerOpen || analysisSessionOpen}
+                  analysisPanelOpen={analysisSessionOpen}
                   focusRequest={focusRequest}
                   onGeometryChange={geometryChanged}
                   layers={catalog.map((layer, index) => ({
@@ -1307,6 +1310,7 @@ export default function Home() {
                     wmsEnabled: layer.wmsEnabled,
                     wmsTheme: layer.wmsTheme,
                     wmsFixedLayer: layer.wmsFixedLayer,
+                    wmsGlobal: layer.wmsGlobal,
                     wmsAvailableUfs: layer.wmsAvailableUfs,
                   }))}
                 />
@@ -1320,7 +1324,9 @@ export default function Home() {
                       <small>ANÁLISE ESPACIAL</small>
                       <strong>
                         {analysis
-                          ? `${overlaps.length} interferência${overlaps.length === 1 ? "" : "s"} encontrada${overlaps.length === 1 ? "" : "s"}`
+                          ? analysis.source_statuses?.some((item) => item.status === "FAILED" || item.status === "UNAVAILABLE")
+                            ? "Análise inconclusiva — fonte indisponível"
+                            : `${overlaps.reduce((total, item) => total + (item.matched_features ?? 0), 0)} feição(ões) interferente(s) em ${overlaps.length} fonte(s)`
                           : subjectGeometry
                             ? "Geometria pronta para análise"
                             : "Desenhe ou importe uma geometria"}
@@ -1407,7 +1413,7 @@ export default function Home() {
                       ))}
                     </div>
                   )}
-                  {analysisDraftReady && analysis && overlaps.length === 0 && (
+                  {analysisDraftReady && analysis && overlaps.length === 0 && !analysis.source_statuses?.some((item) => item.status === "FAILED" || item.status === "UNAVAILABLE") && (
                     <p className="no-overlap">
                       Nenhuma sobreposição identificada nas bases carregadas.
                     </p>

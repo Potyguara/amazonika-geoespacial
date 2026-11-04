@@ -3813,6 +3813,16 @@ input {
   text-decoration: none;
 }
 
+.analyses-actions button.analyses-delete {
+  border-color: #f1cccc;
+  color: #a34141;
+  background: #fff8f8;
+}
+.analyses-actions button.analyses-delete:hover:not(:disabled) {
+  border-color: #d78f8f;
+  background: #fceaea;
+}
+
 .analyses-actions button:disabled {
   opacity: .45;
   cursor: not-allowed;

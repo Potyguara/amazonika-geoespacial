@@ -20,6 +20,8 @@ from app.schemas.catalog import SourceCreate,SourceRead,SourceUpdate,VersionRead
 from app.services.auth import require_permission
 from app.services.importer import import_geopackage,import_vector_file,synchronize_source_data,sync_arcgis_bbox,sync_incra_wfs_bbox,sync_sicar_wfs_bbox
 from app.services.package_importer import ALLOWED_PACKAGE_GROUPS,import_package,inspect_package,package_sources
+from app.services.sigef_geonode_metadata import get_sigef_catalogue_metadata
+from app.services.sigef_geonode_wfs import fetch_sigef_geojson,validate_bbox
 
 router=APIRouter(prefix="/sources",tags=["Fontes"],dependencies=[Depends(require_permission("sources.view"))])
 INCRA_UFS={"ac":"Acre","al":"Alagoas","ap":"Amapá","am":"Amazonas","ba":"Bahia","ce":"Ceará","df":"Distrito Federal","es":"Espírito Santo","go":"Goiás","ma":"Maranhão","mt":"Mato Grosso","ms":"Mato Grosso do Sul","mg":"Minas Gerais","pa":"Pará","pb":"Paraíba","pr":"Paraná","pe":"Pernambuco","pi":"Piauí","rj":"Rio de Janeiro","rn":"Rio Grande do Norte","rs":"Rio Grande do Sul","ro":"Rondônia","rr":"Roraima","sc":"Santa Catarina","sp":"São Paulo","se":"Sergipe","to":"Tocantins"}
@@ -51,7 +53,7 @@ def _write_large_upload(upload_id:str,meta:dict)->None:
 
 class OfficialOnlyRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
-        allowed={"acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
+        allowed={"acervofundiario.incra.gov.br","geonodeincra.serpro.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
         if (urlsplit(newurl).hostname or "").lower() not in allowed:
             raise HTTPError(newurl,code,"Redirecionamento externo bloqueado",headers,fp)
         return super().redirect_request(req,fp,code,msg,headers,newurl)
@@ -100,6 +102,24 @@ def official_sources_health(force:bool=False,db:Session=Depends(get_db)):
     payload={"summary":summary,"sources":results,"cache_seconds":300}
     _health_cache.update({"expires":time.monotonic()+300,"payload":payload})
     return payload
+
+@router.get("/incra/sigef/snap")
+def sigef_wfs_snap(bbox: str, uf: str = "AP"):
+    """Read-only bounded WFS edges for snapping. No national full download."""
+    try:
+        bounds = tuple(float(value) for value in bbox.split(","))
+        validate_bbox(bounds, max_span=0.15)
+        return fetch_sigef_geojson(bounds, uf, purpose="snap")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)[:200]) from exc
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise HTTPException(503, "SIGEF WFS indisponível para Snap. Tente novamente.") from exc
+
+
+@router.get("/incra/sigef/metadata")
+def sigef_geonode_metadata():
+    """Public catalogue timestamp, separate from local vector import date."""
+    return get_sigef_catalogue_metadata()
 
 @router.get("/incra/catalog")
 def incra_wms_catalog(db:Session=Depends(get_db)):
@@ -1189,9 +1209,23 @@ def update_source(source_id:UUID,payload:SourceUpdate,db:Session=Depends(get_db)
     if not source: raise HTTPException(404,"Fonte não encontrada.")
     changes=payload.model_dump(exclude_unset=True,mode="json")
     metadata=dict(source.metadata_json or {})
-    for field in ("portal_url","requires_auth","access_mode","service_role","wms_url","wms_layer","wms_urls","wms_available_ufs","wms_enabled","allow_insecure_tls","stale_after_days"):
+    for field in ("portal_url","requires_auth","access_mode","service_role","wms_url","wms_layer","wms_fixed_layer","wms_global","wms_urls","wms_available_ufs","wms_enabled","allow_insecure_tls","stale_after_days"):
         if field in changes: metadata[field]=changes.pop(field)
     for field,value in changes.items(): setattr(source,field,value)
+
+    # GeoNode SIGEF nacional publica uma camada fixa, sem sufixo estadual.
+    # Não altera versões vetoriais já importadas no catálogo.
+    if source.institution.upper() == "INCRA" and metadata.get("wms_global"):
+        layer = str(metadata.get("wms_fixed_layer") or "").strip()
+        parsed_wms = urlsplit(str(metadata.get("wms_url") or ""))
+        if not layer or parsed_wms.scheme != "https" or parsed_wms.hostname != "geonodeincra.serpro.gov.br":
+            raise HTTPException(422, "SIGEF nacional exige camada fixa e URL HTTPS do GeoNode INCRA.")
+        metadata["wms_theme"] = layer
+        metadata["wms_layer"] = layer
+        metadata["wms_available_ufs"] = []
+        metadata["wms_urls"] = {}
+        metadata["allow_insecure_tls"] = False
+        metadata["allow_legacy_tls"] = False
 
     # SICAR e SPU oficiais podem manter WMS como referência visual, mas
     # nunca devem acionar WFS/ArcGIS sob demanda nem TLS legado para a
@@ -1232,13 +1266,13 @@ def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     theme=str(metadata.get("wms_theme") or "").strip()
     fixed_layer=str(metadata.get("wms_fixed_layer") or "").strip()
     state_urls=dict(metadata.get("wms_urls") or {})
-    available_ufs=set(metadata.get("wms_available_ufs") or state_urls.keys())
+    available_ufs=set() if metadata.get("wms_global") else set(metadata.get("wms_available_ufs") or state_urls.keys())
     if available_ufs and requested_uf not in available_ufs:
         raise HTTPException(404,f"A camada {source_name} não está publicada pelo INCRA para {requested_uf.upper()}.")
     incra_url=f"http://acervofundiario.incra.gov.br/i3geo/ogc.php?tema={theme}_{requested_uf}"
     raw_url=str(state_urls.get(requested_uf) or (incra_url if source_institution=="INCRA" and theme and not fixed_layer else metadata.get("wms_url") or ""))
     parsed=urlsplit(raw_url)
-    allowed_hosts={"acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
+    allowed_hosts={"acervofundiario.incra.gov.br","geonodeincra.serpro.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
     if parsed.scheme not in ("http","https") or (parsed.hostname or "").lower() not in allowed_hosts:
         raise HTTPException(400,"O proxy aceita somente os domínios oficiais configurados.")
     incoming=[(key,value) for key,value in request.query_params.multi_items() if key!="uf"]

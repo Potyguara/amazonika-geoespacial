@@ -16,6 +16,44 @@ from geoalchemy2.shape import from_shape
 from sqlalchemy import insert, update
 from sqlalchemy.orm import Session
 from app.models.catalog import GeoFeature, Source, SourceVersion
+from app.services.sigef_geonode_wfs import fetch_sigef_frame
+
+def sync_sigef_geonode_bbox(db: Session, source: Source, uf: str | None, bounds: tuple[float, float, float, float], cache_key: str) -> SourceVersion:
+    """Store a bounded, non-current WFS snapshot only for one analysis.
+
+    NEVER overwrite the national local snapshot or silently fall back to
+    outdated vectors when an official WFS request fails.
+    """
+    from datetime import timedelta
+    from sqlalchemy import select
+    marker = f"GEONODE_SIGEF:{cache_key}"
+    recent = datetime.now(timezone.utc) - timedelta(minutes=15)
+    cached = db.scalar(
+        select(SourceVersion).where(
+            SourceVersion.source_id == source.id,
+            SourceVersion.original_filename == marker,
+            SourceVersion.status == "READY",
+            SourceVersion.imported_at >= recent,
+        ).order_by(SourceVersion.imported_at.desc()).limit(1)
+    )
+    if cached:
+        return cached
+    # Fetch first: transient upstream errors must not create misleading versions.
+    frame = fetch_sigef_frame(bounds, uf)
+    version = _create_version(db, source, None, checksum=cache_key, original_filename=marker)
+    try:
+        if frame.empty:
+            return _mark_empty_version(db, source, version, activate=False)
+        return _persist_frame(db, source, version, frame, activate=False)
+    except Exception as exc:
+        db.rollback()
+        failed = db.get(SourceVersion, version.id)
+        if failed:
+            failed.status = "FAILED"
+            failed.error_message = str(exc)[:2000]
+            db.commit()
+        raise
+
 
 def sync_incra_wfs_bbox(db:Session,source:Source,uf:str,bounds:tuple[float,float,float,float],cache_key:str)->SourceVersion:
     metadata=dict(source.metadata_json or {})

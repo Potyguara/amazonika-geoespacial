@@ -60,6 +60,7 @@ interface GeoMapProps {
   incraUf: string;
   resetNonce?: number;
   analysisId?: string | null;
+  analysisPanelOpen?: boolean;
   restorePiece?: { id: string; snapshot: TechnicalPieceSnapshot; nonce: number } | null;
   onPieceSaved?: () => void;
   layers: Array<{
@@ -73,6 +74,7 @@ interface GeoMapProps {
     wmsEnabled?: boolean;
     wmsTheme?: string;
     wmsFixedLayer?: string;
+    wmsGlobal?: boolean;
     wmsAvailableUfs?: string[];
   }>;
 }
@@ -187,6 +189,13 @@ function officialStyle(color: string) {
   return officialStyleCache.get(color)!;
 }
 
+const SIGEF_UF_IBGE: Record<string, number> = {
+  AC: 12, AL: 27, AP: 16, AM: 13, BA: 29, CE: 23, DF: 53,
+  ES: 32, GO: 52, MA: 21, MT: 51, MS: 50, MG: 31, PA: 15,
+  PB: 25, PR: 41, PE: 26, PI: 22, RJ: 33, RN: 24, RS: 43,
+  RO: 11, RR: 14, SC: 42, SP: 35, SE: 28, TO: 17,
+};
+
 const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   AC: { center: [-70.3, -9.0], zoom: 6.4 },
   AL: { center: [-36.6, -9.6], zoom: 7.6 },
@@ -218,7 +227,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, restorePiece = null, onPieceSaved }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, analysisPanelOpen = false, restorePiece = null, onPieceSaved }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -272,6 +281,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [officialCount, setOfficialCount] = useState(0);
   const [snapSubjectEnabled, setSnapSubjectEnabled] = useState(true);
   const [snapLayersEnabled, setSnapLayersEnabled] = useState(false);
+  const [sigefSnapStatus, setSigefSnapStatus] = useState<string | null>(null);
   const [advancedPanel, setAdvancedPanel] = useState<"coordinates" | "snap" | "basemap" | "memorial" | "polygons" | null>(null);
   const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; confrontants: string[]; altitudes: string[]; areaHa: number; perimeterM: number }>>([]);
   const [selectedPolygonIds, setSelectedPolygonIds] = useState<string[]>([]);
@@ -1372,8 +1382,71 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         return;
       }
 
-      // WMS é somente referência visual. A ferramenta Identificar
-      // trabalha exclusivamente com geometrias vetoriais presentes no PostGIS.
+      // Fallback 2: dados da camada WMS oficial, quando a parcela não
+      // está identificável no snapshot local. Não converte imagem em vetor.
+      const wmsCandidates = enabledLayers.filter((layer) =>
+        layer.wmsEnabled && layer.wmsFixedLayer && layer.id &&
+        wmsLayersRef.current.has(layer.id)
+      );
+      if (wmsCandidates.length > 0) {
+        setIdentifyLoadingMessage("Consultando atributos oficiais via WMS…");
+        for (const candidate of wmsCandidates) {
+          const imageSource = wmsLayersRef.current.get(candidate.id!)?.getSource();
+          const infoUrl = imageSource?.getFeatureInfoUrl(
+            event.coordinate,
+            map.getView().getResolution() ?? 1,
+            map.getView().getProjection(),
+            {
+              INFO_FORMAT: "application/json",
+              FEATURE_COUNT: 5,
+              QUERY_LAYERS: candidate.wmsFixedLayer!,
+            },
+          );
+          if (!infoUrl) continue;
+          try {
+            const response = await fetch(infoUrl, { credentials: "include" });
+            if (!response.ok || !(response.headers.get("content-type") ?? "").includes("json")) continue;
+            const payload = await response.json();
+            const features = Array.isArray(payload?.features) ? payload.features : [];
+            if (features.length === 0) continue;
+            const attrs = features[0]?.properties ?? {};
+            let catalogueModified: string | null = null;
+            if (candidate.wmsFixedLayer === "sigef_geo") {
+              try {
+                const infoResponse = await fetch(
+                  `${getApiUrl()}/sources/incra/sigef/metadata`,
+                  { credentials: "include" },
+                );
+                const metadata = infoResponse.ok ? await infoResponse.json() : null;
+                if (metadata?.available && typeof metadata.last_modified === "string") {
+                  const parsed = new Date(metadata.last_modified);
+                  if (!Number.isNaN(parsed.getTime())) {
+                    catalogueModified = new Intl.DateTimeFormat("pt-BR", {
+                      dateStyle: "short", timeStyle: "short",
+                      timeZone: "America/Belem",
+                    }).format(parsed);
+                  }
+                }
+              } catch { /* Metadados indisponíveis não impedem a identificação */ }
+            }
+            setIdentifiedFeature({
+              title: String(attrs.nome ?? attrs.nome_imovel ?? attrs.codigo ?? features[0]?.id ?? "Parcela SIGEF"),
+              layer: candidate.name + " · WMS oficial",
+              attributes: [
+                ["origem_consulta", "GeoNode INCRA — GetFeatureInfo"],
+                ...(candidate.wmsFixedLayer === "sigef_geo"
+                  ? [["Última modificação no catálogo GeoNode", catalogueModified ?? "Não informada"] as [string, unknown]]
+                  : []),
+                ...Object.entries(attrs).filter(([key]) => key !== "geometry"),
+              ],
+            });
+            setIdentifyLoading(false);
+            return;
+          } catch (error) {
+            console.warn("GetFeatureInfo indisponível para esta camada WMS.", error);
+          }
+        }
+      }
       setIdentifyLoading(false);
       setIdentifiedFeature(null);
     };
@@ -1449,6 +1522,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       // ou no Brasil inteiro. O próprio endpoint MVT aplica o filtro
       // estadual quando uma UF específica é selecionada.
       const tileUf = incraUf === "ALL" ? "all" : incraUf.toLowerCase();
+      // Não desenhar duas vezes a mesma fonte SIGEF quando o WMS
+      // nacional estiver ativo. O PostGIS continua disponível para
+      // identificação, análises espaciais e consulta de atributos.
+      if (layer.source === "INCRA" && layer.wmsGlobal && layer.wmsEnabled &&
+          layer.wmsFixedLayer === "sigef_geo") continue;
       desiredVectorTiles.add(layer.id);
 
       const existingVectorTile = vectorTileLayersRef.current.get(layer.id);
@@ -1508,21 +1586,21 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       if (!layer.id || !layer.enabled || !layer.wmsEnabled || !layer.wmsTheme)
         continue;
 
-      // O WMS do INCRA apresenta instabilidade/502 em diversas UFs.
-      // Durante a navegação usamos o MVT local para não bloquear o mapa.
-      if (layer.source === "INCRA")
+      // Preserve the local INCRA MVT fallback. Only explicitly configured
+      // national GeoNode layers may use remote WMS alongside local vectors.
+      if (layer.source === "INCRA" && !(layer.wmsGlobal && layer.wmsFixedLayer))
         continue;
 
       const requiresSpecificUf =
-        layer.source === "INCRA" ||
+        !layer.wmsGlobal && (layer.source === "INCRA" ||
         layer.source === "SICAR" ||
-        Boolean(layer.wmsAvailableUfs?.length);
+        Boolean(layer.wmsAvailableUfs?.length));
 
       if (incraUf === "ALL" && requiresSpecificUf)
         continue;
       if (
         incraUf !== "ALL" &&
-        layer.wmsAvailableUfs?.length &&
+        !layer.wmsGlobal && layer.wmsAvailableUfs?.length &&
         !layer.wmsAvailableUfs.includes(incraUf.toUpperCase())
       )
         continue;
@@ -1536,15 +1614,29 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         layer.wmsFixedLayer ?? `${layer.wmsTheme}_${ufSuffix}`;
       const url =
         `${getApiUrl()}/sources/${layer.id}/wms?uf=${effectiveUf.toLowerCase()}`;
+      // GeoServer aplica CQL_FILTER no próprio GetMap. O valor uf_id
+      // precisa ser confirmado contra WFS para garantir que corresponde
+      // ao código IBGE de cada estado antes de implantar.
+      const sigefNationwide = layer.source === "INCRA" &&
+        layer.wmsGlobal && layerName === "sigef_geo";
+      const stateCode = incraUf !== "ALL" ? SIGEF_UF_IBGE[incraUf] : undefined;
+      const cql = sigefNationwide
+        ? (stateCode != null ? `uf_id=${stateCode}` : "INCLUDE")
+        : undefined;
       const existing = wmsLayersRef.current.get(layer.id);
       if (existing) {
-        existing.getSource()?.setUrl(url);
-        existing.getSource()?.updateParams({ LAYERS: layerName });
+        const imageSource = existing.getSource();
+        if (imageSource?.getUrl() !== url) imageSource?.setUrl(url);
+        imageSource?.updateParams({
+          LAYERS: layerName,
+          ...(sigefNationwide ? { CQL_FILTER: cql } : {}),
+        });
       } else {
         const imageSource = new ImageWMS({
           url,
           params: {
             LAYERS: layerName,
+            ...(cql ? { CQL_FILTER: cql } : {}),
             VERSION: "1.1.1",
             FORMAT: "image/png",
             TRANSPARENT: true,
@@ -1647,6 +1739,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const map = mapRef.current;
     if (!map) return;
 
+    let snapFetchController: AbortController | null = null;
     const refreshLayerSnapSource = () => {
       snapLayerSourceRef.current.clear();
       if (!snapLayersEnabled) return;
@@ -1679,6 +1772,53 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           imported += 1;
         }
       }
+
+      // WMS is raster imagery. Snapping requires actual WFS polygon geometry.
+      const useSigefWfs = layers.some((layer) =>
+        layer.enabled && layer.source === "INCRA" &&
+        layer.wmsGlobal && layer.wmsFixedLayer === "sigef_geo"
+      );
+      if (!useSigefWfs) { setSigefSnapStatus(null); return; }
+      if ((map.getView().getZoom() ?? 0) < 12) {
+        setSigefSnapStatus("Aproxime o mapa para habilitar o Snap das parcelas SIGEF (zoom 12+).");
+        return;
+      }
+      const lower = toLonLat([extent[0], extent[1]], map.getView().getProjection());
+      const upper = toLonLat([extent[2], extent[3]], map.getView().getProjection());
+      const bbox = [lower[0], lower[1], upper[0], upper[1]];
+      if (bbox[2] - bbox[0] > 0.15 || bbox[3] - bbox[1] > 0.15) {
+        setSigefSnapStatus("Aproxime o mapa: área visível muito grande para Snap SIGEF.");
+        return;
+      }
+      snapFetchController?.abort();
+      const controller = new AbortController();
+      snapFetchController = controller;
+      setSigefSnapStatus("Carregando vértices SIGEF via WFS oficial…");
+      const params = new URLSearchParams({
+        bbox: bbox.map((x) => x.toFixed(6)).join(","),
+        uf: incraUf,
+      });
+      void fetch(`${getApiUrl()}/sources/incra/sigef/snap?${params}`, {
+        signal: controller.signal, credentials: "include",
+      }).then(async (response) => {
+        if (!response.ok) throw new Error(`WFS Snap HTTP ${response.status}`);
+        return response.json();
+      }).then((payload) => {
+        if (controller.signal.aborted) return;
+        const features = new GeoJSON().readFeatures(payload, {
+          dataProjection: "EPSG:4326",
+          featureProjection: map.getView().getProjection(),
+        });
+        for (const feature of features) {
+          if (feature.getGeometry()) snapLayerSourceRef.current.addFeature(feature as Feature);
+        }
+        setSigefSnapStatus(features.length ? `Snap SIGEF disponível: ${features.length} parcelas.` : "WFS respondeu sem parcelas nesta área.");
+      }).catch((error) => {
+        if (!controller.signal.aborted) {
+          setSigefSnapStatus("Snap SIGEF indisponível: WFS oficial não retornou geometrias.");
+          console.warn("SIGEF WFS Snap indisponível; raster WMS não é usado para Snap.", error);
+        }
+      });
     };
 
     if (snapSubjectRef.current) {
@@ -1723,18 +1863,19 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
     if (snapLayersEnabled) {
       map.on("moveend", refreshLayerSnapSource);
-      map.on("rendercomplete", refreshLayerSnapSource);
+      // No rendercomplete refresh: avoids a rerender/WFS request feedback loop.
     }
 
     return () => {
       if (snapLayersEnabled) {
         map.un("moveend", refreshLayerSnapSource);
-        map.un("rendercomplete", refreshLayerSnapSource);
+        snapFetchController?.abort();
       }
       if (subjectSnap) map.removeInteraction(subjectSnap);
       if (layerSnap) map.removeInteraction(layerSnap);
       if (snapSubjectRef.current === subjectSnap) snapSubjectRef.current = null;
       if (snapLayersRef.current === layerSnap) snapLayersRef.current = null;
+      snapFetchController?.abort();
       snapLayerSourceRef.current.clear();
     };
   }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive, layers, incraUf]);
@@ -2382,6 +2523,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <label><input type="checkbox" checked={snapSubjectEnabled} onChange={(event) => setSnapSubjectEnabled(event.target.checked)} /><span>Vértices e arestas da geometria em edição</span></label>
           <label><input type="checkbox" checked={snapLayersEnabled} onChange={(event) => setSnapLayersEnabled(event.target.checked)} /><span>Camadas vetoriais carregadas no mapa</span></label>
           <small>O Snap pode ser ativado ou desligado a qualquer momento durante desenho e edição.</small>
+          {snapLayersEnabled && sigefSnapStatus && <small role="status">{sigefSnapStatus}</small>}
         </aside>
       )}
 
@@ -2574,7 +2716,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         sigefAvailable={Boolean(analysisId)}
       />
 
-      {sourceRef.current.getFeatures().length > 0 && (
+      {!analysisPanelOpen && sourceRef.current.getFeatures().length > 0 && (
         <div className="geometry-metrics-card">
           <Ruler size={16} />
           <span>{geometryMetrics.areaHectares == null ? "Geometria pontual" : `${geometryMetrics.areaHectares.toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha`}</span>

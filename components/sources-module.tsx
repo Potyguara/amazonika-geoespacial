@@ -100,6 +100,7 @@ function SourceSettingsDialog({
   const [wmsUrl, setWmsUrl] = useState(""),
     [wmsLayer, setWmsLayer] = useState(""),
     [wmsEnabled, setWmsEnabled] = useState(false),
+    [wmsGlobal, setWmsGlobal] = useState(false),
     [allowLegacy, setAllowLegacy] = useState(false);
   const [file, setFile] = useState<File | null>(null),
     [referenceDate, setReferenceDate] = useState(
@@ -125,7 +126,8 @@ function SourceSettingsDialog({
     setLayerName(source.layer_name ?? "");
     setFrequency(source.update_frequency ?? "MENSAL");
     setWmsUrl(String(source.metadata_json.wms_url ?? ""));
-    setWmsLayer(String(source.metadata_json.wms_layer ?? ""));
+    setWmsLayer(String(source.metadata_json.wms_fixed_layer ?? source.metadata_json.wms_layer ?? ""));
+    setWmsGlobal(Boolean(source.metadata_json.wms_global));
     setWmsEnabled(Boolean(source.metadata_json.wms_enabled));
     setAllowLegacy(
       isIncra && Boolean(source.metadata_json.allow_insecure_tls),
@@ -143,6 +145,15 @@ function SourceSettingsDialog({
     setWmsTest(null);
     setError(null);
     try {
+      // The proxy uses persisted source settings; testing unsaved edits would
+      // silently probe the previous URL/layer and produce misleading results.
+      if (
+        wmsUrl.trim() !== String(source.metadata_json.wms_url ?? "").trim() ||
+        wmsLayer.trim() !== String(source.metadata_json.wms_fixed_layer ?? source.metadata_json.wms_layer ?? "").trim() ||
+        (isIncra && wmsGlobal !== Boolean(source.metadata_json.wms_global))
+      ) {
+        throw new Error("Salve a configuração antes de testar o novo endereço e a camada WMS.");
+      }
       const params = new URLSearchParams({
         uf: "ap",
         service: "WMS",
@@ -151,19 +162,25 @@ function SourceSettingsDialog({
       });
       const response = await fetch(
         `${API_URL}/sources/${source.id}/wms?${params}`,
+        { credentials: "include" },
       );
       const body = await response.text();
       if (!response.ok) {
-        let detail = body;
-        try {
-          detail = JSON.parse(body)?.detail ?? body;
-        } catch {
-          /* resposta textual */
+        let detail = "O proxy WMS não respondeu (HTTP " + response.status + ").";
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          try {
+            const parsed = JSON.parse(body);
+            if (typeof parsed?.detail === "string") detail = parsed.detail.slice(0, 250);
+          } catch { /* mantém mensagem segura */ }
         }
-        throw new Error(detail || "O servidor WMS não respondeu.");
+        if (response.status === 502) {
+          detail = "Falha na conexão com o WMS (HTTP 502). Verifique a API e o serviço oficial.";
+        }
+        throw new Error(detail);
       }
       const expected = String(
-        source.metadata_json.wms_theme ?? wmsLayer,
+        source.metadata_json.wms_fixed_layer || source.metadata_json.wms_theme || wmsLayer,
       ).toLowerCase();
       if (
         !/WMT_MS_Capabilities|WMS_Capabilities/i.test(body) ||
@@ -199,6 +216,8 @@ function SourceSettingsDialog({
             update_frequency: frequency,
             wms_url: wmsUrl || null,
             wms_layer: wmsLayer || null,
+            wms_fixed_layer: wmsLayer || null,
+            wms_global: isIncra ? wmsGlobal : false,
             wms_enabled: wmsEnabled,
             allow_insecure_tls: isIncra ? allowLegacy : false,
             stale_after_days: 15,
@@ -499,6 +518,11 @@ function SourceSettingsDialog({
                     onCheckedChange={setWmsEnabled}
                   />
                 </div>
+                {isIncra && <div className="source-switch-field wide">
+                  <span>Camada nacional (sem sufixo por UF, como no GeoNode SIGEF)</span>
+                  <Switch className="source-config-switch" checked={wmsGlobal}
+                    onCheckedChange={setWmsGlobal}/>
+                </div>}
                 {isIncra && (
                   <div className="source-switch-field wide">
                     <span>
@@ -1638,6 +1662,7 @@ export function SourcesModule() {
       {},
     ),
     [loading, setLoading] = useState(true),
+    [sigefCatalogueModified, setSigefCatalogueModified] = useState<string | null>(null),
     [syncing, setSyncing] = useState<string | null>(null),
     [editing, setEditing] = useState<Source | null>(null),
     [packageGroup, setPackageGroup] = useState<SourcePackageGroup | null>(null),
@@ -1699,6 +1724,19 @@ export function SourcesModule() {
         }),
       );
       setVersions(Object.fromEntries(pairs));
+      const nationalSigef = loaded.some((item) => item.slug === "incra-sigef-brasil");
+      if (nationalSigef) {
+        try {
+          const metadataResponse = await fetch(`${API_URL}/sources/incra/sigef/metadata`, { credentials: "include" });
+          const official = metadataResponse.ok ? await metadataResponse.json() : null;
+          setSigefCatalogueModified(
+            official?.available && typeof official.last_modified === "string"
+              ? official.last_modified : null
+          );
+        } catch {
+          setSigefCatalogueModified(null);
+        }
+      }
       setEditing((current) =>
         current
           ? (loaded.find((source) => source.id === current.id) ?? null)
@@ -2514,9 +2552,23 @@ export function SourcesModule() {
                   </dd>
                 </div>
                 <div>
-                  <dt>Última carga</dt>
+                  <dt>Última importação local</dt>
                   <dd>{formatDate(version?.imported_at)}</dd>
                 </div>
+                {version?.reference_date && (
+                  <div>
+                    <dt>Referência dos dados locais</dt>
+                    <dd>{new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${version.reference_date}T00:00:00Z`))}</dd>
+                  </div>
+                )}
+                {wms && (
+                  <div>
+                    <dt>{source.slug === "incra-sigef-brasil" ? "Última modificação no catálogo GeoNode" : "Atualização do serviço WMS"}</dt>
+                    <dd>{source.slug === "incra-sigef-brasil" && sigefCatalogueModified
+                      ? formatDate(sigefCatalogueModified)
+                      : "Não informada pelo serviço"}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>Frequência</dt>
                   <dd>{formatFrequency(source.update_frequency)}</dd>
@@ -2524,7 +2576,7 @@ export function SourcesModule() {
                 {wms && (
                   <div>
                     <dt>Conexão oficial</dt>
-                    <dd className="source-wms-connected">WMS conectado</dd>
+                    <dd className="source-wms-connected">WMS configurado · consulte o teste de conexão</dd>
                   </div>
                 )}
                 {packageManaged && (

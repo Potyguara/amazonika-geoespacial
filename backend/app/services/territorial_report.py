@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from html import escape
 import io
 import json
 import math
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
+from shapely.geometry import shape as shapely_shape, box as shapely_box, mapping as shapely_mapping
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -214,6 +216,27 @@ def _draw_geometry(
 ):
     geom_type = geometry.get("type")
     coordinates = geometry.get("coordinates") or []
+
+    if geom_type == "GeometryCollection":
+        for part in geometry.get("geometries") or []:
+            _draw_geometry(draw, part, project, outline=outline, fill=fill, width=width)
+        return
+
+    if geom_type == "MultiPoint":
+        for point in coordinates:
+            _draw_geometry(
+                draw, {"type": "Point", "coordinates": point}, project,
+                outline=outline, fill=fill, width=width,
+            )
+        return
+
+    if geom_type in ("LineString", "MultiLineString"):
+        lines = [coordinates] if geom_type == "LineString" else coordinates
+        for line in lines:
+            points = [project(point) for point in line]
+            if len(points) > 1:
+                draw.line(points, fill=outline, width=width)
+        return
 
     if geom_type == "Point":
         x, y = project(coordinates)
@@ -535,6 +558,83 @@ def _result_rows(
     ).all()
 
 
+def _intersecting_features(
+    db: Session,
+    analysis_id: UUID,
+    version_id: UUID,
+    limit: int = 1500,
+) -> list[dict]:
+    """List individual intersecting geometries, not just a dissolved source total.
+
+    The query uses the same version and subject as the territorial analysis.
+    Both full parcels (map context) and clipped polygons (intersection shading)
+    are retained in the immutable report snapshot.
+    """
+    rows = db.execute(
+        text("""
+            WITH candidates AS (
+                SELECT g.id, g.external_id, g.name, g.properties,
+                       ST_Force2D(g.geom) AS geom, ST_Force2D(a.input_geom) AS area
+                FROM geo_features g JOIN analyses a ON a.id = :analysis_id
+                WHERE g.version_id = :version_id
+                  AND g.geom && a.input_geom
+                  AND ST_Intersects(g.geom, a.input_geom)
+                ORDER BY g.external_id NULLS LAST, g.id
+                LIMIT :limit
+            )
+            SELECT id, external_id, name, properties,
+                   ST_AsGeoJSON(geom) AS geometry,
+                   ST_AsGeoJSON(ST_Intersection(geom, area)) AS intersection,
+                   COALESCE(ST_Area(ST_Transform(
+                        ST_CollectionExtract(ST_Intersection(geom, area), 3),
+                        4326
+                   )::geography)/10000.0, 0) AS overlap_ha
+            FROM candidates
+        """),
+        {"analysis_id": analysis_id, "version_id": version_id, "limit": limit + 1},
+    ).mappings().all()
+    if len(rows) > limit:
+        raise ValueError(
+            f"A fonte possui mais de {limit} feições intersectantes. "
+            "Divida a área para emitir um relatório individualizado completo."
+        )
+    items = []
+    for index, row in enumerate(rows, start=1):
+        props = row["properties"] if isinstance(row["properties"], dict) else {}
+        # Retain relevant cadastral attributes; omit unrelated sensitive fields.
+        keys = (
+            "parcela_codigo", "codigo_imovel", "nome_area", "status",
+            "situacao_informada", "area_hectares", "uf_id", "municipio_id",
+            "registro_matricula", "data_aprovacao", "codigo", "nome",
+            "processo", "numero", "categoria", "classe", "tipo",
+        )
+        attrs = {key: str(props[key])[:180] for key in keys
+                 if props.get(key) not in (None, "")}
+        # Generic fallback for official datasets whose thematic attributes
+        # do not match the SIGEF naming convention.
+        private_names = {"cpf", "cnpj", "email", "telefone", "celular",
+                         "phone", "password", "senha", "token"}
+        for key, value in props.items():
+            if len(attrs) >= 12:
+                break
+            if key in attrs or key.lower() in private_names or value in (None, ""):
+                continue
+            if isinstance(value, (dict, list, tuple)):
+                continue
+            attrs[str(key)[:70]] = str(value)[:180]
+        items.append({
+            "index": index,
+            "feature_id": str(row["id"]),
+            "external_id": str(row["external_id"] or "")[:255],
+            "name": str(row["name"] or "")[:255],
+            "attributes": attrs,
+            "overlap_hectares": round(float(row["overlap_ha"] or 0), 6),
+            "geometry": json.loads(row["geometry"]),
+            "intersection_geometry": json.loads(row["intersection"]),
+        })
+    return items
+
+
 def _snapshot(
     db: Session,
     analysis: Analysis,
@@ -577,6 +677,10 @@ def _snapshot(
                 "access_mode": (result.details or {}).get(
                     "access_mode",
                     "LOCAL_VECTOR",
+                ),
+                "features": (
+                    _intersecting_features(db, analysis.id, version.id)
+                    if result.intersects else []
                 ),
             }
         )
@@ -674,6 +778,23 @@ def build_analysis_map(
                     "color": color,
                 }
             )
+
+    # Draw every individual intersecting feature from the frozen snapshot.
+    # ST_Collect/ST_Intersection may return GeometryCollection; supported by
+    # _draw_geometry above. For maps, the full geometries provide context and
+    # the intersected parts are shaded separately.
+    detailed_map = []
+    for result in snapshot["results"]:
+        if not result.get("intersects"):
+            continue
+        for feature in result.get("features") or []:
+            detailed_map.append({
+                "source_name": result["source_name"],
+                "name": feature.get("name") or feature.get("external_id") or "",
+                "index": feature.get("index"),
+                "geometry": feature.get("geometry"),
+                "intersection": feature.get("intersection_geometry"),
+            })
 
     # O enquadramento é determinado pelo buffer do imóvel, e não
     # somente pela extensão das áreas efetivamente sobrepostas.
@@ -774,6 +895,23 @@ def build_analysis_map(
             width=2,
         )
 
+    # Full parcel perimeters (thin gray-blue) and their exact overlap
+    # with the analyzed property (red). Draw these after aggregate contexts.
+    map_window = shapely_box(*bbox)
+    for feature in detailed_map:
+        if feature.get("geometry"):
+            try:
+                clipped = shapely_shape(feature["geometry"]).intersection(map_window)
+                if clipped.is_empty:
+                    continue
+                _draw_geometry(
+                    draw, shapely_mapping(clipped), project,
+                    outline="#526b81", fill=None, width=3,
+                )
+            except Exception:
+                # Do not draw malformed/unclipped features outside the map frame.
+                continue
+
     # Sobreposição exata: somente a parcela da feição que realmente
     # intersecta a geometria analisada recebe preenchimento forte.
     for item in overlaps:
@@ -789,6 +927,13 @@ def build_analysis_map(
             width=4,
         )
 
+    for feature in detailed_map:
+        if feature.get("intersection"):
+            _draw_geometry(
+                draw, feature["intersection"], project,
+                outline="#c02c35", fill="#ed677680", width=5,
+            )
+
     _draw_geometry(
         draw,
         subject,
@@ -797,6 +942,23 @@ def build_analysis_map(
         fill="#1d9a6650",
         width=7,
     )
+    # Number each highlighted polygon to match the individual report table.
+    for feature in detailed_map[:40]:
+        try:
+            clipped = shapely_shape(feature["intersection"])
+            if clipped.is_empty:
+                continue
+            marker = clipped.representative_point()
+            cx, cy = project((marker.x, marker.y))
+            label = str(feature.get("index") or "")
+            if not label:
+                continue
+            draw.ellipse((cx-13, cy-13, cx+13, cy+13),
+                         fill="#ffffff", outline="#a72936", width=3)
+            draw.text((cx-5, cy-8), label, font=_font(15, True),
+                      fill="#a72936")
+        except Exception:
+            continue
 
     # Norte
     north_x = map_right - 65
@@ -908,6 +1070,14 @@ def build_analysis_map(
         )
 
         legend_y += 30
+
+    if detailed_map:
+        draw.text(
+            (55, min(legend_y + 12, 995)),
+            "Numeracao das parcelas: consulte a tabela individual no relatorio",
+            font=small_font,
+            fill="#566d64",
+        )
 
     result_count = sum(
         1
@@ -1247,7 +1417,7 @@ def build_report_pdf(
         if row.get("status") == "ANALYZED"
     )
     overlap_count = sum(
-        1 for row in execution_rows
+        int(row.get("matched_features") or 0) for row in execution_rows
         if row.get("status") == "ANALYZED"
         and row.get("intersects") is True
     )
@@ -1778,6 +1948,26 @@ def build_report_pdf(
         result_bg = red_light
         result_color = red
         result_title = "INTERFERÊNCIAS IDENTIFICADAS"
+    elif alert_count > 0:
+        conclusion = (
+            f"A análise não pôde consultar {alert_count} de {expected_count} "
+            "fonte(s) selecionada(s). Não é tecnicamente possível concluir "
+            "ausência de interferência em fontes indisponíveis. "
+            "Repita a análise após restabelecer a consulta oficial. "
+            "Resultados de fontes efetivamente analisadas permanecem "
+            "registrados nas seções anteriores."
+        )
+        result_bg = amber_light
+        result_color = amber
+        result_title = "ANÁLISE INCONCLUSIVA — FONTES INDISPONÍVEIS"
+    elif analyzed_count == 0:
+        conclusion = (
+            "Nenhuma base territorial foi efetivamente analisada. "
+            "Não é possível atestar presença ou ausência de sobreposição."
+        )
+        result_bg = amber_light
+        result_color = amber
+        result_title = "ANÁLISE INCONCLUSIVA — SEM BASES CONSULTADAS"
     else:
         conclusion = (
             "Não foram identificadas sobreposições espaciais entre a "
@@ -1874,6 +2064,72 @@ def build_report_pdf(
         )
 
         story.append(overlap_tbl)
+
+        story.append(Spacer(1, 5 * mm))
+        story.append(Paragraph(
+            "5.1. DETALHAMENTO INDIVIDUAL DAS FEIÇÕES INTERFERENTES",
+            styles["AmazonikaSection"],
+        ))
+        story.append(Paragraph(
+            "As áreas individuais correspondem à interseção de cada feição "
+            "com a área analisada. Quando as feições se sobrepõem entre si, "
+            "a soma das áreas individuais pode superar a área única "
+            "informada no resumo por fonte.",
+            styles["AmazonikaBody"],
+        ))
+        for source_row in overlaps:
+            features = source_row.get("features") or []
+            if not features:
+                raise ValueError(
+                    "Não foi possível obter o detalhamento das feições "
+                    f"da fonte {source_row.get('source_name')}. "
+                    "A emissão individualizada foi interrompida."
+                )
+            story.append(Spacer(1, 3 * mm))
+            story.append(Paragraph(
+                escape(str(source_row.get("source_name") or "Fonte territorial")),
+                styles["AmazonikaSection"],
+            ))
+            feature_table = [[
+                "Nº", "Identificação", "Área (ha)", "% área", "Atributos da base",
+            ]]
+            for feature in features:
+                fields = feature.get("attributes") or {}
+                info = "; ".join(
+                    f"{key}: {str(value)}"
+                    for key, value in fields.items()
+                    if str(value).strip()
+                )
+                code = (
+                    feature.get("name") or feature.get("external_id")
+                    or feature.get("feature_id") or "—"
+                )
+                feature_table.append([
+                    str(feature.get("index") or "—"),
+                    Paragraph(escape(str(code)), styles["AmazonikaTable"]),
+                    _fmt_number(feature.get("overlap_hectares") or 0, 4),
+                    _fmt_number(
+                        100 * float(feature.get("overlap_hectares") or 0) /
+                        float(snapshot.get("area_hectares") or 1), 2,
+                    ) if snapshot.get("area_hectares") else "—",
+                    Paragraph(escape(info or "Sem atributos descritivos adicionais"),
+                              styles["AmazonikaTable"]),
+                ])
+            table = Table(
+                feature_table, repeatRows=1, hAlign="LEFT",
+                colWidths=[12 * mm, 42 * mm, 25 * mm, 19 * mm, 74 * mm],
+            )
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), green_2),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), sans_bold),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.25, green_line),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.append(table)
 
     # --------------------------------------------------------
     # ADVERTÊNCIAS SANITIZADAS

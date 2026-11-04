@@ -1,0 +1,107 @@
+"""Regression tests for live GeoNode SIGEF geometry retrieval."""
+import json
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
+
+from app.services import sigef_geonode_wfs as wfs
+
+
+class FakeResponse:
+    status = 200
+    headers = {"Content-Type": "application/json"}
+
+    def __init__(self, features):
+        self.data = json.dumps({"type": "FeatureCollection", "features": features}).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def read(self, count):
+        return self.data[:count]
+
+
+def fake_feature(uf_id=16):
+    return {
+        "type": "Feature",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[-51.1, -0.1], [-51.09, -0.1], [-51.09, -0.09], [-51.1, -0.1]]],
+        },
+        "properties": {"uf_id": uf_id, "parcela_codigo": "TESTE"},
+    }
+
+
+def test_live_wfs_ap_filters_ibge_locally_and_uses_verified_bbox_request(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        return FakeResponse([fake_feature()])
+
+    monkeypatch.setattr(wfs, "urlopen", fake_urlopen)
+    features = wfs.fetch_sigef_geojson((-51.2, -0.2, -51.0, 0.0), "AP", purpose="analysis")
+    query = parse_qs(urlsplit(captured["url"]).query)
+    assert "CQL_FILTER" not in query
+    assert "SRSNAME" not in query
+    assert query["BBOX"] == ["-51.2,-0.2,-51.0,0.0"]
+    assert query["TYPENAME"] == ["sigef_geo"]
+    assert len(features["features"]) == 1
+
+def test_local_uf_filter_removes_other_state_geometries(monkeypatch):
+    monkeypatch.setattr(wfs, "urlopen", lambda *args, **kwargs: FakeResponse([
+        fake_feature(16), fake_feature(15),
+    ]))
+    result = wfs.fetch_sigef_geojson((-51.2, -0.2, -51.0, 0.0), "AP", purpose="analysis")
+    assert len(result["features"]) == 1
+    assert result["features"][0]["properties"]["uf_id"] == 16
+
+
+
+def test_snap_rejects_large_bbox_before_network(monkeypatch):
+    monkeypatch.setattr(wfs, "urlopen", lambda *args, **kwargs: pytest.fail("network"))
+    with pytest.raises(ValueError, match="Área muito extensa"):
+        wfs.fetch_sigef_geojson((-52, -1, -51, 0), "AP", purpose="snap")
+
+
+def test_does_not_accept_truncated_feature_batch(monkeypatch):
+    monkeypatch.setattr(wfs, "urlopen", lambda *args, **kwargs: FakeResponse([fake_feature()] * 501))
+    with pytest.raises(ValueError, match="limite de feições"):
+        wfs.fetch_sigef_geojson((-51.1, -0.1, -51.09, -0.09), "AP", purpose="snap")
+
+
+def test_wfs_unavailable_is_not_silent_negative(monkeypatch):
+    def upstream_down(*args, **kwargs):
+        raise TimeoutError("INCRA indisponível")
+
+    monkeypatch.setattr(wfs, "urlopen", upstream_down)
+    with pytest.raises(TimeoutError):
+        wfs.fetch_sigef_geojson((-51.1, -0.1, -51.09, -0.09), "AP", purpose="analysis")
+
+
+def test_nationwide_query_omits_cql_filter(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        return FakeResponse([])
+
+    monkeypatch.setattr(wfs, "urlopen", fake_urlopen)
+    wfs.fetch_sigef_geojson((-51.1, -0.1, -51.09, -0.09), "ALL", purpose="analysis")
+    assert "CQL_FILTER" not in parse_qs(urlsplit(captured["url"]).query)
+
+
+def test_analysis_schema_accepts_all_states_without_accepting_invalid_uf():
+    from app.schemas.analysis import AnalysisRequest
+    from pydantic import ValidationError
+
+    base = {"name": "Teste nacional", "geometry": {
+        "type": "Point", "coordinates": [-51.1, -0.1]
+    }}
+    assert AnalysisRequest(**base, incra_uf="ALL").incra_uf == "ALL"
+    assert AnalysisRequest(**base, incra_uf="AP").incra_uf == "AP"
+    with pytest.raises(ValidationError):
+        AnalysisRequest(**base, incra_uf="ABCDEF")
