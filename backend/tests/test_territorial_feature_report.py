@@ -145,3 +145,52 @@ def test_map_export_contains_individual_parcel_outlines_and_overlaps(tmp_path, m
         pixels = list(image.crop((60, 140, 1540, 780)).getdata())
         reddish = sum(1 for r, g, b in pixels if r > 120 and r > g * 1.35 and r > b * 1.1)
         assert reddish > 100
+
+
+def test_pdf_smoke_renders_individual_feature_table(tmp_path):
+    from datetime import datetime, timezone
+    from app.services.territorial_report import build_report_pdf
+
+    now = datetime.now(timezone.utc).isoformat()
+    picture = tmp_path / "map.png"
+    Image.new("RGB", (1600, 1050), "white").save(picture)
+    snapshot = {
+        "tracking_code": "TESTE-PARCELAS",
+        "analysis_name": "Teste com duas parcelas",
+        "system": "Amazonika Geoespacial",
+        "area_hectares": 100.0,
+        "geometry_kind": "POLYGON",
+        "perimeter_meters": 4000.0,
+        "analysis_created_at": now,
+        "issued_at": now,
+        "executor": {"name": "Responsável Técnico"},
+        "issuer": {"name": "Responsável Técnico"},
+        "warnings": [],
+        "source_statuses": [],
+        "results": [{
+            "source_id": str(uuid4()),
+            "source_name": "SIGEF — Brasil",
+            "institution": "INCRA",
+            "source_version_id": str(uuid4()),
+            "intersects": True,
+            "matched_features": 2,
+            "overlap_hectares": 22.5,
+            "overlap_percent": 22.5,
+            "nearest_distance_meters": 0.0,
+            "reference_date": None,
+            "features": [{
+                "index": i,
+                "external_id": f"SIGEF-PARCELA-{i}",
+                "name": f"Parcela {i}",
+                "attributes": {"parcela_codigo": f"COD-{i}", "status": "TITULACAO"},
+                "overlap_hectares": 10.0 + i,
+                "geometry": _triangle(0),
+                "intersection_geometry": _triangle(0),
+            } for i in (1, 2)],
+        }],
+    }
+    pdf = tmp_path / "report.pdf"
+    build_report_pdf(snapshot, picture, pdf, "https://geo.amazonikaengenharia.com.br/test")
+    assert pdf.exists()
+    assert pdf.read_bytes().startswith(b"%PDF")
+    assert pdf.stat().st_size > 5000
