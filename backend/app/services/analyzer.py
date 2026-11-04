@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from app.models.analysis import Analysis, AnalysisResult
 from app.models.catalog import GeoFeature, Source, SourceVersion
-from app.services.importer import sync_arcgis_bbox,sync_incra_wfs_bbox,sync_sicar_wfs_bbox
+from app.services.importer import sync_arcgis_bbox,sync_incra_wfs_bbox,sync_sicar_wfs_bbox,sync_sigef_geonode_bbox
 from app.db.session import SessionLocal
 
 def _geography(geometry):
@@ -101,13 +101,17 @@ def run_analysis(db:Session,name:str,geometry:dict,source_ids:list[UUID]|None=No
 
         version=None
         access_mode="LOCAL_VECTOR"
-        if (metadata.get("wfs_on_demand") and incra_uf) or metadata.get("arcgis_on_demand"):
+        official_sigef = (source.slug == "incra-sigef-brasil" and metadata.get("wms_global") and metadata.get("wms_fixed_layer") == "sigef_geo")
+        if official_sigef or (metadata.get("wfs_on_demand") and incra_uf) or metadata.get("arcgis_on_demand"):
             minx,miny,maxx,maxy=subject.bounds
             pad=0.002 if subject.geom_type=="Point" else 0.0005
             bounds=(minx-pad,miny-pad,maxx+pad,maxy+pad)
             cache_key=hashlib.sha256(json.dumps({"uf":incra_uf.lower() if incra_uf else None,"bounds":[round(v,6) for v in bounds]},sort_keys=True).encode()).hexdigest()[:24]
             try:
-                if metadata.get("arcgis_on_demand"):
+                if official_sigef:
+                    version=sync_sigef_geonode_bbox(db,source,incra_uf,bounds,cache_key)
+                    access_mode="GEONODE_SIGEF_WFS_LIVE"
+                elif metadata.get("arcgis_on_demand"):
                     version=sync_arcgis_bbox(db,source,bounds,cache_key)
                     access_mode="ARCGIS_REST_ON_DEMAND"
                 elif source.institution=="SICAR":
