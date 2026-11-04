@@ -222,6 +222,22 @@ def _draw_geometry(
             _draw_geometry(draw, part, project, outline=outline, fill=fill, width=width)
         return
 
+    if geom_type == "MultiPoint":
+        for point in coordinates:
+            _draw_geometry(
+                draw, {"type": "Point", "coordinates": point}, project,
+                outline=outline, fill=fill, width=width,
+            )
+        return
+
+    if geom_type in ("LineString", "MultiLineString"):
+        lines = [coordinates] if geom_type == "LineString" else coordinates
+        for line in lines:
+            points = [project(point) for point in line]
+            if len(points) > 1:
+                draw.line(points, fill=outline, width=width)
+        return
+
     if geom_type == "Point":
         x, y = project(coordinates)
         r = 8
