@@ -6,7 +6,7 @@ class AnalysisRequest(BaseModel):
     name:str=Field(min_length=3,max_length=180)
     geometry:dict[str,Any]
     source_ids:list[UUID]|None=None
-    incra_uf:str|None=Field(default=None,pattern="^[A-Za-z]{2}$")
+    incra_uf:str|None=Field(default=None,pattern="^(?:[A-Za-z]{2}|ALL)$")
     subject:dict[str,Any]|None=None
 
 class LayerResult(BaseModel):
