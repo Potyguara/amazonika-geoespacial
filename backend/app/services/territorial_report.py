@@ -535,6 +535,71 @@ def _result_rows(
     ).all()
 
 
+def _intersecting_features(
+    db: Session,
+    analysis_id: UUID,
+    version_id: UUID,
+    limit: int = 1500,
+) -> list[dict]:
+    """List individual intersecting geometries, not just a dissolved source total.
+
+    The query uses the same version and subject as the territorial analysis.
+    Both full parcels (map context) and clipped polygons (intersection shading)
+    are retained in the immutable report snapshot.
+    """
+    rows = db.execute(
+        text("""
+            WITH candidates AS (
+                SELECT g.id, g.external_id, g.name, g.properties,
+                       ST_Force2D(g.geom) AS geom, ST_Force2D(a.input_geom) AS area
+                FROM geo_features g JOIN analyses a ON a.id = :analysis_id
+                WHERE g.version_id = :version_id
+                  AND g.geom && a.input_geom
+                  AND ST_Intersects(g.geom, a.input_geom)
+                ORDER BY g.external_id NULLS LAST, g.id
+                LIMIT :limit
+            )
+            SELECT id, external_id, name, properties,
+                   ST_AsGeoJSON(geom) AS geometry,
+                   ST_AsGeoJSON(ST_Intersection(geom, area)) AS intersection,
+                   CASE WHEN ST_Dimension(ST_Intersection(geom, area)) = 2
+                        THEN ST_Area(ST_Transform(
+                            ST_Intersection(geom, area), 4326)::geography)/10000.0
+                        ELSE 0 END AS overlap_ha
+            FROM candidates
+        """),
+        {"analysis_id": analysis_id, "version_id": version_id, "limit": limit + 1},
+    ).mappings().all()
+    if len(rows) > limit:
+        raise ValueError(
+            f"A fonte possui mais de {limit} feições intersectantes. "
+            "Divida a área para emitir um relatório individualizado completo."
+        )
+    items = []
+    for index, row in enumerate(rows, start=1):
+        props = row["properties"] if isinstance(row["properties"], dict) else {}
+        # Retain relevant cadastral attributes; omit unrelated sensitive fields.
+        keys = (
+            "parcela_codigo", "codigo_imovel", "nome_area", "status",
+            "situacao_informada", "area_hectares", "uf_id", "municipio_id",
+            "registro_matricula", "data_aprovacao", "codigo", "nome",
+            "processo", "numero", "categoria", "classe", "tipo",
+        )
+        attrs = {key: str(props[key])[:180] for key in keys
+                 if props.get(key) not in (None, "")}
+        items.append({
+            "index": index,
+            "feature_id": str(row["id"]),
+            "external_id": str(row["external_id"] or "")[:255],
+            "name": str(row["name"] or "")[:255],
+            "attributes": attrs,
+            "overlap_hectares": round(float(row["overlap_ha"] or 0), 6),
+            "geometry": json.loads(row["geometry"]),
+            "intersection_geometry": json.loads(row["intersection"]),
+        })
+    return items
+
+
 def _snapshot(
     db: Session,
     analysis: Analysis,
@@ -577,6 +642,10 @@ def _snapshot(
                 "access_mode": (result.details or {}).get(
                     "access_mode",
                     "LOCAL_VECTOR",
+                ),
+                "features": (
+                    _intersecting_features(db, analysis.id, version.id)
+                    if result.intersects else []
                 ),
             }
         )
