@@ -73,6 +73,7 @@ interface GeoMapProps {
     wmsEnabled?: boolean;
     wmsTheme?: string;
     wmsFixedLayer?: string;
+    wmsGlobal?: boolean;
     wmsAvailableUfs?: string[];
   }>;
 }
@@ -1508,21 +1509,21 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       if (!layer.id || !layer.enabled || !layer.wmsEnabled || !layer.wmsTheme)
         continue;
 
-      // O WMS do INCRA apresenta instabilidade/502 em diversas UFs.
-      // Durante a navegação usamos o MVT local para não bloquear o mapa.
-      if (layer.source === "INCRA")
+      // Preserve the local INCRA MVT fallback. Only explicitly configured
+      // national GeoNode layers may use remote WMS alongside local vectors.
+      if (layer.source === "INCRA" && !(layer.wmsGlobal && layer.wmsFixedLayer))
         continue;
 
       const requiresSpecificUf =
-        layer.source === "INCRA" ||
+        !layer.wmsGlobal && (layer.source === "INCRA" ||
         layer.source === "SICAR" ||
-        Boolean(layer.wmsAvailableUfs?.length);
+        Boolean(layer.wmsAvailableUfs?.length));
 
       if (incraUf === "ALL" && requiresSpecificUf)
         continue;
       if (
         incraUf !== "ALL" &&
-        layer.wmsAvailableUfs?.length &&
+        !layer.wmsGlobal && layer.wmsAvailableUfs?.length &&
         !layer.wmsAvailableUfs.includes(incraUf.toUpperCase())
       )
         continue;
