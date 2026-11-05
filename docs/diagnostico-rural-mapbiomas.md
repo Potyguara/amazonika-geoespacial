@@ -99,3 +99,51 @@ docker run --rm --memory=1536m --cpus=1 --security-opt no-new-privileges:true \
 **Atenção:** se o serviço SICAR não responder, a execução falha sem iniciar a redução. Se o CAR tiver mais de 100 ha, nenhum processamento é executado; selecionar um imóvel menor ou dividir em blocos em implementação futura. O parâmetro `GEE_ENABLED=true` vale **somente para este contêiner descartável de teste**, não habilita a API em produção. O processamento poderá gerar cobrança no plano Limitado.
 
 Teste offline: `tests/test_gee_real_property_probe.py`.
+
+
+## Homologação adicional: CAR de 1.115,1093 ha
+
+Na VPS, o CAR de teste retornou pelo serviço SICAR oficial uma geometria de
+**1.115,1093 ha e 63 vértices**, e os **28 testes de código vigentes passaram**
+em 05/11/2026. Esse perímetro não pode ser consultado com a proteção inicial
+de 100 ha. A proteção foi ampliada de forma opt-in apenas no script isolado:
+
+- Padrão: máximo 100 ha; até 200 ha com a autorização habitual.
+- Acima de 200 ha: **exige também** `GEE_ALLOW_LARGE_PROPERTY_TEST=yes`.
+- Teto absoluto de homologação: 1.500 ha.
+- Redução remota: um ano, uma consulta, escala fixa de 30 m,
+  `maxPixels=30000`, `bestEffort=False`.
+- A estimativa de pixels é usada apenas como limite preliminar; 1.115,1093 ha
+  equivale aproximadamente a 12.391 pixels de 30 m. A contagem real e o custo
+  podem variar conforme projeção e geometria.
+- No Docker de teste passar `PYTHONPATH=/app`, pois o script montado em
+  `/tmp` importa pacotes de `/app`.
+- **Não** configurar `GEE_ALLOW_LARGE_PROPERTY_TEST` nos serviços
+  de produção; esta flag serve apenas para execução pontual isolada.
+- O processamento é cobrado segundo as condições comerciais do Earth Engine;
+  não inferir preço exato do número de pixels sem métricas de EECU.
+
+Exemplo: atualizar a worktree, executar os testes offline e então executar
+o script do imóvel real no contêiner descartável (variável `CAR_TESTE`
+definida no shell):
+
+```bash
+docker run --rm --network bridge --memory=1536m --cpus=1 \
+  --security-opt no-new-privileges:true \
+  --mount type=bind,source=/root/amazonika-secrets/gee-service-account.json,target=/run/secrets/gee-service-account.json,readonly \
+  --mount type=bind,source="$PWD/backend",target=/app,readonly \
+  --mount type=bind,source="$PWD/scripts/probe_mapbiomas_real_property.py",target=/tmp/probe_mapbiomas_real_property.py,readonly \
+  -e PYTHONPATH=/app \
+  -e GEE_ENABLED=true \
+  -e GEE_PROJECT_ID=amazonika-geoespacial \
+  -e GEE_SERVICE_ACCOUNT_EMAIL="$GEE_EMAIL" \
+  -e GEE_SERVICE_ACCOUNT_KEY_FILE=/run/secrets/gee-service-account.json \
+  -e GEE_ALLOW_REAL_PROPERTY_TEST=yes \
+  -e GEE_ALLOW_LARGE_PROPERTY_TEST=yes \
+  --entrypoint python amazonika-gee-homolog \
+  /tmp/probe_mapbiomas_real_property.py \
+  --car-code "$CAR_TESTE" --year 2025 --max-hectares 1200
+```
+
+Importante: o parâmetro `--max-hectares 1200` é suficiente para o imóvel
+testado e não permite analisar áreas maiores. Nada é persistido.
