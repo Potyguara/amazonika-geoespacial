@@ -6574,3 +6574,14 @@ input {
 }
 .rural-monitoring-report-action button:disabled { cursor: not-allowed; opacity: .55; }
 .rural-monitoring-report-action small { color: #516b5c; }
+
+/* Uso e cobertura da terra - Coleção MapBiomas */
+.rural-mapbiomas-results { padding: 18px 20px; border: 1px solid #d7e6db; background: #fff; border-radius: 12px; display: grid; gap: 11px; }
+.rural-mapbiomas-results h3 { color: #194e36; margin: 0; }
+.rural-mapbiomas-results > p { margin: 0; color: #566d5e; }
+.rural-landcover-class { display: grid; gap: 5px; border-bottom: 1px solid #e3eae5; padding-bottom: 9px; }
+.rural-landcover-class > div:first-child { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.rural-landcover-class strong { color: #284b39; }
+.rural-landcover-class span, .rural-landcover-class small { color: #597063; }
+.rural-landcover-track { height: 9px; border-radius: 8px; background: #edf3ee; overflow: hidden; }
+.rural-landcover-track > div { height: 100%; border-radius: 8px; }
