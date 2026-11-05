@@ -103,7 +103,8 @@ def test_admin_http_audited_once_in_disposable_postgres(monkeypatch):
     endpoint = "/api/v1/rural-diagnostics/mapbiomas/internal-pilot/pdf"
     payload = {"car_code": "AP-1600600-" + "A"*32, "year": 2025}
     try:
-        with TestClient(app) as client:
+        client = TestClient(app)
+        if True:
             principal["current"] = analyst
             unauthorized = client.post(endpoint, json=payload)
             assert unauthorized.status_code == 403
