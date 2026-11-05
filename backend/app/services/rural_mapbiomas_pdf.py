@@ -6,8 +6,9 @@ from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Flowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+import math
 
 
 def _fmt(value, decimals=4):
@@ -16,6 +17,41 @@ def _fmt(value, decimals=4):
 
 def _safe(text, length=250):
     return escape(str(text if text is not None else "Não informado")[:length])
+
+
+class MapBiomasClassBars(Flowable):
+    """Charts class area shares only; NOT a georeferenced thematic map."""
+
+    def __init__(self, classes: list[dict], width: float = 168 * mm):
+        super().__init__()
+        self.classes = classes[:20]
+        self.width = width
+        self.height = 10 * mm + len(self.classes) * 7.5 * mm
+
+    def draw(self):
+        c = self.canv
+        c.setFont("Helvetica", 7)
+        for index, item in enumerate(self.classes):
+            y = self.height - 8 * mm - index * 7.5 * mm
+            name = f"{item['code']} — {str(item['name'])[:32]}"
+            c.setFillColor(colors.HexColor("#203D32"))
+            c.drawString(0, y + 1, name)
+            left = 82 * mm
+            bar_width = 70 * mm
+            c.setFillColor(colors.HexColor("#E9EFEA"))
+            c.roundRect(left, y - 1, bar_width, 4 * mm, 1, stroke=0, fill=1)
+            share = max(0.0, min(100.0, float(item['percent_classified'])))
+            color = item.get("color") or "#8D9A94"
+            try:
+                fill = colors.HexColor(color)
+            except (TypeError, ValueError):
+                fill = colors.HexColor("#8D9A94")
+            c.setFillColor(fill)
+            if share > 0:
+                c.roundRect(left, y - 1, bar_width * share / 100, 4 * mm,
+                            1, stroke=0, fill=1)
+            c.setFillColor(colors.HexColor("#203D32"))
+            c.drawRightString(self.width, y + 1, _fmt(share, 2) + "%")
 
 
 def mapbiomas_pdf(*, property_name: str, cadastral_source: str,
@@ -93,8 +129,17 @@ def mapbiomas_pdf(*, property_name: str, cadastral_source: str,
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
     story.append(tbl)
-    story.append(Spacer(1, 5 * mm))
-    story.append(Paragraph("3. Metodologia, fontes e limitações", styles["Heading2"]))
+    story.append(Spacer(1, 4 * mm))
+    story.append(Paragraph("3. Participação por classe", styles["Heading2"]))
+    story.append(MapBiomasClassBars(report["classes"]))
+    story.append(Paragraph(
+        "Gráfico de participação relativa da área classificada. "
+        "Não representa a posição espacial dos pixels e não substitui "
+        "o mapa temático georreferenciado.",
+        styles["AKSmall"],
+    ))
+    story.append(Spacer(1, 4 * mm))
+    story.append(Paragraph("4. Metodologia, fontes e limitações", styles["Heading2"]))
     story.append(Paragraph(_safe(report.get("method"), 550), styles["AKBody"]))
     story.append(Paragraph(f"<b>Asset:</b> {_safe(report['asset_id'], 210)}", styles["AKSmall"]))
     story.append(Paragraph(
