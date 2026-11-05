@@ -1,0 +1,4 @@
+# Ephemeral isolated HTTP/PostGIS integration test image.
+# Does not alter the running production API or amazonika-api-testes image.
+FROM amazonika-api-testes
+RUN python -m pip install --no-cache-dir --disable-pip-version-check "httpx==0.28.1"
