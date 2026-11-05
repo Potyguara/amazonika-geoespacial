@@ -8,7 +8,7 @@ const API_URL = getApiUrl();
 
 type Candidate = {
   feature_id: string;
-  source_id: string;
+  source_id: string | null;
   source_slug: string;
   source_name: string;
   institution: string;
@@ -18,6 +18,8 @@ type Candidate = {
   vertex_count: number | null;
   reference_date: string | null;
   imported_at: string | null;
+  retrieval?: "LOCAL_VECTOR" | "OFFICIAL_WFS";
+  uf_id?: number | string | null;
 };
 
 type LocateResult = {
@@ -60,6 +62,7 @@ export function RuralDiagnosticsModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
+  const [officialWarning, setOfficialWarning] = useState<string | null>(null);
   const [finished, setFinished] = useState<AnalysisStatus | null>(null);
 
   const findProperties = async (event: FormEvent<HTMLFormElement>) => {
@@ -77,16 +80,46 @@ export function RuralDiagnosticsModule() {
     setFinished(null);
     setResult(null);
     setSelectedId(null);
+    setOfficialWarning(null);
     try {
       const query = new URLSearchParams({
         latitude: String(lat),
         longitude: String(lon),
       });
-      const response = await fetch(`${API_URL}/rural-diagnostics/locate?${query}`, {
-        credentials: "include",
+      const [localLookup, officialLookup] = await Promise.allSettled([
+        fetch(`${API_URL}/rural-diagnostics/locate?${query}`, {
+          credentials: "include",
+        }),
+        fetch(`${API_URL}/rural-diagnostics/official-sigef/locate?${query}`, {
+          credentials: "include",
+        }),
+      ]);
+      const localResponse = localLookup.status === "fulfilled" ? localLookup.value : null;
+      const officialResponse = officialLookup.status === "fulfilled" ? officialLookup.value : null;
+      const localData = localResponse?.ok ? await localResponse.json() as LocateResult : null;
+      const officialData = officialResponse?.ok ? await officialResponse.json() as LocateResult : null;
+      if (!localData && !officialData) {
+        throw new Error("As consultas cadasstrais local e oficial não estão disponíveis. Tente novamente.");
+      }
+      if (!officialData) {
+        setOfficialWarning("GeoNode INCRA indisponível nesta consulta. Os candidatos exibidos são apenas das bases locais; não conclua ausência de parcelas oficiais.");
+      }
+      if (!localData) {
+        setOfficialWarning("Consulta cadastral local indisponível. Exibindo somente os resultados do SIGEF oficial.");
+      }
+      const combined = [
+        ...(officialData?.candidates ?? []),
+        ...(localData?.candidates ?? []),
+      ];
+      setResult({
+        coordinate: { latitude: lat, longitude: lon },
+        candidate_count: combined.length,
+        has_more: !!localData?.has_more || !!officialData?.has_more,
+        candidates: combined,
+        point_only: combined.length === 0,
+        coverage: "SIGEF oficial (WFS) e perímetros cadastrais das versões locais do PostGIS.",
+        notice: "Se houver diferentes parcelas ou versões sobre o ponto, confirme o código cadastral antes de analisar.",
       });
-      if (!response.ok) throw new Error(await messageFromError(response));
-      setResult(await response.json() as LocateResult);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Falha na busca cadastral.");
     } finally {
@@ -100,9 +133,25 @@ export function RuralDiagnosticsModule() {
     setFinished(null);
     setSelectedId(candidate.feature_id);
     try {
+      const isOfficial = candidate.retrieval === "OFFICIAL_WFS";
       const detailResponse = await fetch(
-        `${API_URL}/rural-diagnostics/properties/${candidate.feature_id}`,
-        { credentials: "include" },
+        isOfficial
+          ? `${API_URL}/rural-diagnostics/official-sigef/perimeter`
+          : `${API_URL}/rural-diagnostics/properties/${candidate.feature_id}`,
+        {
+          credentials: "include",
+          ...(isOfficial
+            ? {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  latitude: result?.coordinate.latitude,
+                  longitude: result?.coordinate.longitude,
+                  feature_token: candidate.feature_id,
+                }),
+              }
+            : {}),
+        },
       );
       if (!detailResponse.ok) throw new Error(await messageFromError(detailResponse));
       const detail = await detailResponse.json() as {
@@ -127,6 +176,7 @@ export function RuralDiagnosticsModule() {
             cadastral_source: candidate.source_name,
             cadastral_code: candidate.cadastral_code,
             cadastral_reference_date: candidate.reference_date,
+            cadastral_retrieval: candidate.retrieval ?? "LOCAL_VECTOR",
             input_coordinate: result?.coordinate,
           },
         }),
@@ -195,6 +245,7 @@ export function RuralDiagnosticsModule() {
       </div>
 
       {error && <p className="rural-diagnostic-error" role="alert">{error}</p>}
+      {officialWarning && <p className="rural-diagnostic-error" role="status">{officialWarning}</p>}
 
       {result && (
         <div className="rural-diagnostic-results">
@@ -209,9 +260,10 @@ export function RuralDiagnosticsModule() {
               <div>
                 <strong>{candidate.name}</strong>
                 <small>{candidate.source_name} · {candidate.institution}</small>
+                {candidate.retrieval === "OFFICIAL_WFS" && <span className="rural-candidate-official">Consulta oficial em tempo real</span>}
                 <span>Identificação: {candidate.cadastral_code || "não informada"}</span>
                 <span>Área da geometria: {formatArea(candidate.area_hectares)}</span>
-                <span>Referência: {candidate.reference_date || "não informada"}</span>
+                <span>Referência: {candidate.reference_date || (candidate.retrieval === "OFFICIAL_WFS" ? "consulta WFS atual" : "não informada")}</span>
               </div>
               <button type="button" disabled={busy || result.has_more}
                 onClick={() => void analyzeProperty(candidate)}>
@@ -240,7 +292,7 @@ export function RuralDiagnosticsModule() {
           </div>
         </section>
       )}
-      <p className="rural-diagnostic-note">Etapa inicial: utiliza os dados locais existentes. PRODES, MapBiomas e outras consultas sob demanda serão adicionadas em etapas posteriores. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
+      <p className="rural-diagnostic-note">Etapa atual: localiza parcelas pelo SIGEF WFS oficial e pelos cadastros locais. CAR nacional, PRODES, MapBiomas e outras consultas sob demanda serão adicionadas em etapas posteriores. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
     </section>
   );
 }
