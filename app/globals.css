@@ -6539,3 +6539,13 @@ input {
 .rural-diagnostic-complete strong { color: #16583f; }
 .rural-diagnostic-complete small { display: block; margin-top: 7px; color: #527064; overflow-wrap: anywhere; }
 @media (max-width: 700px) { .rural-diagnostic-workspace { width: calc(100% - 24px); margin: 16px auto; } .rural-coordinate-form { padding: 16px; } .rural-candidate { display: grid; } .rural-candidate button { width: 100%; } }
+
+.rural-candidate-buttons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.rural-candidate-buttons .rural-monitoring-button { background: #fff; border: 1px solid #bdd5c6; color: #22513c; }
+.rural-monitoring-panel { background: #fff; border: 1px solid #dce7df; border-radius: 16px; padding: 20px; }
+.rural-monitoring-panel label { display: grid; gap: 8px; font-size: 13px; font-weight: 700; color: #24503c; }
+.rural-monitoring-panel select { min-height: 44px; padding: 10px 12px; border: 1px solid #cadbd1; border-radius: 9px; width: 100%; background: #fff; }
+.rural-monitoring-panel > div > button { border: 1px solid #15533d; background: #15533d; color: #fff; padding: 10px 15px; border-radius: 9px; margin: 10px 10px 0 0; cursor: pointer; }
+.rural-monitoring-panel > div > button:disabled { opacity: .5; cursor: not-allowed; }
+.rural-monitoring-panel > div > button.rural-monitoring-cancel { color: #355c4d; background: #fff; border-color: #cadbd1; }
+@media (max-width:700px) { .rural-candidate-buttons { display:grid; width:100%; } }
