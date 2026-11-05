@@ -122,7 +122,9 @@ def _initialize_gee():
     return ee
 
 
-def _reduce_class_areas(ee, geometry: dict, year: int):
+def _reduce_class_areas(ee, geometry: dict, year: int, *, max_pixels: int = MAX_PIXELS):
+    if not isinstance(max_pixels, int) or not 1 <= max_pixels <= MAX_PIXELS:
+        raise ValueError("Limite de pixels inválido.")
     roi = ee.Geometry(geometry, proj="EPSG:4326", geodesic=False)
     classified = ee.Image(ASSET_ID).select(f"classification_{year}").rename("classification")
     # Pixel area (m²) is summed by the categorical class band.
@@ -131,7 +133,7 @@ def _reduce_class_areas(ee, geometry: dict, year: int):
     reducer = ee.Reducer.sum().group(groupField=1, groupName="class")
     return image.reduceRegion(
         reducer=reducer, geometry=roi,
-        scale=RESOLUTION_M, maxPixels=MAX_PIXELS, bestEffort=False,
+        scale=RESOLUTION_M, maxPixels=max_pixels, bestEffort=False,
         tileScale=4,
     ).getInfo()
 
