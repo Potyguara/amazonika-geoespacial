@@ -73,3 +73,29 @@ Nenhuma integração MapBiomas foi ainda homologada com uma conta GEE real. Não
 - https://developers.google.com/earth-engine/guides/service_account : autenticação por conta de serviço; proteger a chave JSON.
 
 **Atenção**: o registro comercial do projeto não comprova, por si só, que a conta de serviço foi criada, que a API está habilitada ou que os testes passaram.
+
+
+## Homologação de um imóvel real (não publica o serviço)
+
+Com a chave privada já instalada em `/root/amazonika-secrets/gee-service-account.json` e após conferir alertas de consumo, o operador poderá usar `scripts/probe_mapbiomas_real_property.py` dentro da imagem `amazonika-gee-homolog` criada na worktree. Aceita **um** CAR público ou uma coordenada SIGEF que produza **exatamente uma** parcela; o código CAR e a geometria não são impressos nem armazenados. O programa bloqueia processamento para polígonos com área superior a 100 hectares por padrão (limite configurável, máximo absoluto de 200 hectares).
+
+Exemplo com CAR (substituir pela inscrição real; não incluir código real em logs compartilhados):
+
+```bash
+cd /tmp/amazonika-rural-homolog
+GEE_EMAIL=$(python3 -c 'import json;print(json.load(open("/root/amazonika-secrets/gee-service-account.json"))["client_email"])')
+docker run --rm --memory=1536m --cpus=1 --security-opt no-new-privileges:true \
+  --mount type=bind,source=/root/amazonika-secrets/gee-service-account.json,target=/run/secrets/gee-service-account.json,readonly \
+  --mount type=bind,source="$PWD/scripts/probe_mapbiomas_real_property.py",target=/tmp/probe_mapbiomas_real_property.py,readonly \
+  -e GEE_ENABLED=true \
+  -e GEE_PROJECT_ID=amazonika-geoespacial \
+  -e GEE_SERVICE_ACCOUNT_EMAIL="$GEE_EMAIL" \
+  -e GEE_SERVICE_ACCOUNT_KEY_FILE=/run/secrets/gee-service-account.json \
+  -e GEE_ALLOW_REAL_PROPERTY_TEST=yes \
+  --entrypoint python amazonika-gee-homolog \
+  /tmp/probe_mapbiomas_real_property.py --car-code "INSCRICAO-CAR" --year 2025
+```
+
+**Atenção:** se o serviço SICAR não responder, a execução falha sem iniciar a redução. Se o CAR tiver mais de 100 ha, nenhum processamento é executado; selecionar um imóvel menor ou dividir em blocos em implementação futura. O parâmetro `GEE_ENABLED=true` vale **somente para este contêiner descartável de teste**, não habilita a API em produção. O processamento poderá gerar cobrança no plano Limitado.
+
+Teste offline: `tests/test_gee_real_property_probe.py`.
