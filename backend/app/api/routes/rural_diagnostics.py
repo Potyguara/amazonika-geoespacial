@@ -26,6 +26,7 @@ from app.services.rural_monitoring import MonitoringQueryError, monitoring_catal
 from app.services.rural_diagnostic_pdf import build_rural_monitoring_pdf
 from app.services.rural_ibama_embargos import embargo_preview, IbamaEmbargoError
 from app.services.rural_mapbiomas import gee_configuration, mapbiomas_preview, MapBiomasError
+from app.services.rural_mapbiomas_pdf import mapbiomas_pdf
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -447,3 +448,37 @@ def rural_mapbiomas_preview(payload: MapBiomasPreviewRequest):
         raise HTTPException(422, str(exc)[:260]) from exc
     except MapBiomasError as exc:
         raise HTTPException(503, str(exc)[:260]) from exc
+
+
+class MapBiomasPdfRequest(BaseModel):
+    subject: RuralPreviewPdfRequest
+    year: int = Field(default=2025, ge=1985, le=2025)
+
+
+@router.post("/mapbiomas/preview-pdf",
+             dependencies=[Depends(require_permission("analysis.export"))])
+def rural_mapbiomas_pdf(payload: MapBiomasPdfRequest, db: Session = Depends(get_db)):
+    """Revalidate cadastral geometry and recompute remote EE class areas."""
+    resolved = _resolve_pdf_subject(payload.subject, db)
+    try:
+        report = mapbiomas_preview(resolved["geometry"], payload.year)
+        document = mapbiomas_pdf(
+            property_name=resolved.get("name") or "Imóvel rural",
+            cadastral_source=resolved.get("source_name") or "Cadastro rural",
+            cadastral_code=payload.subject.car_code or resolved.get("feature_id"),
+            report=report,
+            generated_at=datetime.now(timezone.utc),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)[:260]) from exc
+    except MapBiomasError as exc:
+        raise HTTPException(503, str(exc)[:260]) from exc
+    return Response(
+        content=document,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="AMAZONIKA_MAPBIOMAS_USO_DO_SOLO_PREVIA.pdf"',
+            "Cache-Control": "no-store",
+            "X-Report-Type": "preliminary-rural-mapbiomas",
+        },
+    )
