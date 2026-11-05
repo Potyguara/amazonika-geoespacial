@@ -18,7 +18,7 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
 from pyproj import Geod
-from shapely.geometry import shape
+from shapely.geometry import shape, mapping
 from shapely import get_num_coordinates
 from shapely.errors import GEOSException
 from shapely.ops import unary_union
@@ -162,7 +162,7 @@ def _feature_area_ha(geometry) -> float:
     return sum(abs(_GEOD.geometry_area_perimeter(poly)[0]) / 10000.0 for poly in polygons)
 
 
-def monitoring_preview(layer_name: str, geometry: dict) -> dict:
+def monitoring_preview(layer_name: str, geometry: dict, *, include_geometry: bool = False) -> dict:
     snapshot = monitoring_catalog()
     selected = next((entry for entry in snapshot["layers"] if entry["name"] == layer_name), None)
     if selected is None or not _LAYER_RE.fullmatch(layer_name):
@@ -219,11 +219,16 @@ def monitoring_preview(layer_name: str, geometry: dict) -> dict:
             if value is not None and isinstance(value, (int, float, str, bool))
             and not any(term in str(key).lower() for term in ("cpf", "cnpj", "email", "telefone"))
         }
-        matches.append({
+        entry = {
             "id": str(record.get("id") or "")[:120],
             "overlap_hectares": round(area, 4),
             "attributes": dict(list(safe_attrs.items())[:14]),
-        })
+        }
+        if include_geometry:
+            # PDF renderer needs actual, clipped WFS polygons for the map.
+            # Browser preview deliberately omits heavyweight geometries.
+            entry["intersection_geometry"] = mapping(intersection)
+        matches.append(entry)
     union = unary_union(clipped_geometries) if clipped_geometries else None
     overlap = _feature_area_ha(union) if union is not None else 0.0
     subject_area = _feature_area_ha(subject)
@@ -238,6 +243,8 @@ def monitoring_preview(layer_name: str, geometry: dict) -> dict:
         "overlap_hectares": round(overlap, 4),
         "overlap_percent": round(overlap * 100 / subject_area, 4) if subject_area else None,
         "features": matches,
+        "queried_at": datetime.now(timezone.utc).isoformat(),
+        "service_url": WFS_URL,
         "method": "WFS BBOX, interseção geométrica exata e área geodésica GRS80; sem importação nacional.",
         "warning": "Polígonos PRODES/DETER são indicadores de monitoramento; não constituem prova automática de infração ambiental.",
     }
