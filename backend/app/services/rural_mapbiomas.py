@@ -65,7 +65,7 @@ def gee_configuration() -> dict:
     project = str(settings.gee_project_id or "").strip()
     email = str(settings.gee_service_account_email or "").strip()
     key_path = Path(settings.gee_service_account_key_file or "")
-    enabled = bool(project and email and key_path.is_file())
+    enabled = bool(getattr(settings, "gee_enabled", False) and project and email and key_path.is_file())
     return {
         "enabled": enabled,
         "collection": COLLECTION,
@@ -77,8 +77,8 @@ def gee_configuration() -> dict:
         "message": (
             "Google Earth Engine configurado para consultas remotas."
             if enabled else
-            "Google Earth Engine ainda não configurado; cadastre um projeto autorizado e "
-            "monte um arquivo de credenciais somente-leitura fora do repositório."
+            "Google Earth Engine desabilitado ou sem credenciais. Habilite GEE_ENABLED "
+            "somente após confirmar autorização, cotas e cobrança."
         ),
     }
 
