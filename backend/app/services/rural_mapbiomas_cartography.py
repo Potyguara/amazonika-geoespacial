@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 import math
+import re
 from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
 import ssl
@@ -62,6 +63,31 @@ def _thumbnail_dimensions(bounds: tuple[float, float, float, float]) -> tuple[in
     return width, height
 
 
+def _safe_ee_reason(error: Exception) -> str:
+    """Permit a useful EE API diagnostic while suppressing tokens and IDs."""
+    message = str(error)
+    # Keep only text before a URL and remove other variable-length identifiers.
+    message = re.sub(r"https?://\\S+", "[URL]", message, flags=re.I)
+    message = re.sub(r"(?i)(token|key|signature|authorization|bearer|credential)\\s*[:=]\\s*[^\\s,;]+",
+                     r"\\1=[REDACTED]", message)
+    message = re.sub(r"[\\w.+-]+@[\\w.-]+", "[EMAIL]", message)
+    message = re.sub(r"\\b[A-Z]{2}-\\d{7}-[A-Fa-f0-9]{32}\\b", "[CAR]", message)
+    message = re.sub(r"\\b[A-Fa-f0-9]{32,}\\b", "[ID]", message)
+    message = re.sub(r"\\s+", " ", message).strip()
+    # Only emit recognized EE categories, not arbitrary server messages.
+    known = (
+        "Palette", "palette", "Geometry", "geometry", "region",
+        "Image.visualize", "visualize", "remap", "dimensions",
+        "Invalid", "invalid", "Projection", "projection", "CRS",
+        "Pixel", "pixel", "band", "Band", "Too many", "too many",
+        "permission", "Permission", "quota", "Quota", "Asset",
+        "asset", "Request", "request", "Parameter", "parameter",
+        "Error 400", "Error 403", "Error 429",
+    )
+    hits = [term for term in known if term in message]
+    return ", ".join(dict.fromkeys(hits))[:180] if hits else "sem categoria reconhecida"
+
+
 def fetch_mapbiomas_thematic_thumbnail(
     geometry: dict, *, year: int, class_codes: list[int],
 ) -> ThematicThumbnail:
@@ -102,7 +128,7 @@ def fetch_mapbiomas_thematic_thumbnail(
     except Exception as exc:
         raise RuntimeError(
             "Etapa EE_GET_THUMB_URL falhou; "
-            f"categoria={type(exc).__name__}"
+            f"categoria={type(exc).__name__}; marcadores={_safe_ee_reason(exc)}"
         ) from exc
 
     destination = urlsplit(thumbnail_url)
