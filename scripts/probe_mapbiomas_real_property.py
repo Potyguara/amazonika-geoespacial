@@ -61,7 +61,7 @@ def run_property_test(
     if not (1 <= max_hectares <= 200):
         raise ValueError("Limite de homologação deve ficar entre 1 e 200 hectares.")
     from app.services.rural_mapbiomas import (
-        validate_geometry, _feature_area_ha, _initialize_gee,
+        validate_geometry, _initialize_gee,
         _reduce_class_areas, _normalize_statistics, MIN_YEAR, MAX_YEAR,
     )
     if not MIN_YEAR <= year <= MAX_YEAR:
