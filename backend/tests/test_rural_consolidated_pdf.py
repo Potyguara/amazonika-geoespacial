@@ -67,3 +67,37 @@ def test_valid_pdf_contains_bytes_and_is_deterministically_hashable():
     assert document.startswith(b"%PDF")
     assert len(document) > 3500
     assert len(hashlib.sha256(document).hexdigest()) == 64
+
+
+def test_ibama_real_theme_populates_only_with_verified_source(monkeypatch):
+    from app.services import rural_consolidated as svc
+    snap = build_job_snapshot(FakeSession([]), _analysis())
+    monkeypatch.setattr(svc, "embargo_preview", lambda geom: {
+        "status": "ANALYZED",
+        "source": "IBAMA PAMGIA", "layer": "Embargos",
+        "queried_at": "2026-11-05T20:00:00+00:00",
+        "interfering_features": 1, "overlap_hectares": 1.25,
+        "overlap_percent": 0.67, "method": "Interseção",
+        "warning": "Não prova responsabilidade",
+        "features": [{"term": "EMB-TESTE", "process": "PROT-TESTE",
+                       "overlap_hectares": 1.25}],
+    })
+    svc.analyze_ibama_embargos(snap, {"type": "Polygon", "coordinates": []})
+    section = next(x for x in snap["sections"]
+                   if x["code"] == "ENVIRONMENTAL_ENFORCEMENT")
+    assert section["status"] == "COMPLETE"
+    assert snap["ibama_embargos"]["count"] == 1
+    assert svc.render_preliminary_consolidated_pdf(snap).startswith(b"%PDF")
+
+
+def test_ibama_service_failure_is_not_no_occurrence(monkeypatch):
+    from app.services import rural_consolidated as svc
+    snap = build_job_snapshot(FakeSession([]), _analysis())
+    def fails(_):
+        raise svc.IbamaEmbargoError("Serviço indisponível")
+    monkeypatch.setattr(svc, "embargo_preview", fails)
+    svc.analyze_ibama_embargos(snap, {})
+    section = next(x for x in snap["sections"]
+                   if x["code"] == "ENVIRONMENTAL_ENFORCEMENT")
+    assert section["status"] == "UNAVAILABLE"
+    assert snap["ibama_embargos"]["status"] == "UNAVAILABLE"
