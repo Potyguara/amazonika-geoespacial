@@ -25,6 +25,7 @@ from app.services.rural_official_car import (OfficialCarQueryError, normalize_ca
 from app.services.rural_monitoring import MonitoringQueryError, monitoring_catalog, monitoring_preview
 from app.services.rural_diagnostic_pdf import build_rural_monitoring_pdf
 from app.services.rural_ibama_embargos import embargo_preview, IbamaEmbargoError
+from app.services.rural_mapbiomas import gee_configuration, mapbiomas_preview, MapBiomasError
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -423,3 +424,26 @@ def rural_ibama_embargo_pdf(payload: RuralPreviewPdfRequest,
             "X-Report-Type": "preliminary-rural-ibama",
         },
     )
+
+
+class MapBiomasPreviewRequest(BaseModel):
+    geometry: dict
+    year: int = Field(default=2025, ge=1985, le=2025)
+
+
+@router.get("/mapbiomas/status")
+def rural_mapbiomas_status():
+    """Return availability without disclosing private GEE credentials."""
+    return gee_configuration()
+
+
+@router.post("/mapbiomas/preview",
+             dependencies=[Depends(require_permission("analysis.execute"))])
+def rural_mapbiomas_preview(payload: MapBiomasPreviewRequest):
+    """On-demand class-area statistics; no bulk MapBiomas raster download."""
+    try:
+        return mapbiomas_preview(payload.geometry, payload.year)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)[:260]) from exc
+    except MapBiomasError as exc:
+        raise HTTPException(503, str(exc)[:260]) from exc
