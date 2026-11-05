@@ -53,7 +53,7 @@ def test_actual_png_thumbnail_uses_real_class_asset_without_storing(monkeypatch)
             return self
         def getThumbURL(self, opts):
             requests.append(("thumb", opts))
-            return "https://example.invalid/private-thumbnail"
+            return "https://earthengine.googleapis.com/v1/projects/test/thumbnails/sample"
     class FakeEE:
         Geometry = staticmethod(lambda geom, **kwargs: geom)
         Image = staticmethod(lambda asset: FakeImage())
