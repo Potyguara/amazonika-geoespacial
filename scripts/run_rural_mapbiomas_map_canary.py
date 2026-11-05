@@ -76,8 +76,8 @@ def main() -> int:
         return 0
     except Exception as exc:
         print("MAPA_CANARY_FALHOU:", type(exc).__name__)
-        if isinstance(exc, ValueError):
-            print(str(exc)[:210])
+        if isinstance(exc, (ValueError, RuntimeError)):
+            print("DIAGNOSTICO:", str(exc)[:210])
         else:
             print("Verifique SICAR, ambiente Earth Engine e compatibilidade de miniatura.")
         return 3
