@@ -231,3 +231,29 @@ def test_gee_status_stays_disabled_for_browser_during_server_canary(monkeypatch,
     result = mb.gee_configuration()
     assert result["enabled"] is False
     assert "private_key" not in str(result)
+
+
+def test_preliminary_pdf_adds_class_bars_without_inventing_spatial_map():
+    from datetime import datetime, timezone
+    from app.services.rural_mapbiomas_pdf import mapbiomas_pdf, MapBiomasClassBars
+    data = mb._normalize_statistics(
+        {"groups": [
+            {"class": 11, "sum": 870.7678},
+            {"class": 6, "sum": 215.6480},
+            {"class": 3, "sum": 18.1312},
+            {"class": 9, "sum": 8.0247},
+            {"class": 33, "sum": 1.3431},
+            {"class": 21, "sum": 1.1622},
+        ]}, 2025, 1115.1093,
+    )
+    plot = MapBiomasClassBars(data["classes"])
+    assert plot.height > 0 and len(plot.classes) == 6
+    doc = mapbiomas_pdf(
+        property_name="Imóvel teste",
+        cadastral_source="SICAR",
+        cadastral_code="Reservado",
+        report=data,
+        generated_at=datetime(2026, 11, 5, tzinfo=timezone.utc),
+    )
+    assert doc.startswith(b"%PDF")
+    assert len(doc) > 2500
