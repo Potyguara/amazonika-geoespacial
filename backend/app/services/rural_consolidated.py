@@ -30,6 +30,7 @@ from app.models.analysis import Analysis, AnalysisResult
 from app.models.catalog import Source, SourceVersion
 from app.models.rural_consolidated import RuralConsolidatedJob
 from app.schemas.rural_consolidated import SectionCode, SectionStatus, status_label
+from app.services.rural_ibama_embargos import embargo_preview, IbamaEmbargoError
 
 FOREST = colors.HexColor("#123F30")
 MINT = colors.HexColor("#EAF1EC")
@@ -155,6 +156,58 @@ def build_job_snapshot(db: Session, analysis: Analysis) -> dict:
     }
 
 
+def analyze_ibama_embargos(snapshot: dict, geometry: dict) -> None:
+    """First independent theme: bounded official embargo intersection, fail closed.
+
+    Invoked in background only; no paid API or Google Cloud. Never claim a
+    clean result on upstream failure, timeout, oversized bbox or truncation.
+    """
+    section = next(x for x in snapshot["sections"]
+                   if x["code"] == SectionCode.ENVIRONMENTAL_ENFORCEMENT.value)
+    section["status"] = SectionStatus.RUNNING.value
+    try:
+        result = embargo_preview(geometry)
+        if result.get("status") != "ANALYZED":
+            raise IbamaEmbargoError("Resposta IBAMA inconclusiva.")
+        count = result.get("interfering_features")
+        if not isinstance(count, int) or count < 0:
+            raise IbamaEmbargoError("Contagem IBAMA inconclusiva.")
+        section["status"] = (
+            SectionStatus.COMPLETE.value if count else SectionStatus.NO_OCCURRENCE.value
+        )
+        section["message"] = (
+            f"{count} polígono(s) de embargo intersectam a área consultada; "
+            "a interseção não comprova responsabilidade do detentor."
+        ) if count else "Consulta IBAMA concluída sem polígonos de embargo incidentes."
+        snapshot["ibama_embargos"] = {
+            "source": result.get("source"),
+            "layer": result.get("layer"),
+            "queried_at": result.get("queried_at"),
+            "count": count,
+            "overlap_hectares": result.get("overlap_hectares"),
+            "overlap_percent": result.get("overlap_percent"),
+            "method": result.get("method"),
+            "warning": result.get("warning"),
+            "features": [
+                {
+                    "term": row.get("term"),
+                    "process": row.get("process"),
+                    "overlap_hectares": row.get("overlap_hectares"),
+                } for row in result.get("features", [])[:100]
+            ],
+        }
+    except (IbamaEmbargoError, ValueError, TypeError, KeyError) as exc:
+        section["status"] = SectionStatus.UNAVAILABLE.value
+        section["message"] = (
+            "Consulta oficial IBAMA não concluída. Não é possível afirmar "
+            "ausência de embargos para este imóvel."
+        )
+        snapshot["ibama_embargos"] = {
+            "status": "UNAVAILABLE",
+            "error_category": type(exc).__name__,
+        }
+
+
 def _page_frame(canvas, doc):
     canvas.saveState()
     w, h = A4
@@ -278,6 +331,30 @@ def render_preliminary_consolidated_pdf(snapshot: dict) -> bytes:
             ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),
         ]))
         story.append(table2)
+    embargo = snapshot.get("ibama_embargos")
+    if embargo and embargo.get("status") != "UNAVAILABLE":
+        story.extend([
+            P("FISCALIZAÇÃO AMBIENTAL — EMBARGOS IBAMA", "h2"),
+            P(f'Feições incidentes: <b>{int(embargo["count"])}</b>. '
+              f'Área espacial única sobreposta: '
+              f'<b>{float(embargo.get("overlap_hectares") or 0):,.4f} ha</b>.'),
+            P("Fonte: " + _safe(embargo.get("source")) +
+              " | Consulta: " + _safe(embargo.get("queried_at")), "small"),
+        ])
+        for row in embargo.get("features", [])[:60]:
+            story.append(P(
+                "Termo: <b>" + _safe(row.get("term") or "Não informado") +
+                "</b> | Processo: " + _safe(row.get("process") or "Não informado") +
+                " | Área de interseção: " +
+                _safe(row.get("overlap_hectares")) + " ha", "small",
+            ))
+        story.append(P(_safe(embargo.get("warning")), "small"))
+    else:
+        story.extend([
+            P("FISCALIZAÇÃO AMBIENTAL — EMBARGOS IBAMA", "h2"),
+            P("Dados não disponíveis para conclusão nesta execução. A falta "
+              "de resposta não representa ausência de embargos."),
+        ])
     story.extend([
         KeepTogether([
             P("METODOLOGIA E LIMITAÇÕES", "h2"),
@@ -312,8 +389,19 @@ def run_consolidated_job(job_id: UUID) -> None:
             if analysis is None:
                 raise ValueError("Análise de origem indisponível.")
             snap = build_job_snapshot(db, analysis)
+            # Freeze the same geometry used for the existing territorial analysis.
+            geometry_json = db.scalar(
+                text("SELECT ST_AsGeoJSON(input_geom, 9) FROM analyses WHERE id=:id"),
+                {"id": analysis.id},
+            )
+            if not geometry_json:
+                raise ValueError("Perímetro ausente para fiscalização.")
             job.snapshot_json = snap
-            job.progress_percent = 65
+            job.progress_percent = 35
+            db.commit()
+            analyze_ibama_embargos(snap, json.loads(geometry_json))
+            job.snapshot_json = dict(snap)
+            job.progress_percent = 75
             db.commit()
             data = render_preliminary_consolidated_pdf(snap)
             if not data.startswith(b"%PDF") or len(data) > 12*1024*1024:
