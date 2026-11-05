@@ -104,23 +104,22 @@ def test_admin_http_audited_once_in_disposable_postgres(monkeypatch):
     payload = {"car_code": "AP-1600600-" + "A"*32, "year": 2025}
     try:
         client = TestClient(app)
-        if True:
-            principal["current"] = analyst
-            unauthorized = client.post(endpoint, json=payload)
-            assert unauthorized.status_code == 403
-            assert calls == []
+        principal["current"] = analyst
+        unauthorized = client.post(endpoint, json=payload)
+        assert unauthorized.status_code == 403
+        assert calls == []
 
-            principal["current"] = admin
-            first = client.post(endpoint, json=payload)
-            assert first.status_code == 200, first.text[:300]
-            assert first.headers["content-type"] == "application/pdf"
-            assert first.headers["cache-control"] == "no-store, private"
-            assert first.content.startswith(b"%PDF")
-            assert calls == ["sicar", "reduction", "thumbnail", "pdf"]
+        principal["current"] = admin
+        first = client.post(endpoint, json=payload)
+        assert first.status_code == 200, first.text[:300]
+        assert first.headers["content-type"] == "application/pdf"
+        assert first.headers["cache-control"] == "no-store, private"
+        assert first.content.startswith(b"%PDF")
+        assert calls == ["sicar", "reduction", "thumbnail", "pdf"]
 
-            duplicate = client.post(endpoint, json=payload)
-            assert duplicate.status_code == 429
-            assert calls == ["sicar", "reduction", "thumbnail", "pdf"]
+        duplicate = client.post(endpoint, json=payload)
+        assert duplicate.status_code == 429
+        assert calls == ["sicar", "reduction", "thumbnail", "pdf"]
         with Session(engine) as db:
             records = db.scalars(
                 select(RuralMapBiomasPilotRun).where(
