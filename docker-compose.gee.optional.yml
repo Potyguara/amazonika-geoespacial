@@ -4,6 +4,7 @@
 services:
   api:
     environment:
+      GEE_ENABLED: ${GEE_ENABLED:-false}
       GEE_PROJECT_ID: ${GEE_PROJECT_ID:-amazonika-geoespacial}
       GEE_SERVICE_ACCOUNT_EMAIL: ${GEE_SERVICE_ACCOUNT_EMAIL:?Configure GEE_SERVICE_ACCOUNT_EMAIL in the private VPS environment}
       GEE_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/gee-service-account.json
