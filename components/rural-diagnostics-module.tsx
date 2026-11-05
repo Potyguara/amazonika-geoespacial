@@ -71,7 +71,15 @@ export function RuralDiagnosticsModule() {
   const [monitoringGeometry, setMonitoringGeometry] = useState<Record<string, unknown> | null>(null);
   const [monitoringLayers, setMonitoringLayers] = useState<Array<{name: string; title: string; program: string}>>([]);
   const [monitoringLayer, setMonitoringLayer] = useState("");
-  const [monitoringMode, setMonitoringMode] = useState<"INPE" | "IBAMA">("INPE");
+  const [monitoringMode, setMonitoringMode] = useState<"INPE" | "IBAMA" | "MAPBIOMAS">("INPE");
+  const [mapbiomasYear, setMapbiomasYear] = useState(2025);
+  const [mapbiomasAvailable, setMapbiomasAvailable] = useState(false);
+  const [mapbiomasPreview, setMapbiomasPreview] = useState<{
+    year: number; collection: number; resolution_m: number;
+    classified_area_hectares: number; geometry_area_hectares: number;
+    classes: Array<{code: number; name: string; area_hectares: number; percent_classified: number; color: string | null}>;
+    warning: string;
+  } | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [monitoringPreview, setMonitoringPreview] = useState<{
     program: string; layer_title: string; interfering_features: number;
@@ -99,6 +107,7 @@ export function RuralDiagnosticsModule() {
     setMonitoringCandidate(null);
     setMonitoringPreview(null);
     setMonitoringGeometry(null);
+    setMapbiomasPreview(null);
     try {
       const query = new URLSearchParams({
         latitude: String(lat),
@@ -215,28 +224,42 @@ export function RuralDiagnosticsModule() {
     return await response.json() as {name: string; geometry: Record<string, unknown>};
   };
 
-  const openMonitoring = async (candidate: Candidate, mode: "INPE" | "IBAMA") => {
+  const openMonitoring = async (candidate: Candidate, mode: "INPE" | "IBAMA" | "MAPBIOMAS") => {
     setBusy(true);
     setError(null);
     setMonitoringPreview(null);
     setMonitoringCandidate(null);
     setMonitoringGeometry(null);
     try {
-      const [detail, catalogResponse] = await Promise.all([
+      const [detail, catalogResponse, mapbiomasResponse] = await Promise.all([
         resolveCandidateGeometry(candidate),
         mode === "INPE"
           ? fetch(`${API_URL}/rural-diagnostics/monitoring/layers`, {credentials: "include"})
           : Promise.resolve(null),
+        mode === "MAPBIOMAS"
+          ? fetch(`${API_URL}/rural-diagnostics/mapbiomas/status`, {credentials: "include"})
+          : Promise.resolve(null),
       ]);
       if (catalogResponse && !catalogResponse.ok) throw new Error(await messageFromError(catalogResponse));
+      if (mapbiomasResponse && !mapbiomasResponse.ok) throw new Error(await messageFromError(mapbiomasResponse));
       const catalog = catalogResponse
         ? await catalogResponse.json() as {layers: Array<{name: string; title: string; program: string}>}
         : {layers: []};
+      const mapbiomasStatus = mapbiomasResponse
+        ? await mapbiomasResponse.json() as {enabled: boolean; message: string}
+        : null;
+      setMapbiomasAvailable(!!mapbiomasStatus?.enabled);
+      if (mapbiomasStatus && !mapbiomasStatus.enabled) {
+        setOfficialWarning(mapbiomasStatus.message);
+      } else if (mode === "MAPBIOMAS") {
+        setOfficialWarning(null);
+      }
       setMonitoringMode(mode);
       setMonitoringCandidate(candidate);
       setMonitoringGeometry(detail.geometry);
       setMonitoringLayers(catalog.layers);
       setMonitoringLayer(catalog.layers[0]?.name || "");
+      setMapbiomasPreview(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Monitoramento indisponível.");
     } finally {
@@ -294,17 +317,30 @@ export function RuralDiagnosticsModule() {
     setBusy(true);
     setError(null);
     setMonitoringPreview(null);
+    setMapbiomasPreview(null);
     try {
-      const response = await fetch(`${API_URL}/rural-diagnostics/${monitoringMode === "IBAMA" ? "ibama/embargos/preview" : "monitoring/preview"}`, {
+      const endpoint = monitoringMode === "IBAMA"
+        ? "ibama/embargos/preview"
+        : monitoringMode === "MAPBIOMAS"
+          ? "mapbiomas/preview"
+          : "monitoring/preview";
+      const payload = monitoringMode === "IBAMA"
+        ? {geometry: monitoringGeometry}
+        : monitoringMode === "MAPBIOMAS"
+          ? {geometry: monitoringGeometry, year: mapbiomasYear}
+          : {layer_name: monitoringLayer, geometry: monitoringGeometry};
+      const response = await fetch(`${API_URL}/rural-diagnostics/${endpoint}`, {
         method: "POST",
         credentials: "include",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(monitoringMode === "IBAMA"
-          ? {geometry: monitoringGeometry}
-          : {layer_name: monitoringLayer, geometry: monitoringGeometry}),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(await messageFromError(response));
-      setMonitoringPreview(await response.json());
+      if (monitoringMode === "MAPBIOMAS") {
+        setMapbiomasPreview(await response.json());
+      } else {
+        setMonitoringPreview(await response.json());
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Falha na consulta ambiental.");
     } finally {
@@ -452,6 +488,10 @@ export function RuralDiagnosticsModule() {
                 onClick={() => void openMonitoring(candidate, "IBAMA")}>
                 <FileSearch size={17} /> Embargos IBAMA
               </button>
+              <button type="button" className="rural-monitoring-button" disabled={busy || result.has_more}
+                onClick={() => void openMonitoring(candidate, "MAPBIOMAS")}>
+                <FileSearch size={17} /> Uso do solo (MapBiomas)
+              </button>
               </div>
             </article>
           ))}
@@ -464,7 +504,9 @@ export function RuralDiagnosticsModule() {
           <h3>Prévia ambiental — {monitoringCandidate.name}</h3>
           <p>{monitoringMode === "INPE"
             ? "Selecione uma camada publicada pelo INPE. A consulta retorna somente as feições na extensão do imóvel."
-            : "Áreas de embargo publicadas pelo IBAMA. A interseção espacial não comprova responsabilidade do titular do imóvel."}</p>
+            : monitoringMode === "IBAMA"
+              ? "Áreas de embargo publicadas pelo IBAMA. A interseção espacial não comprova responsabilidade do titular do imóvel."
+              : "MapBiomas Coleção 11 (30 m). Classes anuais de cobertura e uso da terra dentro do perímetro, calculadas no Earth Engine."}</p>
           {monitoringMode === "INPE" && (
             <label>Camada TerraBrasilis
               <select value={monitoringLayer} onChange={(event) => {setMonitoringLayer(event.target.value); setMonitoringPreview(null);}}>
@@ -474,14 +516,46 @@ export function RuralDiagnosticsModule() {
               </select>
             </label>
           )}
+          {monitoringMode === "MAPBIOMAS" && (
+            <label>Ano de classificação
+              <select value={mapbiomasYear}
+                onChange={(event) => {setMapbiomasYear(Number(event.target.value)); setMapbiomasPreview(null);}}>
+                {Array.from({length: 2025 - 1985 + 1}, (_, index) => 2025 - index).map((year) => (
+                  <option value={year} key={year}>{year}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <div>
-            <button type="button" disabled={busy || (monitoringMode === "INPE" && !monitoringLayer)}
-              onClick={() => void runMonitoring()}>Consultar monitoramento</button>
+            <button type="button"
+              disabled={busy || (monitoringMode === "INPE" && !monitoringLayer) || (monitoringMode === "MAPBIOMAS" && !mapbiomasAvailable)}
+              onClick={() => void runMonitoring()}>
+              {monitoringMode === "MAPBIOMAS" ? "Calcular uso do solo" : "Consultar monitoramento"}
+            </button>
             <button type="button" className="rural-monitoring-cancel"
               onClick={() => {setMonitoringCandidate(null); setMonitoringPreview(null);}}>
               Fechar
             </button>
           </div>
+          {mapbiomasPreview && (
+            <div className="rural-mapbiomas-results">
+              <h3>Uso e cobertura do solo — {mapbiomasPreview.year}</h3>
+              <p>MapBiomas Coleção {mapbiomasPreview.collection} · {mapbiomasPreview.resolution_m} m</p>
+              <p>Área classificada: {formatArea(mapbiomasPreview.classified_area_hectares)} ·
+                Área geométrica: {formatArea(mapbiomasPreview.geometry_area_hectares)}</p>
+              {mapbiomasPreview.classes.map((entry) => (
+                <div className="rural-landcover-class" key={entry.code}>
+                  <div><strong>{entry.name}</strong><span>{formatArea(entry.area_hectares)} · {entry.percent_classified.toLocaleString("pt-BR")}%</span></div>
+                  <div className="rural-landcover-track">
+                    <div style={{width: `${Math.min(entry.percent_classified, 100)}%`,
+                      background: entry.color || "#759485"}} />
+                  </div>
+                  <small>Código {entry.code}</small>
+                </div>
+              ))}
+              <p className="rural-diagnostic-note">{mapbiomasPreview.warning}</p>
+            </div>
+          )}
           {monitoringPreview && (
             <section className="rural-diagnostic-complete">
               <div>
@@ -525,7 +599,7 @@ export function RuralDiagnosticsModule() {
           </div>
         </section>
       )}
-      <p className="rural-diagnostic-note">Etapa atual: busca por coordenada (SIGEF e PostGIS) ou código CAR (SICAR WFS público); consultas ambientais PRODES/DETER e Embargos IBAMA. MapBiomas, clima e demais bases serão incorporados em etapas posteriores. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
+      <p className="rural-diagnostic-note">Etapa atual: busca por coordenada ou código CAR; consultas ambientais INPE, IBAMA e uso/cobertura MapBiomas Coleção 11 (quando Earth Engine configurado). Clima e demais bases serão incorporados posteriormente. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
     </section>
   );
 }
