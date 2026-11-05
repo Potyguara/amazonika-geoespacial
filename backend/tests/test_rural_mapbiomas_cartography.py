@@ -100,3 +100,47 @@ def test_pdf_second_page_renders_real_pixel_thumbnail():
     text = "\n".join(page.extract_text() for page in reader.pages)
     assert "Mapa temático" in text
     assert "não substitui planta georreferenciada" in text
+
+
+def test_ee_thumbnail_request_failure_has_safe_stage_not_remote_details(monkeypatch):
+    class FakeImage:
+        def select(self, *a): return self
+        def remap(self, *a): return self
+        def updateMask(self, *a): return self
+        def neq(self, *a): return self
+        def clip(self, *a): return self
+        def visualize(self, **kw): return self
+        def getThumbURL(self, *a):
+            raise RuntimeError("secret-token-and-url-should-never-leak")
+    class FakeEE:
+        Geometry = staticmethod(lambda *a, **kw: None)
+        Image = staticmethod(lambda *a: FakeImage())
+    FakeEE.Geometry.Rectangle = lambda *a, **kw: None
+    monkeypatch.setattr(cm, "_initialize_gee", lambda: FakeEE)
+    with pytest.raises(RuntimeError, match="EE_GET_THUMB_URL") as exc:
+        cm.fetch_mapbiomas_thematic_thumbnail(
+            SUBJECT, year=2025, class_codes=[11, 6]
+        )
+    assert "secret-token" not in str(exc.value)
+
+
+def test_ee_thumbnail_unapproved_host_rejected_without_download(monkeypatch):
+    class FakeImage:
+        def select(self, *a): return self
+        def remap(self, *a): return self
+        def updateMask(self, *a): return self
+        def neq(self, *a): return self
+        def clip(self, *a): return self
+        def visualize(self, **kw): return self
+        def getThumbURL(self, *a): return "https://example.invalid/secret-token"
+    class FakeEE:
+        Geometry = staticmethod(lambda *a, **kw: None)
+        Image = staticmethod(lambda *a: FakeImage())
+    FakeEE.Geometry.Rectangle = lambda *a, **kw: None
+    monkeypatch.setattr(cm, "_initialize_gee", lambda: FakeEE)
+    monkeypatch.setattr(cm, "urlopen", lambda *a, **kw: pytest.fail("Downloaded untrusted host"))
+    with pytest.raises(RuntimeError, match="EE_THUMB_HOST") as exc:
+        cm.fetch_mapbiomas_thematic_thumbnail(
+            SUBJECT, year=2025, class_codes=[11, 6]
+        )
+    assert "secret-token" not in str(exc.value)
