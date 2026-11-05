@@ -6,8 +6,11 @@ from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Flowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Flowable, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.utils import ImageReader
+from pyproj import Geod
+from app.services.rural_mapbiomas_cartography import ThematicThumbnail
 import math
 
 
@@ -54,9 +57,79 @@ class MapBiomasClassBars(Flowable):
             c.drawRightString(self.width, y + 1, _fmt(share, 2) + "%")
 
 
+class MapBiomasThematicMap(Flowable):
+    """Rendered official pixel thumbnail; WGS84 extent gives approximate scale."""
+
+    def __init__(self, thumb: ThematicThumbnail, class_rows: list[dict]):
+        super().__init__()
+        self.thumb = thumb
+        self.class_rows = class_rows
+        self.width = 170 * mm
+        self.height = 173 * mm
+
+    def draw(self):
+        c = self.canv
+        c.setStrokeColor(colors.HexColor("#CBDDD0"))
+        c.setFillColor(colors.white)
+        c.roundRect(0, 0, self.width, self.height, 5, stroke=1, fill=1)
+        # Never stretch a pixel grid independently of its width-to-height ratio.
+        px_ratio = self.thumb.width / self.thumb.height
+        max_width, max_height = 155 * mm, 129 * mm
+        display_w = min(max_width, max_height * px_ratio)
+        display_h = display_w / px_ratio
+        x = (self.width - display_w) / 2
+        y = 24 * mm + (max_height - display_h) / 2
+        c.drawImage(
+            ImageReader(BytesIO(self.thumb.png)), x, y,
+            width=display_w, height=display_h, mask="auto",
+        )
+        c.setStrokeColor(colors.HexColor("#355244"))
+        c.rect(x, y, display_w, display_h, stroke=1, fill=0)
+        c.setFillColor(colors.HexColor("#203D32"))
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(7 * mm, self.height - 7 * mm,
+                     f"Classes MapBiomas {self.thumb.year} — pixels reais do imóvel")
+        # North is geographic grid-up under the EPSG:4326 thumbnail request.
+        c.setStrokeColor(colors.HexColor("#203D32"))
+        c.setLineWidth(1.2)
+        arrow_x, arrow_y = self.width - 12 * mm, self.height - 21 * mm
+        c.line(arrow_x, arrow_y - 8 * mm, arrow_x, arrow_y)
+        p = c.beginPath()
+        p.moveTo(arrow_x, arrow_y + 4 * mm)
+        p.lineTo(arrow_x - 2.5 * mm, arrow_y - 2 * mm)
+        p.lineTo(arrow_x + 2.5 * mm, arrow_y - 2 * mm)
+        p.close()
+        c.drawPath(p, fill=1, stroke=0)
+        c.drawCentredString(arrow_x, arrow_y + 6 * mm, "N")
+
+        # Estimate ground distance from geographic longitude along centerline,
+        # not a survey-grade projected-coordinate scale bar.
+        west, south, east, north = self.thumb.bounds
+        middle = (south + north) / 2
+        _, _, width_m = Geod(ellps="GRS80").inv(west, middle, east, middle)
+        if width_m > 0:
+            bar_meters = 10 ** math.floor(math.log10(width_m * .3))
+            for unit in (5, 2, 1):
+                if bar_meters * unit <= width_m * .35:
+                    bar_meters *= unit
+                    break
+            bar_w = display_w * bar_meters / width_m
+            c.setFillColor(colors.HexColor("#203D32"))
+            c.rect(x, 13 * mm, bar_w, 2 * mm, stroke=0, fill=1)
+            c.setFont("Helvetica", 7)
+            c.drawString(x, 17 * mm, f"Escala gráfica aproximada: {bar_meters / 1000:g} km"
+                         if bar_meters >= 1000 else
+                         f"Escala gráfica aproximada: {bar_meters:g} m")
+        c.setFont("Helvetica", 7)
+        c.setFillColor(colors.HexColor("#53685D"))
+        c.drawString(7 * mm, 5 * mm,
+                     "Visualização raster recortada ao CAR; não substitui planta georreferenciada.")
+
+
 def mapbiomas_pdf(*, property_name: str, cadastral_source: str,
                   cadastral_code: str | None, report: dict,
-                  generated_at: datetime) -> bytes:
+                  generated_at: datetime,
+                  thematic_map: ThematicThumbnail | None = None) -> bytes:
     if report.get("status") != "ANALYZED" or not report.get("classes"):
         raise ValueError("Estatísticas MapBiomas ausentes ou incompletas.")
     stream = BytesIO()
@@ -153,6 +226,45 @@ def mapbiomas_pdf(*, property_name: str, cadastral_source: str,
         "Documento preliminar sem assinatura técnica ou QR de autenticidade.",
         styles["AKSmall"],
     ))
+
+    if thematic_map is not None:
+        story.append(PageBreak())
+        story.append(Paragraph("5. Mapa temático do uso e cobertura do solo", styles["AKTitle"]))
+        story.append(Paragraph(
+            "Imagem temática gerada com pixels reais da classificação MapBiomas, "
+            "recortados ao perímetro cadastral consultado. A distribuição por "
+            "classe é espacial e diferente do gráfico de participação.",
+            styles["AKSmall"],
+        ))
+        story.append(MapBiomasThematicMap(thematic_map, report["classes"]))
+        legend_rows = []
+        for item in report["classes"]:
+            code = item["code"]
+            if code not in thematic_map.class_codes:
+                continue
+            col = item.get("color") or "#8D9A94"
+            legend_rows.append([
+                Paragraph(f'<font color="{col}">&#9632;</font>  '
+                          + _safe(f'{code} — {item["name"]}'), styles["AKSmall"]),
+                _fmt(item["area_hectares"]) + " ha",
+            ])
+        if legend_rows:
+            legend = Table(legend_rows, colWidths=[135 * mm, 35 * mm])
+            legend.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ROWBACKGROUNDS", (0, 0), (-1, -1),
+                 [colors.white, colors.HexColor("#F6F9F7")]),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            story.append(legend)
+        story.append(Paragraph(
+            "Fonte: MapBiomas Brasil, Coleção 11, ano "
+            + str(thematic_map.year) +
+            ". Miniatura cartográfica para triagem ambiental; "
+            "não usar para delimitar APP, RL ou áreas a suprimir.",
+            styles["AKSmall"],
+        ))
 
     def footer(canvas, report_doc):
         canvas.saveState()
