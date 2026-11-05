@@ -67,6 +67,16 @@ export function RuralDiagnosticsModule() {
   const [progress, setProgress] = useState("");
   const [officialWarning, setOfficialWarning] = useState<string | null>(null);
   const [finished, setFinished] = useState<AnalysisStatus | null>(null);
+  const [monitoringCandidate, setMonitoringCandidate] = useState<Candidate | null>(null);
+  const [monitoringGeometry, setMonitoringGeometry] = useState<Record<string, unknown> | null>(null);
+  const [monitoringLayers, setMonitoringLayers] = useState<Array<{name: string; title: string; program: string}>>([]);
+  const [monitoringLayer, setMonitoringLayer] = useState("");
+  const [monitoringPreview, setMonitoringPreview] = useState<{
+    program: string; layer_title: string; interfering_features: number;
+    overlap_hectares: number; overlap_percent: number | null;
+    source: string; warning: string;
+    features: Array<{id: string; overlap_hectares: number; attributes: Record<string, string>}>;
+  } | null>(null);
 
   const findProperties = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -171,44 +181,86 @@ export function RuralDiagnosticsModule() {
     }
   };
 
+  const resolveCandidateGeometry = async (candidate: Candidate) => {
+    const isOfficial = candidate.retrieval === "OFFICIAL_WFS";
+    const isCar = candidate.retrieval === "OFFICIAL_CAR_WFS";
+    const url = isOfficial
+      ? `${API_URL}/rural-diagnostics/official-sigef/perimeter`
+      : isCar
+        ? `${API_URL}/rural-diagnostics/official-car/perimeter`
+        : `${API_URL}/rural-diagnostics/properties/${candidate.feature_id}`;
+    const response = await fetch(url, {
+      credentials: "include",
+      ...(isOfficial || isCar ? {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          ...(isOfficial ? {
+            latitude: result?.coordinate.latitude,
+            longitude: result?.coordinate.longitude,
+          } : {car_code: candidate.cadastral_code}),
+          feature_token: candidate.feature_id,
+        }),
+      } : {}),
+    });
+    if (!response.ok) throw new Error(await messageFromError(response));
+    return await response.json() as {name: string; geometry: Record<string, unknown>};
+  };
+
+  const openMonitoring = async (candidate: Candidate) => {
+    setBusy(true);
+    setError(null);
+    setMonitoringPreview(null);
+    setMonitoringCandidate(null);
+    setMonitoringGeometry(null);
+    try {
+      const [detail, catalogResponse] = await Promise.all([
+        resolveCandidateGeometry(candidate),
+        fetch(`${API_URL}/rural-diagnostics/monitoring/layers`, {credentials: "include"}),
+      ]);
+      if (!catalogResponse.ok) throw new Error(await messageFromError(catalogResponse));
+      const catalog = await catalogResponse.json() as {
+        layers: Array<{name: string; title: string; program: string}>;
+      };
+      setMonitoringCandidate(candidate);
+      setMonitoringGeometry(detail.geometry);
+      setMonitoringLayers(catalog.layers);
+      setMonitoringLayer(catalog.layers[0]?.name || "");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Monitoramento indisponível.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runMonitoring = async () => {
+    if (!monitoringGeometry || !monitoringLayer) return;
+    setBusy(true);
+    setError(null);
+    setMonitoringPreview(null);
+    try {
+      const response = await fetch(`${API_URL}/rural-diagnostics/monitoring/preview`, {
+        method: "POST",
+        credentials: "include",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({layer_name: monitoringLayer, geometry: monitoringGeometry}),
+      });
+      if (!response.ok) throw new Error(await messageFromError(response));
+      setMonitoringPreview(await response.json());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha na consulta ambiental.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const analyzeProperty = async (candidate: Candidate) => {
     setBusy(true);
     setError(null);
     setFinished(null);
     setSelectedId(candidate.feature_id);
     try {
-      const isOfficial = candidate.retrieval === "OFFICIAL_WFS";
-      const isCar = candidate.retrieval === "OFFICIAL_CAR_WFS";
-      const detailResponse = await fetch(
-        isOfficial
-          ? `${API_URL}/rural-diagnostics/official-sigef/perimeter`
-          : isCar
-            ? `${API_URL}/rural-diagnostics/official-car/perimeter`
-            : `${API_URL}/rural-diagnostics/properties/${candidate.feature_id}`,
-        {
-          credentials: "include",
-          ...((isOfficial || isCar)
-            ? {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  ...(isOfficial ? {
-                    latitude: result?.coordinate.latitude,
-                    longitude: result?.coordinate.longitude,
-                  } : { car_code: candidate.cadastral_code }),
-                  feature_token: candidate.feature_id,
-                }),
-              }
-            : {}),
-        },
-      );
-      if (!detailResponse.ok) throw new Error(await messageFromError(detailResponse));
-      const detail = await detailResponse.json() as {
-        name: string;
-        geometry: Record<string, unknown>;
-        source_name: string;
-        reference_date: string | null;
-      };
+      const detail = await resolveCandidateGeometry(candidate);
       setProgress("Iniciando cruzamento nas bases territoriais disponíveis…");
       const response = await fetch(`${API_URL}/analyses`, {
         method: "POST",
@@ -328,15 +380,59 @@ export function RuralDiagnosticsModule() {
                 {candidate.status && <span>Status publicado: {candidate.status}</span>}
                 <span>Referência: {candidate.reference_date || (candidate.retrieval === "OFFICIAL_WFS" ? "consulta WFS atual" : "não informada")}</span>
               </div>
+              <div className="rural-candidate-buttons">
               <button type="button" disabled={busy || result.has_more}
                 onClick={() => void analyzeProperty(candidate)}>
                 <FileSearch size={17} />
                 {busy && selectedId === candidate.feature_id ? "Analisando…" : "Analisar imóvel"}
               </button>
+              <button type="button" className="rural-monitoring-button" disabled={busy || result.has_more}
+                onClick={() => void openMonitoring(candidate)}>
+                <FileSearch size={17} /> PRODES / DETER
+              </button>
+              </div>
             </article>
           ))}
           <p className="rural-diagnostic-note">{result.notice}</p>
         </div>
+      )}
+
+      {monitoringCandidate && (
+        <section className="rural-diagnostic-results rural-monitoring-panel">
+          <h3>Prévia ambiental — {monitoringCandidate.name}</h3>
+          <p>Selecione uma camada publicada pelo INPE. A consulta retorna somente as feições na extensão do imóvel.</p>
+          <label>Camada TerraBrasilis
+            <select value={monitoringLayer} onChange={(event) => setMonitoringLayer(event.target.value)}>
+              {monitoringLayers.map((layer) => (
+                <option key={layer.name} value={layer.name}>{layer.program} — {layer.title}</option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <button type="button" disabled={busy || !monitoringLayer}
+              onClick={() => void runMonitoring()}>Consultar monitoramento</button>
+            <button type="button" className="rural-monitoring-cancel"
+              onClick={() => {setMonitoringCandidate(null); setMonitoringPreview(null);}}>
+              Fechar
+            </button>
+          </div>
+          {monitoringPreview && (
+            <section className="rural-diagnostic-complete">
+              <div>
+                <strong>{monitoringPreview.program} — {monitoringPreview.layer_title}</strong>
+                <p>Feições com sobreposição: {monitoringPreview.interfering_features}.</p>
+                <p>Área total de interseção: {formatArea(monitoringPreview.overlap_hectares)}.</p>
+                <p>Percentual do imóvel: {monitoringPreview.overlap_percent == null
+                  ? "Não calculado"
+                  : monitoringPreview.overlap_percent.toLocaleString("pt-BR", {maximumFractionDigits: 2}) + "%"}.</p>
+                <small>{monitoringPreview.warning}</small>
+                {monitoringPreview.features.slice(0, 20).map((feature, index) => (
+                  <p key={feature.id || index}>Feição {index + 1}: {formatArea(feature.overlap_hectares)}</p>
+                ))}
+              </div>
+            </section>
+          )}
+        </section>
       )}
 
       {progress && <p role="status" className="rural-diagnostic-progress">{progress}</p>}
