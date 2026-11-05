@@ -11,12 +11,14 @@ import math
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.catalog import GeoFeature
 from app.services.auth import require_permission
+from app.services.rural_official_sigef import (OfficialSigefQueryError, locate_official_sigef, resolve_official_sigef)
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -197,3 +199,36 @@ def resolve_rural_perimeter(
         "geometry": geom,
         "notice": "Geometria cadastral para triagem; confirme a versão antes de uso técnico.",
     }
+
+
+class OfficialSigefSelection(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    feature_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+@router.get("/official-sigef/locate")
+def locate_sigef_official(
+    latitude: float = Query(..., ge=-90, le=90),
+    longitude: float = Query(..., ge=-180, le=180),
+):
+    """Find official SIGEF perimeters that *actually cover* the supplied point."""
+    try:
+        validate_coordinate(latitude, longitude)
+        return locate_official_sigef(latitude, longitude)
+    except OfficialSigefQueryError as exc:
+        raise HTTPException(
+            503, "Consulta SIGEF oficial indisponível ou inconclusiva: " + str(exc)[:260]
+        ) from exc
+
+
+@router.post("/official-sigef/perimeter", dependencies=[Depends(require_permission("analysis.execute"))])
+def retrieve_official_sigef_perimeter(payload: OfficialSigefSelection):
+    """Resolve selected perimeter only after rechecking the official GeoNode data."""
+    try:
+        validate_coordinate(payload.latitude, payload.longitude)
+        return resolve_official_sigef(
+            payload.latitude, payload.longitude, payload.feature_token
+        )
+    except OfficialSigefQueryError as exc:
+        raise HTTPException(409, str(exc)[:260]) from exc
