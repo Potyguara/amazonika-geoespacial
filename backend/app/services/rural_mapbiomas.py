@@ -42,6 +42,7 @@ CLASS_NAMES = {
     14: "Agropecuária (agregação)",
     15: "Pastagem",
     18: "Agricultura (agregação)",
+    24: "Área Urbanizada",
     49: "Restinga Arbórea",
     50: "Restinga Herbácea ou Arbustiva",
     77: "Formação Herbácea Arbustiva",
@@ -52,6 +53,7 @@ CLASS_COLORS = {
     1: "#1f8d49", 3: "#1f8d49", 4: "#7dc975", 5: "#04381d",
     6: "#007785", 7: "#228c70", 10: "#d6bc74", 11: "#519799",
     12: "#d6bc74", 14: "#ffefc3", 15: "#edde8e", 18: "#e974ed",
+    24: "#d85c5c",
     49: "#02d659", 50: "#ffaa5f", 77: "#86b074", 84: "#81dbbf",
 }
 
