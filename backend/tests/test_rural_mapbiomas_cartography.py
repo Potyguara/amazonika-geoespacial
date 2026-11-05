@@ -74,6 +74,12 @@ def test_actual_png_thumbnail_uses_real_class_asset_without_storing(monkeypatch)
     assert ("select", "classification_2025") in requests
     assert ("clip", True) in requests
     assert any(item[0] == "thumb" for item in requests)
+    thumb_options = next(item[1] for item in requests if item[0] == "thumb")
+    ring = thumb_options["region"]
+    assert isinstance(ring, list) and len(ring) == 5
+    assert ring[0] == ring[-1]
+    assert ring[0] == [-51.20, 0.030]
+    assert thumb_options["crs"] == "EPSG:4326"
     assert ("read_limit", cm.MAX_THUMB_BYTES + 1) in requests
 
 
