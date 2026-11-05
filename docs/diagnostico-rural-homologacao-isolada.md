@@ -55,7 +55,7 @@ printf '%s\n' "$RURAL_PASSWORD" | docker compose \
   --project-name amazonika-rural-homolog --env-file .env.rural-homolog \
   -f docker-compose.rural-homolog.yml exec -T \
   -e RURAL_HOMOLOG_SEED=yes \
-  -e RURAL_HOMOLOG_ADMIN_EMAIL=admin-rural@example.invalid \
+  -e RURAL_HOMOLOG_ADMIN_EMAIL=admin-rural@example.com \
   api python /app/scripts/seed_rural_homolog_admin.py
 unset RURAL_PASSWORD
 ```
@@ -76,7 +76,7 @@ python3 - <<'PY' | curl -fsS -c /tmp/amazonika-rural-homolog.cookies \
     http://127.0.0.1:18002/api/v1/auth/login
 import getpass, json
 print(json.dumps({
-    "email": "admin-rural@example.invalid",
+    "email": "admin-rural@example.com",
     "password": getpass.getpass("Senha de homologação: "),
 }))
 PY
