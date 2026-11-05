@@ -66,7 +66,12 @@ def test_admin_http_audited_once_in_disposable_postgres(monkeypatch):
     )
     principal = {"current": admin}
     app.dependency_overrides[get_current_session] = (
-        lambda: SimpleNamespace(user=principal["current"])
+        lambda: SimpleNamespace(
+            user=principal["current"],
+            # Real UserSession carries this field; an ANALISTA without a
+            # validated location must receive 403 before any GEE call.
+            location_expires_at=None,
+        )
     )
     monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(
         gee_internal_pilot_enabled=True, gee_enabled=True,
