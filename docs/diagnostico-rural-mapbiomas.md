@@ -28,17 +28,19 @@ Não rotular códigos desconhecidos com categorias presumidas. Identificá-los n
 
 ## Configuração segura da VPS
 
-1. Habilitar previamente o projeto do Google Cloud e credenciar o projeto para Earth Engine conforme as regras atuais do Google. Acesso não comercial gratuito não deve ser presumido válido para um produto comercial.
-2. Criar uma conta de serviço exclusiva com as permissões mínimas de processamento em Earth Engine, conforme documentação Google.
+1. Projeto `amazonika-geoespacial` já foi registrado pelo operador para Earth Engine comercial no plano Limitado (evidenciado na tela de configuração de 05/11/2026). Verificar em **APIs e serviços** que a Earth Engine API está habilitada e em **Faturamento** que existe conta ativa. O plano Limitado é cobrado por consumo, não equivale a serviço gratuito.
+2. Criar uma conta de serviço exclusiva, sugerida `amazonika-gee-rural`, com `roles/earthengine.viewer` e `roles/serviceusage.serviceUsageConsumer` no projeto. Não conceder Editor/Owner para as consultas somente leitura. Consultar os requisitos oficiais caso a API informe alguma permissão adicional.
 3. Guardar o JSON da credencial **fora do repositório e fora do diretório público**, sem incluir no Git, backups compartilhados ou logs. Permissões restritas de leitura.
 4. Montar o arquivo no contêiner API como volume **somente leitura**. Exemplo de caminho interno: `/run/secrets/gee-service-account.json`.
-5. No ambiente do contêiner API, definir:
-   - `GEE_PROJECT_ID=<id-do-projeto>`
+5. No ambiente do contêiner API, definir (apenas no arquivo privado da VPS):
+   - `GEE_ENABLED=false` inicialmente; mudar para `true` **somente após homologar**
+   - `GEE_PROJECT_ID=amazonika-geoespacial`
    - `GEE_SERVICE_ACCOUNT_EMAIL=<conta-de-servico>@<projeto>.iam.gserviceaccount.com`
    - `GEE_SERVICE_ACCOUNT_KEY_FILE=/run/secrets/gee-service-account.json`
-6. Instalar as dependências do `backend/requirements.txt` no contêiner da branch.
-7. Consultar `GET /api/v1/rural-diagnostics/mapbiomas/status` usando sessão autenticada.
-8. Testar imóvel pequeno e o ano 2025 antes de expandir a operação.
+6. Utilizar `docker-compose.gee.optional.yml` apenas como overlay opcional da API quando a chave estiver guardada em caminho absoluto fora do repositório. Configurar `GEE_SERVICE_ACCOUNT_KEY_HOST_PATH=/caminho/absoluto/seguro/chave.json` no `.env.production` privado. Não inserir a chave no Dockerfile.
+7. Instalar as dependências do `backend/requirements.txt` no contêiner da branch e executar `python scripts/probe_earth_engine_mapbiomas.py` no contêiner de homologação com a chave montada para verificar somente a autenticação e a existência do asset.
+8. Consultar `GET /api/v1/rural-diagnostics/mapbiomas/status` usando sessão autenticada após habilitar `GEE_ENABLED=true` em homologação.
+9. Testar imóvel pequeno e o ano 2025 antes de expandir a operação, com orçamentos e alertas em Google Cloud Billing e limite diário de EECU. Os alertas de orçamento normalmente não bloqueiam gastos automaticamente; não tratar orçamento como teto técnico.
 
 **Atenção:** o arquivo não é transferido por API, não é incorporado ao PDF e não deve jamais ser exposto no frontend.
 
@@ -63,3 +65,11 @@ O ambiente de testes `amazonika-api-testes` precisa conter as dependências atua
 **Limites iniciais:** geometria válida com no máximo 25 mil vértices; envelope de até 0,8° por eixo; no máximo 15 milhões de pixels por redução, `bestEffort=False`, para não mudar resolução silenciosamente. Imóveis maiores demandam lote assíncrono ou particionamento.
 
 Nenhuma integração MapBiomas foi ainda homologada com uma conta GEE real. Não prometer valor de cobertura final até o sucesso do teste end-to-end.
+
+## Fonte de preços e IAM (2026)
+
+- https://cloud.google.com/earth-engine/pricing?hl=pt : plano Limitado sem mensalidade fixa de plataforma, com cobrança de processamento utilizado e sem créditos incluídos.
+- https://developers.google.com/earth-engine/guides/access_control : papéis `roles/earthengine.viewer` e `roles/serviceusage.serviceUsageConsumer` para uso somente leitura.
+- https://developers.google.com/earth-engine/guides/service_account : autenticação por conta de serviço; proteger a chave JSON.
+
+**Atenção**: o registro comercial do projeto não comprova, por si só, que a conta de serviço foi criada, que a API está habilitada ou que os testes passaram.
