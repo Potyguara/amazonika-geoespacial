@@ -129,7 +129,6 @@ def _read_features(code: str) -> list[dict]:
         else:
             raise OfficialCarQueryError("SICAR WFS indisponível ou inacessível.") from exc
 
-        raise OfficialCarQueryError("SICAR WFS indisponível ou inacessível.") from exc
     if len(raw) > MAX_RESPONSE_BYTES:
         raise OfficialCarQueryError("Resposta SICAR excedeu o limite seguro de transferência.")
     if "json" not in content_type:
