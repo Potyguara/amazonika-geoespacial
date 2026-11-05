@@ -118,3 +118,69 @@ def test_multiple_features_fail_closed(monkeypatch):
                         FakeResponse([feature(), feature()]))
     with pytest.raises(car.OfficialCarQueryError, match="múltiplos"):
         car.fetch_car_candidate(CODE)
+
+
+def test_python_handshake_failure_falls_back_to_verified_curl(monkeypatch):
+    import ssl
+    from urllib.error import URLError
+    from types import SimpleNamespace
+    seen = {}
+
+    def fail_python(*args, **kwargs):
+        raise URLError(ssl.SSLError("SSLV3_ALERT_HANDSHAKE_FAILURE"))
+
+    def fake_curl(argv, **kwargs):
+        seen["argv"] = argv
+        seen["kwargs"] = kwargs
+        from pathlib import Path
+        Path(argv[argv.index("--output") + 1]).write_bytes(
+            json.dumps({"type":"FeatureCollection", "features":[feature()]}).encode()
+        )
+        return SimpleNamespace(returncode=0, stdout=b"application/json", stderr=b"")
+
+    monkeypatch.setattr(car, "urlopen", fail_python)
+    monkeypatch.setattr(car.subprocess, "run", fake_curl)
+    candidate = car.fetch_car_candidate(CODE)
+    assert candidate["retrieval"] == "OFFICIAL_CAR_WFS"
+    argv = seen["argv"]
+    assert argv[0] == "curl"
+    assert argv[argv.index("--proto") + 1] == "=https"
+    assert "--insecure" not in argv and "-k" not in argv
+    assert argv[-1].startswith(car.SICAR_WFS)
+    assert "CQL_FILTER=" in argv[-1]
+    assert seen["kwargs"]["timeout"] == 30
+    assert seen["kwargs"]["check"] is False
+
+
+def test_certificate_error_never_falls_back_to_curl(monkeypatch):
+    import ssl
+    from urllib.error import URLError
+
+    def reject(*args, **kwargs):
+        raise URLError(ssl.SSLCertVerificationError("CERTIFICATE_VERIFY_FAILED"))
+
+    monkeypatch.setattr(car, "urlopen", reject)
+    monkeypatch.setattr(car.subprocess, "run",
+                        lambda *a, **kw: pytest.fail("curl called after cert failure"))
+    with pytest.raises(car.OfficialCarQueryError, match="certificado"):
+        car.fetch_car_candidate(CODE)
+
+
+def test_curl_nonzero_exit_never_becomes_empty_car(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(car.subprocess, "run",
+        lambda *a, **kw: SimpleNamespace(returncode=60, stdout=b"", stderr=b"private"))
+    with pytest.raises(car.OfficialCarQueryError, match="curl código 60"):
+        car._curl_verified_https(car.SICAR_WFS)
+
+
+def test_curl_oversize_response_rejected(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+    monkeypatch.setattr(car, "MAX_RESPONSE_BYTES", 32)
+    def huge(argv, **kw):
+        Path(argv[argv.index("--output") + 1]).write_bytes(b"x" * 33)
+        return SimpleNamespace(returncode=0, stdout=b"application/json", stderr=b"")
+    monkeypatch.setattr(car.subprocess, "run", huge)
+    with pytest.raises(car.OfficialCarQueryError, match="limite seguro"):
+        car._curl_verified_https(car.SICAR_WFS)
