@@ -1,0 +1,14 @@
+# Optional overlay: Google Earth Engine service account for the rural module.
+# DO NOT use until the service account file and billing guards are configured.
+# This adds only API variables and a read-only key mount; no database changes.
+services:
+  api:
+    environment:
+      GEE_PROJECT_ID: ${GEE_PROJECT_ID:-amazonika-geoespacial}
+      GEE_SERVICE_ACCOUNT_EMAIL: ${GEE_SERVICE_ACCOUNT_EMAIL:?Configure GEE_SERVICE_ACCOUNT_EMAIL in the private VPS environment}
+      GEE_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/gee-service-account.json
+    volumes:
+      - type: bind
+        source: ${GEE_SERVICE_ACCOUNT_KEY_HOST_PATH:?Configure absolute path to the private service account JSON}
+        target: /run/secrets/gee-service-account.json
+        read_only: true
