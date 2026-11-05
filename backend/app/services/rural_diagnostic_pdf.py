@@ -129,7 +129,7 @@ class RuralIntersectionMap(Flowable):
         c.setFont("Helvetica", 7)
         c.drawString(8, 7, "Verde: perímetro consultado")
         c.setFillColor(RED)
-        c.drawString(width - 158, 7, "Vermelho: interseções PRODES/DETER")
+        c.drawString(width - 170, 7, "Vermelho: ocorrências sobrepostas")
 
 
 def build_rural_monitoring_pdf(
@@ -251,7 +251,7 @@ def build_rural_monitoring_pdf(
     if not features:
         story.append(Paragraph(
             "Nenhuma interferência geométrica encontrada na camada consultada. "
-            "Este resultado não significa ausência de desmatamento ou de restrições.",
+            "Este resultado não significa ausência de desmatamento, embargo ou outras restrições.",
             styles["AmazonikaSmall"],
         ))
     else:
@@ -303,10 +303,10 @@ def build_rural_monitoring_pdf(
     story.append(Paragraph(_clean(monitoring.get("warning") or
                                   "A camada selecionada não comprova infração."), styles["AmazonikaMuted"]))
     story.append(Paragraph(
-        "A consulta foi realizada sobre uma camada e sua cobertura específica. "
-        "Outras bases e períodos não foram avaliados neste documento. "
+        "A consulta foi realizada sobre uma única camada e sua cobertura específica. "
+        "Outras bases, fontes e períodos não foram avaliados neste documento. "
         "Eventual ausência de feições não constitui certificado de inexistência "
-        "de desmatamento. Para diagnóstico completo, avaliar todas as fontes pertinentes.",
+        "de desmatamento, embargo ou outras restrições. Consulte os órgãos competentes.",
         styles["AmazonikaMuted"],
     ))
 
