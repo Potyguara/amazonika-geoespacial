@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     mapbox_access_token: str | None = None
     mapbox_satellite_enabled: bool = False
     google_map_tiles_enabled: bool = False
+    gee_project_id: str | None = None
+    gee_service_account_email: str | None = None
+    gee_service_account_key_file: str | None = None
     openai_api_key: str | None = None
     openai_model: str = "gpt-5-mini"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
