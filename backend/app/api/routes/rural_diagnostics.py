@@ -28,6 +28,7 @@ from app.services.rural_diagnostic_pdf import build_rural_monitoring_pdf
 from app.services.rural_ibama_embargos import embargo_preview, IbamaEmbargoError
 from app.services.rural_mapbiomas import gee_configuration, mapbiomas_preview, MapBiomasError
 from app.services.rural_mapbiomas_pdf import mapbiomas_pdf
+from app.services.rural_mapbiomas_pilot import build_restricted_mapbiomas_pdf, verify_pilot_enabled
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -485,5 +486,55 @@ def rural_mapbiomas_pdf(payload: MapBiomasPdfRequest, db: Session = Depends(get_
             "Content-Disposition": 'attachment; filename="AMAZONIKA_MAPBIOMAS_USO_DO_SOLO_PREVIA.pdf"',
             "Cache-Control": "no-store",
             "X-Report-Type": "preliminary-rural-mapbiomas",
+        },
+    )
+
+
+class InternalMapBiomasPdfRequest(BaseModel):
+    """Restricted billing-controlled CAR only; geometry and statistics are server-side."""
+    car_code: str = Field(min_length=40, max_length=60)
+    year: Literal[2025] = 2025
+
+
+@router.get("/mapbiomas/internal-pilot/status")
+def rural_internal_pilot_status(
+    user=Depends(require_permission("analysis.export")),
+):
+    """Return admin-only pilot readiness; never disclose keys or quotas of others."""
+    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
+        raise HTTPException(403, "Piloto MapBiomas restrito ao administrador.")
+    return {
+        "enabled": bool(get_settings().gee_internal_pilot_enabled and get_settings().gee_enabled),
+        "year": 2025,
+        "max_area_hectares": 1200,
+        "max_attempts_per_user_utc_day": 1,
+        "max_platform_attempts_utc_day": 5,
+        "notice": "Homologação interna, cobrança por consulta, sem retentativas automáticas.",
+    }
+
+
+@router.post(
+    "/mapbiomas/internal-pilot/pdf",
+    dependencies=[Depends(require_permission("analysis.execute"))],
+)
+def rural_internal_pilot_pdf(
+    payload: InternalMapBiomasPdfRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("analysis.export")),
+):
+    """Admin-only, hard-gated, auditable MapBiomas map PDF for official CAR."""
+    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
+        raise HTTPException(403, "Piloto MapBiomas restrito ao administrador.")
+    verify_pilot_enabled()
+    document = build_restricted_mapbiomas_pdf(
+        db=db, user_id=user.id, car_code=payload.car_code,
+    )
+    return Response(
+        content=document,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="AMAZONIKA_MAPBIOMAS_MAPA_PRELIMINAR.pdf"',
+            "Cache-Control": "no-store, private",
+            "X-Report-Type": "preliminary-rural-mapbiomas-internal",
         },
     )
