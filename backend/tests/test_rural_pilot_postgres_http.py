@@ -7,7 +7,7 @@ Never run against the production DB.
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -68,9 +68,9 @@ def test_admin_http_audited_once_in_disposable_postgres(monkeypatch):
     app.dependency_overrides[get_current_session] = (
         lambda: SimpleNamespace(
             user=principal["current"],
-            # Real UserSession carries this field; an ANALISTA without a
-            # validated location must receive 403 before any GEE call.
-            location_expires_at=None,
+            # Give the analyst a valid territorial session so the test
+            # asserts the *admin-only pilot* restriction, not location denial.
+            location_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
         )
     )
     monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(
