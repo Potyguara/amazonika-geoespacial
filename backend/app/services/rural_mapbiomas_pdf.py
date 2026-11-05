@@ -6,7 +6,7 @@ from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Flowable, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Flowable, PageBreak, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from pyproj import Geod
@@ -202,15 +202,19 @@ def mapbiomas_pdf(*, property_name: str, cadastral_source: str,
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
     story.append(tbl)
-    story.append(Spacer(1, 4 * mm))
-    story.append(Paragraph("3. Participação por classe", styles["Heading2"]))
-    story.append(MapBiomasClassBars(report["classes"]))
-    story.append(Paragraph(
-        "Gráfico de participação relativa da área classificada. "
-        "Não representa a posição espacial dos pixels e não substitui "
-        "o mapa temático georreferenciado.",
-        styles["AKSmall"],
-    ))
+    # Prevent an orphan heading on page 1 while all class bars flow to page 2.
+    # This chart and its explanation are one semantic block.
+    story.append(KeepTogether([
+        Spacer(1, 4 * mm),
+        Paragraph("3. Participação por classe", styles["Heading2"]),
+        MapBiomasClassBars(report["classes"]),
+        Paragraph(
+            "Gráfico de participação relativa da área classificada. "
+            "Não representa a posição espacial dos pixels e não substitui "
+            "o mapa temático georreferenciado.",
+            styles["AKSmall"],
+        ),
+    ]))
     story.append(Spacer(1, 4 * mm))
     story.append(Paragraph("4. Metodologia, fontes e limitações", styles["Heading2"]))
     story.append(Paragraph(_safe(report.get("method"), 550), styles["AKBody"]))
