@@ -147,3 +147,44 @@ docker run --rm --network bridge --memory=1536m --cpus=1 \
 
 Importante: o parâmetro `--max-hectares 1200` é suficiente para o imóvel
 testado e não permite analisar áreas maiores. Nada é persistido.
+
+
+## Resultado real da homologação — 05/11/2026
+
+A VPS executou com sucesso a redução remota do MapBiomas Coleção 11, ano
+2025, sobre **um perímetro CAR real** recuperado pelo SICAR. Os números abaixo
+foram obtidos da saída operacional do contêiner de homologação:
+
+- Área geométrica SICAR: **1.115,1093 ha**, **63 vértices**.
+- Área classificada pelo Earth Engine: **1.115,0770 ha**.
+- Diferença geométrica/classificada: **0,0323 ha**, sem concluir sua causa
+  exata sem inspecionar pixels e máscara.
+- Limite configurado no teste: **1.200 ha**, **30.000 pixels**; pixels nominais
+  estimados pelo script: **12.391**.
+- Sem arquivo raster exportado ou armazenado.
+- Testes offline executados antes da redução: **30 aprovados**, build de
+  frontend aprovado em execução anterior.
+
+| Código | Classe da legenda oficial | Área classificada (ha) | Percentual |
+|---|---|---:|---:|
+| 11 | Campo Alagado e Área Pantanosa | 870,7678 | 78,09% |
+| 6 | Floresta Alagável | 215,6480 | 19,34% |
+| 3 | Formação Florestal | 18,1312 | 1,63% |
+| 9 | Silvicultura | 8,0247 | 0,72% |
+| 33 | Rio, Lago e Oceano | 1,3431 | 0,12% |
+| 21 | Mosaico de Usos | 1,1622 | 0,10% |
+| **Total** | | **1.115,0770** | **100%** |
+
+Legenda e códigos verificados na fonte oficial:
+https://brasil.mapbiomas.org/iniciativas-e-produtos/cobertura-e-uso-da-terra/cobertura-30m/cobertura/
+
+**Limitação fundamental:** classes de uso/cobertura mapeadas por satélite
+não equivalem, isoladamente, às categorias jurídicas de APP, Reserva Legal,
+área de supressão ou regularidade ambiental. O CAR é autodeclaratório e
+não comprova domínio. O relatório deverá distinguir área geométrica
+cadastral e área raster classificada, indicando ano, resolução, coleção,
+fontes e data da consulta.
+
+A consulta foi bem-sucedida no **contêiner descartável** de homologação,
+não na API publicada ao público. Não habilitar processamento comercial
+irrestrito antes de implementar quotas, auditoria e limitação de chamadas.
