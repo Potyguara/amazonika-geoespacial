@@ -137,6 +137,7 @@ def test_preliminary_mapbiomas_pdf_document():
 
 
 def test_mapbiomas_pdf_route_revalidates_and_recomputes(monkeypatch):
+    monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(gee_browser_preview_enabled=True))
     from uuid import uuid4
     identifier = uuid4()
     calls = {}
@@ -196,3 +197,37 @@ def test_verified_mapbiomas_real_car_2025_class_legend():
     for item in result["classes"]:
         assert (item["name"], item["color"]) == expected[item["code"]]
     assert result["classes"][0]["percent_classified"] == pytest.approx(78.09, abs=0.01)
+
+
+def test_public_mapbiomas_preview_and_pdf_disabled_even_with_server_credentials(monkeypatch):
+    monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(gee_browser_preview_enabled=False))
+    monkeypatch.setattr(routes, "mapbiomas_preview",
+                        lambda *args, **kwargs: pytest.fail("Billed GEE call invoked"))
+    payload = routes.MapBiomasPreviewRequest(geometry=SUBJECT, year=2025)
+    with pytest.raises(HTTPException) as preview:
+        routes.rural_mapbiomas_preview(payload)
+    assert preview.value.status_code == 503
+    from uuid import uuid4
+    body = routes.MapBiomasPdfRequest(
+        subject=routes.RuralPreviewPdfRequest(retrieval="LOCAL_VECTOR",
+                                               feature_id=str(uuid4())),
+        year=2025,
+    )
+    with pytest.raises(HTTPException) as pdf:
+        routes.rural_mapbiomas_pdf(body, db=object())
+    assert pdf.value.status_code == 503
+
+
+def test_gee_status_stays_disabled_for_browser_during_server_canary(monkeypatch, tmp_path):
+    fake_key = tmp_path / "service-account.json"
+    fake_key.write_text('{"private_key":"not_a_real_key"}')
+    monkeypatch.setattr(mb, "get_settings", lambda: SimpleNamespace(
+        gee_enabled=True,
+        gee_browser_preview_enabled=False,
+        gee_project_id="amazonika-geoespacial",
+        gee_service_account_email="canary@example.com",
+        gee_service_account_key_file=str(fake_key),
+    ))
+    result = mb.gee_configuration()
+    assert result["enabled"] is False
+    assert "private_key" not in str(result)
