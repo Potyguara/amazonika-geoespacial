@@ -34,6 +34,7 @@ from app.services.rural_mapbiomas_pilot import (
     build_restricted_mapbiomas_pdf, verify_pilot_enabled,
 )
 from app.models.rural_mapbiomas_pilot import RuralMapBiomasPilotRun
+from app.services import rural_gee_budget
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -525,22 +526,52 @@ def rural_internal_pilot_status(
             RuralMapBiomasPilotRun.user_id == user.id,
         )
     ) or 0
-    enabled = bool(get_settings().gee_internal_pilot_enabled and get_settings().gee_enabled)
+    budget = rural_gee_budget.snapshot()
+    enabled = bool(get_settings().gee_internal_pilot_enabled and get_settings().gee_enabled and budget["enabled"])
+    platform_limit = min(MAX_PLATFORM_ATTEMPTS_DAY, budget["daily_limit"])
     return {
         "enabled": enabled,
+        "admin_budget_enabled": budget["enabled"],
+        "admin_daily_limit": platform_limit,
         "year": 2025,
         "max_area_hectares": MAX_AREA_HA,
         "max_attempts_per_user_utc_day": 1,
-        "max_platform_attempts_utc_day": MAX_PLATFORM_ATTEMPTS_DAY,
+        "max_platform_attempts_utc_day": platform_limit,
         "quota_day_utc": today.isoformat(),
         "attempts_user_today": user_used,
         "attempts_platform_today": platform_used,
         "remaining_user_today": max(0, 1 - user_used),
-        "remaining_platform_today": max(0, MAX_PLATFORM_ATTEMPTS_DAY - platform_used),
-        "blocked": not enabled or user_used >= 1 or platform_used >= MAX_PLATFORM_ATTEMPTS_DAY,
+        "remaining_platform_today": max(0, platform_limit - platform_used),
+        "blocked": not enabled or user_used >= 1 or platform_used >= platform_limit,
         "usage_basis": "local_committed_attempts_not_google_eecu",
         "notice": "Cota de tentativas interna; não equivale ao faturamento ou à cota EECU do Google. Falhas contam; sem retentativas automáticas.",
     }
+
+
+class InternalGeeBudgetUpdate(BaseModel):
+    enabled: bool
+    daily_limit: int = Field(ge=1, le=5)
+
+
+@router.get("/mapbiomas/internal-pilot/budget")
+def get_internal_gee_budget(
+    user=Depends(require_permission("users.manage")),
+):
+    """Admin-only pilot attempt quota, separate from tile budgets and Google billing."""
+    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
+        raise HTTPException(403, "Controle do Earth Engine restrito ao administrador.")
+    return rural_gee_budget.snapshot()
+
+
+@router.put("/mapbiomas/internal-pilot/budget")
+def update_internal_gee_budget(
+    payload: InternalGeeBudgetUpdate,
+    user=Depends(require_permission("users.manage")),
+):
+    """Can lower/disable pilot attempts; cannot override Google flags or 5/day hard cap."""
+    if "ADMINISTRADOR" not in {role.code for role in user.roles}:
+        raise HTTPException(403, "Controle do Earth Engine restrito ao administrador.")
+    return rural_gee_budget.update(payload.enabled, payload.daily_limit)
 
 
 @router.post(
