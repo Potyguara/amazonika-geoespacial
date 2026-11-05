@@ -42,7 +42,10 @@ CLASS_NAMES = {
     14: "Agropecuária (agregação)",
     15: "Pastagem",
     18: "Agricultura (agregação)",
+    9: "Silvicultura",
+    21: "Mosaico de Usos",
     24: "Área Urbanizada",
+    33: "Rio, Lago e Oceano",
     49: "Restinga Arbórea",
     50: "Restinga Herbácea ou Arbustiva",
     77: "Formação Herbácea Arbustiva",
@@ -53,7 +56,8 @@ CLASS_COLORS = {
     1: "#1f8d49", 3: "#1f8d49", 4: "#7dc975", 5: "#04381d",
     6: "#007785", 7: "#228c70", 10: "#d6bc74", 11: "#519799",
     12: "#d6bc74", 14: "#ffefc3", 15: "#edde8e", 18: "#e974ed",
-    24: "#d4271e",
+    9: "#7a5900", 21: "#ffefc3",
+    24: "#d4271e", 33: "#2532e4",
     49: "#02d659", 50: "#ffaa5f", 77: "#86b074", 84: "#81dbbf",
 }
 
