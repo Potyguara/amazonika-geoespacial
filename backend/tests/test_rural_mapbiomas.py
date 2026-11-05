@@ -257,3 +257,15 @@ def test_preliminary_pdf_adds_class_bars_without_inventing_spatial_map():
     )
     assert doc.startswith(b"%PDF")
     assert len(doc) > 2500
+    # The real canary PDF revealed an orphan "3. Participação por classe"
+    # heading on page one. Keep heading, bars and caption on the same page.
+    from io import BytesIO
+    from pypdf import PdfReader
+    pages = [page.extract_text() or "" for page in PdfReader(BytesIO(doc)).pages]
+    for index, page in enumerate(pages):
+        if "3. Participação por classe" in page:
+            assert "11 — Campo Alagado e Área Pantanosa" in page
+            assert "Gráfico de participação relativa" in page
+            break
+    else:
+        pytest.fail("Cabeçalho da participação por classe ausente")
