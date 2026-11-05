@@ -157,3 +157,28 @@ def test_ibama_draft_pdf_with_real_polygon(monkeypatch):
     )
     assert pdf.startswith(b"%PDF")
     assert len(pdf) > 3000
+
+
+def test_ibama_pdf_endpoint_does_not_require_inpe_layer(monkeypatch):
+    from uuid import uuid4
+    from app.api.routes import rural_diagnostics as routes
+    def revalidate(identifier, db):
+        return {"name": "Teste", "source_name": "PostGIS",
+                "geometry": SUBJECT, "feature_id": str(identifier)}
+    def mock_preview(geometry, *, include_geometry=False):
+        assert include_geometry
+        return {
+            "status": "ANALYZED", "program": "IBAMA EMBARGOS",
+            "layer": "adm_embargos_ibama_a", "layer_title": "Áreas embargadas",
+            "source": "IBAMA", "interfering_features": 0,
+            "overlap_hectares": 0, "overlap_percent": 0,
+            "features": [], "warning": "Consulta preliminar.",
+        }
+    monkeypatch.setattr(routes, "resolve_rural_perimeter", revalidate)
+    monkeypatch.setattr(routes, "embargo_preview", mock_preview)
+    request = routes.RuralPreviewPdfRequest(
+        retrieval="LOCAL_VECTOR", feature_id=str(uuid4()),
+    )
+    response = routes.rural_ibama_embargo_pdf(request, db=object())
+    assert response.body.startswith(b"%PDF")
+    assert response.media_type == "application/pdf"
