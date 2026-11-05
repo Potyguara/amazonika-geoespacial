@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
-
 from pyproj import Geod
+from shapely import get_num_coordinates
 from shapely.geometry import Point, shape
 from shapely.geometry.base import BaseGeometry
 
@@ -48,8 +47,8 @@ def _polygon_and_properties(feature: dict) -> tuple[BaseGeometry, dict] | None:
     polygon = shape(geometry)
     if polygon.is_empty or not polygon.is_valid:
         raise OfficialSigefQueryError("Geometria oficial inválida; não usar para diagnóstico.")
-    if len(polygon.wkt) > 4_000_000:
-        raise OfficialSigefQueryError("Parcela excessivamente complexa; utilize o perímetro cadastral.")
+    if get_num_coordinates(polygon) > MAX_OFFICIAL_VERTICES:
+        raise OfficialSigefQueryError("Parcela excessivamente detalhada; importe o perímetro cadastral.")
     props = feature.get("properties") or {}
     if not isinstance(props, dict):
         props = {}
@@ -123,8 +122,8 @@ def resolve_official_sigef(latitude: float, longitude: float, token: str) -> dic
     for feature, polygon, attrs in matches:
         if _feature_token(feature) != token:
             continue
-        if len(polygon.wkt) > 4_000_000:
-            raise OfficialSigefQueryError("Geometria muito extensa para análise automática.")
+        if get_num_coordinates(polygon) > MAX_OFFICIAL_VERTICES:
+            raise OfficialSigefQueryError("Geometria muito detalhada para análise automática.")
         return {
             "feature_id": token,
             "name": str(attrs.get("nome_area") or attrs.get("parcela_codigo") or "Parcela SIGEF")[:180],
