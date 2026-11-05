@@ -20,6 +20,7 @@ from shapely.geometry import shape
 
 from app.core.config import get_settings
 from app.db.session import engine
+from app.services.rural_gee_budget import snapshot as gee_budget_snapshot
 from app.models.rural_mapbiomas_pilot import RuralMapBiomasPilotRun
 from app.services.rural_official_car import (
     OfficialCarQueryError, fetch_car_candidate, normalize_car, resolve_car_candidate,
@@ -67,10 +68,13 @@ def reserve_platform_slot(db: Session, *, user_id: UUID, car_code: str):
             ))
             if existing is not None:
                 raise HTTPException(429, "Limite: uma tentativa de mapa por administrador a cada dia UTC.")
+            budget = gee_budget_snapshot()
+            if not budget["enabled"]:
+                raise HTTPException(503, "Orçamento interno do Earth Engine desativado pelo administrador.")
             total = db.scalar(select(func.count()).select_from(RuralMapBiomasPilotRun).where(
                 RuralMapBiomasPilotRun.quota_day == today,
             )) or 0
-            if total >= MAX_PLATFORM_ATTEMPTS_DAY:
+            if total >= min(MAX_PLATFORM_ATTEMPTS_DAY, budget["daily_limit"]):
                 raise HTTPException(429, "Cota diária de homologação MapBiomas esgotada.")
             record = RuralMapBiomasPilotRun(
                 user_id=user_id,
