@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { FileSearch, MapPin, Search, ShieldCheck } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 
@@ -81,12 +81,58 @@ export function RuralDiagnosticsModule() {
     warning: string;
   } | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pilotAvailable, setPilotAvailable] = useState(false);
   const [monitoringPreview, setMonitoringPreview] = useState<{
     program: string; layer_title: string; interfering_features: number;
     overlap_hectares: number; overlap_percent: number | null;
     source: string; warning: string;
     features: Array<{id: string; overlap_hectares: number; attributes: Record<string, string>}>;
   } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    // Server identifies authorized administrators; never rely on the UI alone.
+    void fetch(`${API_URL}/rural-diagnostics/mapbiomas/internal-pilot/status`, {
+      credentials: "include",
+    }).then(async (response) => {
+      if (!active || !response.ok) return;
+      const status = await response.json() as {enabled: boolean};
+      if (active) setPilotAvailable(status.enabled === true);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  const downloadInternalMapPdf = async (candidate: Candidate) => {
+    if (!pilotAvailable || candidate.retrieval !== "OFFICIAL_CAR_WFS" ||
+        !candidate.cadastral_code || pdfBusy) return;
+    setPdfBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/rural-diagnostics/mapbiomas/internal-pilot/pdf`, {
+        method: "POST",
+        credentials: "include",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({car_code: candidate.cadastral_code, year: 2025}),
+      });
+      if (!response.ok) throw new Error(await messageFromError(response));
+      const blob = await response.blob();
+      if (blob.type !== "application/pdf" || !blob.size) {
+        throw new Error("A API não retornou o relatório cartográfico PDF.");
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "AMAZONIKA_MAPBIOMAS_MAPA_PRELIMINAR.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha na geração do mapa temático.");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   const findProperties = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -536,6 +582,15 @@ export function RuralDiagnosticsModule() {
                 onClick={() => void openMonitoring(candidate, "MAPBIOMAS")}>
                 <FileSearch size={17} /> Uso do solo (MapBiomas)
               </button>
+              {pilotAvailable && candidate.retrieval === "OFFICIAL_CAR_WFS" && (
+                <button type="button" className="rural-monitoring-button"
+                  disabled={busy || pdfBusy || result.has_more}
+                  title="Piloto interno: máximo uma tentativa por administrador/dia, consultas cobradas"
+                  onClick={() => void downloadInternalMapPdf(candidate)}>
+                  <FileSearch size={17} />
+                  {pdfBusy ? "Gerando mapa..." : "PDF cartográfico (homologação)"}
+                </button>
+              )}
               </div>
             </article>
           ))}
