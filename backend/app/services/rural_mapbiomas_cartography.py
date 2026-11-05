@@ -79,7 +79,9 @@ def fetch_mapbiomas_thematic_thumbnail(
     width, height = _thumbnail_dimensions(bounds)
     ee = _initialize_gee()
     roi = ee.Geometry(geometry, proj="EPSG:4326", geodesic=False)
-    bbox = ee.Geometry.Rectangle(list(bounds), proj="EPSG:4326", geodesic=False)
+    west, south, east, north = bounds
+    bbox_ring = [[west, south], [east, south], [east, north],
+                 [west, north], [west, south]]
     classified = ee.Image(ASSET_ID).select(f"classification_{year}")
     # Palette indexes start at 1; zero is transparent (outside ROI / no-data).
     indexed = classified.remap(codes, list(range(1, len(codes) + 1)), 0)
@@ -92,7 +94,7 @@ def fetch_mapbiomas_thematic_thumbnail(
     # geometry or service-account data. Only error category/HTTP status escapes.
     try:
         thumbnail_url = colored.getThumbURL({
-            "region": bbox,
+            "region": bbox_ring,
             "dimensions": f"{width}x{height}",
             "format": "png",
             "crs": "EPSG:4326",
