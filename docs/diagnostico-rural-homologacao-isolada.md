@@ -66,27 +66,11 @@ redefine senha de usuário existente.
 
 ## 4. Login por API local com cookie real
 
-Usar cookie-jar privado e POST via stdin, sem expor senha na linha de comando.
+Usar cookie-jar privado e POST via stdin, sem expor senha na linha de
+comando nem no histórico. O prompt `getpass` exige terminal interativo.
 
 ```bash
 umask 077
-read -r -s -p "Senha do admin de homologação: " RURAL_PASSWORD
-echo
-python3 -c 'import json,sys;print(json.dumps({"email":"admin-rural@example.invalid","password":sys.argv[1]}))' "$RURAL_PASSWORD" \
-  | curl -fsS -c /tmp/amazonika-rural-homolog.cookies \
-    -H "Content-Type: application/json" \
-    --data-binary @- http://127.0.0.1:18002/api/v1/auth/login
-unset RURAL_PASSWORD
-echo
-curl -fsS -b /tmp/amazonika-rural-homolog.cookies \
-  http://127.0.0.1:18002/api/v1/auth/me
-```
-
-**Nota:** comando Python acima passa senha como argumento visível em listagem
-de processos. Para evitar isso, preferir gerar o JSON dentro de stdin
-com o script interativo abaixo:
-
-```bash
 python3 - <<'PY' | curl -fsS -c /tmp/amazonika-rural-homolog.cookies \
     -H 'Content-Type: application/json' --data-binary @- \
     http://127.0.0.1:18002/api/v1/auth/login
@@ -96,11 +80,15 @@ print(json.dumps({
     "password": getpass.getpass("Senha de homologação: "),
 }))
 PY
+
+echo
+curl -fsS -b /tmp/amazonika-rural-homolog.cookies \
+  http://127.0.0.1:18002/api/v1/auth/me
 ```
 
-Quando usar pipe, `getpass` pode necessitar acesso a /dev/tty; se falhar,
-usar o teste de login diretamente no navegador por túnel SSH. Nunca
-colocar senha em comando, logs, prints ou commit.
+Se o terminal não permitir `getpass`, fazer login diretamente no
+navegador pelo túnel SSH descrito abaixo. Nunca inserir senha em
+argumento de processo, comando, log, print ou commit.
 
 ## 5. Frontend isolado
 
