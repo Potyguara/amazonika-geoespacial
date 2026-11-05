@@ -46,7 +46,7 @@ def test_admin_http_audited_once_in_disposable_postgres(monkeypatch):
     with Session(engine) as db:
         db.add(User(
             id=sample_id,
-            email="pilot-admin@example.invalid",
+            email=f"pilot-admin-{sample_id.hex}@example.invalid",
             full_name="Admin de teste",
             password_hash="not-a-real-password",
             is_active=True,
