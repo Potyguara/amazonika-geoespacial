@@ -69,3 +69,19 @@ def test_limiting_200_hectares_is_hard_ceiling(monkeypatch):
     with pytest.raises(ValueError, match="entre 1 e 200"):
         smoke.run_property_test(car_code="dummy",latitude=None,
                                 longitude=None,year=2025,max_hectares=201)
+
+
+def test_car_service_error_does_not_run_earth_engine(monkeypatch):
+    monkeypatch.setenv("GEE_ALLOW_REAL_PROPERTY_TEST", "yes")
+    monkeypatch.setenv("GEE_PROJECT_ID", "amazonika-geoespacial")
+    from app.services import rural_mapbiomas as mb
+    from app.services.rural_official_car import OfficialCarQueryError
+    def fail_lookup(*args, **kwargs):
+        raise OfficialCarQueryError("SICAR WFS indisponível ou inacessível.")
+    monkeypatch.setattr(smoke, "choose_property", fail_lookup)
+    monkeypatch.setattr(mb, "_initialize_gee", lambda: pytest.fail("Earth Engine invoked"))
+    with pytest.raises(OfficialCarQueryError, match="SICAR WFS"):
+        smoke.run_property_test(
+            car_code="dummy", latitude=None, longitude=None,
+            year=2025, max_hectares=100,
+        )
