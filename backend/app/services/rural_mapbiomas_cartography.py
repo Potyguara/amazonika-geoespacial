@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from io import BytesIO
 import math
 from urllib.request import urlopen
+from urllib.parse import urlsplit
 
 from PIL import Image as PILImage
 from pyproj import Geod
@@ -92,7 +93,17 @@ def fetch_mapbiomas_thematic_thumbnail(
             "format": "png",
             "crs": "EPSG:4326",
         })
-        # Token-bearing thumbnail URL is never logged or returned.
+        # Token-bearing thumbnail URL is never logged or returned. Allow
+        # only the official HTTPS Earth Engine/Google raster delivery hosts.
+        destination = urlsplit(thumbnail_url)
+        hostname = (destination.hostname or "").lower()
+        if (destination.scheme != "https" or destination.username or
+                destination.password or destination.port not in (None, 443) or
+                not (hostname == "earthengine.googleapis.com" or
+                     hostname.endswith(".earthengine.googleapis.com") or
+                     hostname == "earthengine-highvolume.googleapis.com" or
+                     hostname.endswith(".googleusercontent.com"))):
+            raise ValueError("Host de miniatura Earth Engine não autorizado.")
         with urlopen(thumbnail_url, timeout=45) as response:
             raw = response.read(MAX_THUMB_BYTES + 1)
     except Exception as exc:
