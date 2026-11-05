@@ -28,7 +28,7 @@ MAX_FEATURES = 1001  # reserve the final record to detect truncation
 MAX_RESPONSE = 15 * 1024 * 1024
 MAX_SPAN_DEGREES = 0.35
 MAX_SUBJECT_VERTICES = 25000
-MAX_CATALOG_LAYERS = 80
+MAX_CATALOG_LAYERS = 400
 _LAYER_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
 _GEOD = Geod(ellps="GRS80")
 
