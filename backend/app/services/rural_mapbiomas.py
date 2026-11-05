@@ -71,7 +71,8 @@ def gee_configuration() -> dict:
     project = str(settings.gee_project_id or "").strip()
     email = str(settings.gee_service_account_email or "").strip()
     key_path = Path(settings.gee_service_account_key_file or "")
-    enabled = bool(getattr(settings, "gee_enabled", False) and project and email and key_path.is_file())
+    server_ready = bool(getattr(settings, "gee_enabled", False) and project and email and key_path.is_file())
+    enabled = server_ready and bool(getattr(settings, "gee_browser_preview_enabled", False))
     return {
         "enabled": enabled,
         "collection": COLLECTION,
@@ -108,7 +109,10 @@ def validate_geometry(geometry: dict):
 
 def _initialize_gee():
     configuration = gee_configuration()
-    if not configuration["enabled"]:
+    settings = get_settings()
+    if not (getattr(settings, "gee_enabled", False) and settings.gee_project_id and
+            settings.gee_service_account_email and settings.gee_service_account_key_file and
+            Path(settings.gee_service_account_key_file).is_file()):
         raise MapBiomasError("MapBiomas ainda não está habilitado: configure o Google Earth Engine.")
     try:
         import ee
