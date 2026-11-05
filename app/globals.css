@@ -6510,3 +6510,32 @@ input {
 .thematic-design-review select {max-width:220px;padding:6px;border:1px solid #d0ded6;border-radius:6px;background:white;}
 
 .thematic-style-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:14px 0}.thematic-style-grid label{display:flex;flex-direction:column;gap:6px;color:#17503a;font-size:13px}.thematic-style-grid select{width:100%;padding:11px;border:1px solid #c6d9cf;border-radius:7px;background:#fff;color:#153e2e}
+
+
+/* Diagnóstico territorial rural — bounded coordinate lookup */
+.rural-diagnostic-workspace { max-width: 1160px; width: calc(100% - 48px); margin: 26px auto 60px; display: grid; gap: 22px; }
+.rural-diagnostic-intro { padding: 26px 30px; border: 1px solid #dce7df; border-radius: 18px; background: #fff; }
+.rural-diagnostic-intro h2 { margin: 7px 0 10px; font: 600 29px Georgia, serif; color: #123d30; }
+.rural-diagnostic-intro > p:last-child { color: #526a61; margin: 0; line-height: 1.6; }
+.rural-coordinate-form { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; background: #fff; border: 1px solid #dce7df; border-radius: 16px; padding: 22px; }
+.rural-coordinate-form label { display: grid; gap: 8px; color: #284f41; font-weight: 600; flex: 1 1 220px; font-size: 13px; }
+.rural-coordinate-form input { width: 100%; min-height: 45px; border: 1px solid #cadbd1; border-radius: 9px; padding: 10px 13px; background: #fff; color: #153e32; }
+.rural-coordinate-form button, .rural-candidate button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; background: #15533d; border: 1px solid #15533d; color: #fff; min-height: 44px; border-radius: 9px; padding: 10px 16px; cursor: pointer; font-weight: 700; }
+.rural-coordinate-form button:disabled, .rural-candidate button:disabled { opacity: .55; cursor: not-allowed; }
+.rural-diagnostic-advisory, .rural-diagnostic-complete { display: flex; align-items: start; gap: 12px; padding: 17px 20px; border: 1px solid #d7e6db; background: #f4f8f5; color: #335748; border-radius: 13px; }
+.rural-diagnostic-advisory p, .rural-diagnostic-complete p { margin: 0; line-height: 1.55; }
+.rural-diagnostic-error { border-radius: 10px; padding: 12px 15px; color: #9b3333; background: #fff0f0; border: 1px solid #efc5c5; }
+.rural-diagnostic-results { display: grid; gap: 13px; }
+.rural-diagnostic-results h3 { margin: 0; color: #173f32; font-size: 20px; }
+.rural-diagnostic-results > p { color: #5d7168; margin: 0; }
+.rural-candidate { display: flex; justify-content: space-between; gap: 22px; align-items: center; padding: 17px 20px; background: #fff; border-radius: 12px; border: 1px solid #dce7df; }
+.rural-candidate > div { display: grid; gap: 5px; min-width: 0; }
+.rural-candidate strong { color: #143f2d; overflow-wrap: anywhere; }
+.rural-candidate small { color: #687f73; }
+.rural-candidate span { font-size: 13px; color: #405c4d; overflow-wrap: anywhere; }
+.rural-candidate button { flex: 0 0 auto; }
+.rural-diagnostic-note { color: #6b8075; font-size: 12px; line-height: 1.55; }
+.rural-diagnostic-progress { color: #14583c; font-weight: 600; }
+.rural-diagnostic-complete strong { color: #16583f; }
+.rural-diagnostic-complete small { display: block; margin-top: 7px; color: #527064; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .rural-diagnostic-workspace { width: calc(100% - 24px); margin: 16px auto; } .rural-coordinate-form { padding: 16px; } .rural-candidate { display: grid; } .rural-candidate button { width: 100%; } }
