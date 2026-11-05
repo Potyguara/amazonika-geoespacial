@@ -117,7 +117,7 @@ def embargo_preview(geometry: dict, *, include_geometry: bool = False) -> dict:
             raise IbamaEmbargoError("Embargo sem geometria oficial: resultado inconclusivo.")
         try:
             polygon = shape(item["geometry"])
-            if polygon.is_empty or not polygon.is_valid:
+            if polygon.geom_type not in {"Polygon", "MultiPolygon"} or polygon.is_empty or not polygon.is_valid:
                 raise ValueError("invalid embargo polygon")
             overlap = polygon.intersection(subject)
         except (ValueError, TypeError, GEOSException) as exc:
