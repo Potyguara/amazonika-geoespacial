@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from functools import lru_cache
+from time import monotonic
 import json
 import math
 import re
@@ -17,7 +18,9 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
 from pyproj import Geod
-from shapely.geometry import shape, mapping
+from shapely.geometry import shape
+from shapely import get_num_coordinates
+from shapely.errors import GEOSException
 from shapely.ops import unary_union
 
 WFS_URL = "https://terrabrasilis.dpi.inpe.br/geoserver/ows"
@@ -82,7 +85,7 @@ def _find_tag(element: ET.Element, tag: str) -> str | None:
 def _catalog_snapshot() -> tuple[datetime, list[dict]]:
     params = {"service": "WFS", "version": "1.0.0", "request": "GetCapabilities"}
     root = _parse_xml(_request(params, max_bytes=3 * 1024 * 1024))
-    if root.tag.rsplit("}", 1)[-1] not in {"WFS_Capabilities", "WFS_Capabilities"}:
+    if root.tag.rsplit("}", 1)[-1] != "WFS_Capabilities":
         raise MonitoringQueryError("Resposta não contém capacidades WFS.")
     layers: list[dict] = []
     for element in root.iter():
@@ -108,9 +111,18 @@ def _catalog_snapshot() -> tuple[datetime, list[dict]]:
     return datetime.now(timezone.utc), layers
 
 
+_CATALOG_VALID_UNTIL = 0.0
+
+
 def monitoring_catalog() -> dict:
-    """One capability fetch per process; refreshed when explicitly requested."""
-    fetched, layers = _catalog_snapshot()
+    """One capability fetch per process, refreshed every 30 minutes."""
+    global _CATALOG_VALID_UNTIL
+    if monotonic() >= _CATALOG_VALID_UNTIL:
+        _catalog_snapshot.cache_clear()
+        fetched, layers = _catalog_snapshot()
+        _CATALOG_VALID_UNTIL = monotonic() + 1800
+    else:
+        fetched, layers = _catalog_snapshot()
     return {
         "source": "INPE — TerraBrasilis (WFS público)",
         "url": WFS_URL,
@@ -127,6 +139,8 @@ def validate_subject(geometry: dict):
         raise ValueError("Geometria do imóvel inválida.") from exc
     if subject.geom_type not in {"Polygon", "MultiPolygon"} or not subject.is_valid or subject.is_empty:
         raise ValueError("A análise de desmatamento exige polígono válido.")
+    if get_num_coordinates(subject) > MAX_SUBJECT_VERTICES:
+        raise ValueError("Geometria excessivamente detalhada para consulta rápida.")
     bounds = subject.bounds
     if len(bounds) != 4 or not all(math.isfinite(v) for v in bounds):
         raise ValueError("Extensão espacial inválida.")
@@ -187,7 +201,7 @@ def monitoring_preview(layer_name: str, geometry: dict) -> dict:
             if vector.is_empty or not vector.is_valid:
                 raise ValueError("invalid geometry")
             intersection = vector.intersection(subject)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, GEOSException) as exc:
             raise MonitoringQueryError("GeoJSON contém feição geométrica inválida.") from exc
         if intersection.is_empty:
             continue
