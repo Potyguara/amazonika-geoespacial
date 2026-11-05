@@ -13,6 +13,9 @@ import re
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 import ssl
+import subprocess
+import tempfile
+from pathlib import Path
 from xml.etree import ElementTree
 
 from pyproj import Geod
@@ -44,6 +47,52 @@ def normalize_car(code: str) -> str:
     return cleaned
 
 
+def _curl_verified_https(url: str) -> tuple[bytes, str]:
+    """SICAR-specific TLS fallback using installed libcurl, with peer verification.
+
+    Calls curl by argv, never shell. The URL is generated exclusively from a
+    validated CAR code and a constant official host in _read_features.
+    The response is bounded even if upstream ignores Content-Length.
+    """
+    with tempfile.TemporaryDirectory(prefix="amazonika-sicar-") as directory:
+        output_path = Path(directory) / "response.bin"
+        try:
+            result = subprocess.run(
+                [
+                    "curl", "--silent", "--show-error", "--fail",
+                    "--proto", "=https",
+                    "--connect-timeout", "10", "--max-time", "25",
+                    "--max-filesize", str(MAX_RESPONSE_BYTES),
+                    "--header", "Accept: application/json,application/geo+json",
+                    "--header", "User-Agent: Amazonika-Geoespacial/1.0",
+                    "--output", str(output_path),
+                    "--write-out", "%{content_type}",
+                    url,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise OfficialCarQueryError(
+                "Cliente HTTPS alternativo do SICAR indisponível."
+            ) from exc
+
+        # Never include stderr in exceptions: curl diagnostics may include
+        # the full exact-match CAR request URL.
+        if result.returncode != 0:
+            raise OfficialCarQueryError(
+                f"Consulta SICAR via HTTPS alternativo falhou (curl código {result.returncode})."
+            )
+        if not output_path.is_file():
+            raise OfficialCarQueryError("SICAR não devolveu dados ao cliente HTTPS.")
+        if output_path.stat().st_size > MAX_RESPONSE_BYTES:
+            raise OfficialCarQueryError("Resposta SICAR excedeu o limite seguro de transferência.")
+        raw = output_path.read_bytes()
+        return raw, result.stdout.decode("utf-8", "replace").strip().lower()
+
+
 def _read_features(code: str) -> list[dict]:
     uf = code[:2].lower()
     layer = f"sicar:sicar_imoveis_{uf}"
@@ -68,11 +117,18 @@ def _read_features(code: str) -> list[dict]:
             content_type = (response.headers.get("Content-Type") or "").lower()
     except (OSError, TimeoutError) as exc:
         cause = getattr(exc, "reason", exc)
-        if isinstance(cause, ssl.SSLError):
+        if isinstance(cause, ssl.SSLError) and "handshake failure" in str(cause).lower():
+            # Python's TLS ClientHello may be rejected even where libcurl on
+            # this same container negotiates HTTPS successfully. Retain
+            # certificate and hostname validation; do not weaken TLS settings.
+            raw, content_type = _curl_verified_https(req.full_url)
+        elif isinstance(cause, ssl.SSLError):
             raise OfficialCarQueryError(
-                "Falha de negociação TLS com SICAR WFS; verificar compatibilidade de cifras "
-                "e certificado do servidor sem desativar validação SSL."
+                "Erro TLS na consulta SICAR; validação de certificado preservada."
             ) from exc
+        else:
+            raise OfficialCarQueryError("SICAR WFS indisponível ou inacessível.") from exc
+
         raise OfficialCarQueryError("SICAR WFS indisponível ou inacessível.") from exc
     if len(raw) > MAX_RESPONSE_BYTES:
         raise OfficialCarQueryError("Resposta SICAR excedeu o limite seguro de transferência.")
