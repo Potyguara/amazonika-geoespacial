@@ -188,14 +188,17 @@ def monitoring_preview(layer_name: str, geometry: dict) -> dict:
     records = decoded.get("features")
     if not isinstance(records, list):
         raise MonitoringQueryError("Lista de feições ausente.")
-    if len(records) >= MAX_FEATURES:
+    if len(records) >= MAX_FEATURES - 1:
         raise MonitoringQueryError("Consulta atingiu o limite; recorte menor necessário para evitar omissões.")
 
     matches: list[dict] = []
     clipped_geometries = []
     for record in records:
         if not isinstance(record, dict) or not isinstance(record.get("geometry"), dict):
-            continue
+            raise MonitoringQueryError(
+                "A resposta PRODES/DETER contém feição sem geometria; "
+                "não é possível assegurar completude."
+            )
         try:
             vector = shape(record["geometry"])
             if vector.is_empty or not vector.is_valid:
