@@ -31,6 +31,7 @@ from app.models.catalog import Source, SourceVersion
 from app.models.rural_consolidated import RuralConsolidatedJob
 from app.schemas.rural_consolidated import SectionCode, SectionStatus, status_label
 from app.services.rural_ibama_embargos import embargo_preview, IbamaEmbargoError
+from app.services.rural_monitoring import monitoring_preview, MonitoringQueryError
 
 FOREST = colors.HexColor("#123F30")
 MINT = colors.HexColor("#EAF1EC")
@@ -208,6 +209,59 @@ def analyze_ibama_embargos(snapshot: dict, geometry: dict) -> None:
         }
 
 
+def analyze_monitoring(snapshot: dict, geometry: dict, layer_name: str | None) -> None:
+    """Only query a preselected TerraBrasilis WFS layer.
+
+    No automatic substitution of a different year or product. The backend
+    validates the layer against live official GetCapabilities.
+    """
+    if not layer_name:
+        return
+    section = next(x for x in snapshot["sections"]
+                   if x["code"] == SectionCode.PRODES_DETER.value)
+    section["status"] = SectionStatus.RUNNING.value
+    try:
+        result = monitoring_preview(layer_name, geometry)
+        if result.get("status") != "ANALYZED" or result.get("layer") != layer_name:
+            raise MonitoringQueryError("Resposta de monitoramento incompleta.")
+        count = result.get("interfering_features")
+        if not isinstance(count, int) or count < 0:
+            raise MonitoringQueryError("Total de monitoramento inconsistente.")
+        section["status"] = (
+            SectionStatus.COMPLETE.value if count else SectionStatus.NO_OCCURRENCE.value
+        )
+        section["message"] = (
+            f"{count} feição(ões) incidentes no produto {layer_name}."
+            if count else f"Consulta concluída, sem incidências na camada {layer_name}."
+        )
+        snapshot["monitoring_result"] = {
+            "status": "ANALYZED",
+            "source": result.get("source"),
+            "layer": result.get("layer"),
+            "layer_title": result.get("layer_title"),
+            "program": result.get("program"),
+            "queried_at": result.get("queried_at"),
+            "count": count,
+            "overlap_hectares": result.get("overlap_hectares"),
+            "method": result.get("method"),
+            "warning": result.get("warning"),
+            "features": [
+                {"id": str(row.get("id") or "")[:120],
+                 "overlap_hectares": row.get("overlap_hectares")}
+                for row in result.get("features", [])[:100]
+            ],
+        }
+    except (MonitoringQueryError, ValueError, TypeError, KeyError) as exc:
+        section["status"] = SectionStatus.UNAVAILABLE.value
+        section["message"] = (
+            "Camada PRODES/DETER indisponível ou consulta incompleta. "
+            "Não é possível afirmar ausência de desmatamento."
+        )
+        snapshot["monitoring_result"] = {
+            "status": "UNAVAILABLE", "error_category": type(exc).__name__,
+        }
+
+
 def _page_frame(canvas, doc):
     canvas.saveState()
     w, h = A4
@@ -331,6 +385,25 @@ def render_preliminary_consolidated_pdf(snapshot: dict) -> bytes:
             ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),
         ]))
         story.append(table2)
+    monitoring = snapshot.get("monitoring_result")
+    if monitoring:
+        story.append(P("MONITORAMENTO AMBIENTAL — INPE", "h2"))
+        if monitoring.get("status") == "ANALYZED":
+            story.extend([
+                P("Produto: <b>" + _safe(monitoring.get("layer_title") or monitoring.get("layer")) + "</b>"),
+                P(f'Feições incidentes: <b>{int(monitoring["count"])}</b>; '
+                  f'área espacial única: <b>{float(monitoring.get("overlap_hectares") or 0):,.4f} ha</b>.'),
+                P("Fonte: " + _safe(monitoring.get("source")) +
+                  " | Consulta: " + _safe(monitoring.get("queried_at")), "small"),
+            ])
+            for item in monitoring.get("features", [])[:60]:
+                story.append(P("Feição: " + _safe(item.get("id")) +
+                               " | Interseção: " + _safe(item.get("overlap_hectares")) +
+                               " ha", "small"))
+            story.append(P(_safe(monitoring.get("warning")), "small"))
+        else:
+            story.append(P("Consulta não concluída; a ausência de ocorrências "
+                           "não foi comprovada para a camada selecionada."))
     embargo = snapshot.get("ibama_embargos")
     if embargo and embargo.get("status") != "UNAVAILABLE":
         story.extend([
@@ -399,9 +472,16 @@ def run_consolidated_job(job_id: UUID) -> None:
             job.snapshot_json = snap
             job.progress_percent = 35
             db.commit()
-            analyze_ibama_embargos(snap, json.loads(geometry_json))
+            geom = json.loads(geometry_json)
+            analyze_ibama_embargos(snap, geom)
             job.snapshot_json = dict(snap)
-            job.progress_percent = 75
+            job.progress_percent = 60
+            db.commit()
+            analyze_monitoring(
+                snap, geom, (job.options_json or {}).get("monitoring_layer_name")
+            )
+            job.snapshot_json = dict(snap)
+            job.progress_percent = 80
             db.commit()
             data = render_preliminary_consolidated_pdf(snap)
             if not data.startswith(b"%PDF") or len(data) > 12*1024*1024:
