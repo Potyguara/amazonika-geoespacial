@@ -12,6 +12,7 @@ import json
 import re
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+import ssl
 from xml.etree import ElementTree
 
 from pyproj import Geod
@@ -66,6 +67,12 @@ def _read_features(code: str) -> list[dict]:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
             content_type = (response.headers.get("Content-Type") or "").lower()
     except (OSError, TimeoutError) as exc:
+        cause = getattr(exc, "reason", exc)
+        if isinstance(cause, ssl.SSLError):
+            raise OfficialCarQueryError(
+                "Falha de negociação TLS com SICAR WFS; verificar compatibilidade de cifras "
+                "e certificado do servidor sem desativar validação SSL."
+            ) from exc
         raise OfficialCarQueryError("SICAR WFS indisponível ou inacessível.") from exc
     if len(raw) > MAX_RESPONSE_BYTES:
         raise OfficialCarQueryError("Resposta SICAR excedeu o limite seguro de transferência.")
