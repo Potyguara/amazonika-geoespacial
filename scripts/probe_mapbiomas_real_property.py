@@ -8,8 +8,9 @@ Usage inside a homologation Docker image (credential mounted read-only):
 Mandatory environment:
   GEE_PROJECT_ID, GEE_SERVICE_ACCOUNT_EMAIL, GEE_SERVICE_ACCOUNT_KEY_FILE
   GEE_ALLOW_REAL_PROPERTY_TEST=yes
-Optional:
-  GEE_TEST_MAX_HA=100 (must be between 1 and 200)
+Options:
+  --max-hectares 100 (default); range 1-200 for ordinary tests.
+  For 200-1500 ha: GEE_ALLOW_LARGE_PROPERTY_TEST=yes, max 30,000 pixels.
 
 Security: no keys, CAR code, owner names, individual identifiers or full
 geometries are printed. One candidate is required. Runs only one GEE
@@ -58,8 +59,10 @@ def run_property_test(
         raise ValueError("Teste não autorizado: defina GEE_ALLOW_REAL_PROPERTY_TEST=yes.")
     if os.getenv("GEE_PROJECT_ID") != "amazonika-geoespacial":
         raise ValueError("Projeto Google Earth Engine inesperado.")
-    if not (1 <= max_hectares <= 200):
-        raise ValueError("Limite de homologação deve ficar entre 1 e 200 hectares.")
+    if not math.isfinite(max_hectares) or not 1 <= max_hectares <= 1500:
+        raise ValueError("Limite de homologação deve ficar entre 1 e 1500 hectares.")
+    if max_hectares > 200 and os.getenv("GEE_ALLOW_LARGE_PROPERTY_TEST") != "yes":
+        raise ValueError("Para testes acima de 200 ha, defina GEE_ALLOW_LARGE_PROPERTY_TEST=yes.")
     from app.services.rural_mapbiomas import (
         validate_geometry, _initialize_gee,
         _reduce_class_areas, _normalize_statistics, MIN_YEAR, MAX_YEAR,
@@ -76,15 +79,20 @@ def run_property_test(
             f"de homologação ({max_hectares:.2f} ha). "
             "Não houve processamento Earth Engine."
         )
-    # Approximate maximum 30 m pixel count, conservatively check before
-    # authentication. Geometry area is the limiting factor for this test.
+    # Conservative pixel-area proxy at nominal 30 m. No API calls until
+    # geometry, area and user opt-in are checked; maxPixels remains a second
+    # server-side safety bound for the actual reduction.
+    estimated_pixels = math.ceil(hectares * 10000 / (30 * 30))
+    if estimated_pixels > 30_000:
+        raise ValueError("Área excede limite estimado de 30 mil pixels do teste.")
+    print(f"Limite de teste: {max_hectares:.0f} ha; pixels nominais estimados: {estimated_pixels}/30000")
     ee = _initialize_gee()
-    raw = _reduce_class_areas(ee, chosen["geometry"], year)
+    raw = _reduce_class_areas(ee, chosen["geometry"], year, max_pixels=30_000)
     return _normalize_statistics(raw, year, hectares)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Homologação MapBiomas em um imóvel pequeno")
+    parser = argparse.ArgumentParser(description="Homologação MapBiomas em um imóvel selecionado")
     ids = parser.add_mutually_exclusive_group(required=True)
     ids.add_argument("--car-code", help="CAR público do imóvel (não será exibido)")
     ids.add_argument("--latitude", type=float, help="Latitude de um ponto no imóvel SIGEF")
