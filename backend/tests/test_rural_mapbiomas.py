@@ -169,3 +169,30 @@ def test_real_world_mapbiomas_sample_class_identification():
     assert result["classes"][0]["name"] == "Área Urbanizada"
     assert result["classes"][1]["name"] == "Campo Alagado e Área Pantanosa"
     assert result["classes"][0]["percent_classified"] == pytest.approx(81.418, abs=.003)
+
+
+def test_verified_mapbiomas_real_car_2025_class_legend():
+    """2026-11-05 official EE sample: six observed Collection 11 codes."""
+    sample = {"groups": [
+        {"class": 11, "sum": 870.7678},
+        {"class": 6, "sum": 215.6480},
+        {"class": 3, "sum": 18.1312},
+        {"class": 9, "sum": 8.0247},
+        {"class": 33, "sum": 1.3431},
+        {"class": 21, "sum": 1.1622},
+    ]}
+    result = mb._normalize_statistics(sample, 2025, 1115.1093)
+    expected = {
+        11: ("Campo Alagado e Área Pantanosa", "#519799"),
+        6: ("Floresta Alagável", "#007785"),
+        3: ("Formação Florestal", "#1f8d49"),
+        9: ("Silvicultura", "#7a5900"),
+        33: ("Rio, Lago e Oceano", "#2532e4"),
+        21: ("Mosaico de Usos", "#ffefc3"),
+    }
+    assert result["status"] == "ANALYZED"
+    assert result["classified_area_hectares"] == pytest.approx(1115.077, abs=0.0001)
+    assert result["geometry_area_hectares"] == pytest.approx(1115.1093)
+    for item in result["classes"]:
+        assert (item["name"], item["color"]) == expected[item["code"]]
+    assert result["classes"][0]["percent_classified"] == pytest.approx(78.09, abs=0.01)
