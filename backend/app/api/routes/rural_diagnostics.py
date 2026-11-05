@@ -305,7 +305,7 @@ class RuralPreviewPdfRequest(BaseModel):
     """Reference to a candidate, not a user-submitted geometry or result."""
     retrieval: Literal["LOCAL_VECTOR", "OFFICIAL_WFS", "OFFICIAL_CAR_WFS"]
     feature_id: str = Field(min_length=32, max_length=64)
-    layer_name: str = Field(min_length=1, max_length=160)
+    layer_name: str | None = Field(default=None, max_length=160)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     car_code: str | None = Field(default=None, max_length=60)
@@ -348,6 +348,8 @@ def rural_preliminary_pdf(payload: RuralPreviewPdfRequest, db: Session = Depends
     No emissions registry, QR authenticity claims or persistent PDF storage:
     this is an explicitly provisional preview, separate from official reports.
     """
+    if not payload.layer_name:
+        raise HTTPException(422, "Selecione uma camada PRODES/DETER para a prévia PDF.")
     subject = _resolve_pdf_subject(payload, db)
     try:
         monitoring = monitoring_preview(
