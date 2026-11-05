@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -21,6 +23,7 @@ from app.services.auth import require_permission
 from app.services.rural_official_sigef import (OfficialSigefQueryError, locate_official_sigef, resolve_official_sigef)
 from app.services.rural_official_car import (OfficialCarQueryError, normalize_car, fetch_car_candidate, resolve_car_candidate)
 from app.services.rural_monitoring import MonitoringQueryError, monitoring_catalog, monitoring_preview
+from app.services.rural_diagnostic_pdf import build_rural_monitoring_pdf
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -295,3 +298,78 @@ def rural_monitoring_preview(payload: MonitoringPreviewRequest):
         raise HTTPException(422, str(exc)[:260]) from exc
     except MonitoringQueryError as exc:
         raise HTTPException(503, str(exc)[:260]) from exc
+
+
+class RuralPreviewPdfRequest(BaseModel):
+    """Reference to a candidate, not a user-submitted geometry or result."""
+    retrieval: Literal["LOCAL_VECTOR", "OFFICIAL_WFS", "OFFICIAL_CAR_WFS"]
+    feature_id: str = Field(min_length=32, max_length=64)
+    layer_name: str = Field(min_length=1, max_length=160)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    car_code: str | None = Field(default=None, max_length=60)
+
+
+def _resolve_pdf_subject(payload: RuralPreviewPdfRequest, db: Session) -> dict:
+    """Re-fetch candidate from its source. Never trust client geometry or totals."""
+    if payload.retrieval == "LOCAL_VECTOR":
+        try:
+            identifier = UUID(payload.feature_id)
+        except ValueError as exc:
+            raise HTTPException(422, "Identificador da geometria local inválido.") from exc
+        return resolve_rural_perimeter(identifier, db)
+    if len(payload.feature_id) != 64:
+        raise HTTPException(422, "Identificador de feição oficial inválido.")
+    if payload.retrieval == "OFFICIAL_WFS":
+        if payload.latitude is None or payload.longitude is None:
+            raise HTTPException(422, "Coordenada necessária para recuperar parcela SIGEF.")
+        try:
+            return resolve_official_sigef(
+                payload.latitude, payload.longitude, payload.feature_id
+            )
+        except OfficialSigefQueryError as exc:
+            raise HTTPException(409, str(exc)[:260]) from exc
+    if not payload.car_code:
+        raise HTTPException(422, "Código CAR é obrigatório para recuperar o perímetro.")
+    try:
+        return resolve_car_candidate(payload.car_code, payload.feature_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except OfficialCarQueryError as exc:
+        raise HTTPException(409, str(exc)[:260]) from exc
+
+
+@router.post("/monitoring/preview-pdf",
+             dependencies=[Depends(require_permission("analysis.export"))])
+def rural_preliminary_pdf(payload: RuralPreviewPdfRequest, db: Session = Depends(get_db)):
+    """Generate in-memory preliminary PDF from freshly verified official data.
+
+    No emissions registry, QR authenticity claims or persistent PDF storage:
+    this is an explicitly provisional preview, separate from official reports.
+    """
+    subject = _resolve_pdf_subject(payload, db)
+    try:
+        monitoring = monitoring_preview(
+            payload.layer_name, subject["geometry"], include_geometry=True,
+        )
+        document = build_rural_monitoring_pdf(
+            property_name=subject.get("name") or "Imóvel rural",
+            property_source=subject.get("source_name") or "Base cadastral",
+            cadastral_code=payload.car_code or subject.get("feature_id"),
+            subject_geometry=subject["geometry"],
+            monitoring=monitoring,
+            generated_at=datetime.now(timezone.utc),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)[:260]) from exc
+    except MonitoringQueryError as exc:
+        raise HTTPException(503, str(exc)[:260]) from exc
+    return Response(
+        content=document,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="AMAZONIKA_DIAGNOSTICO_AMBIENTAL_PREVIA.pdf"',
+            "Cache-Control": "no-store",
+            "X-Report-Type": "preliminary-rural-monitoring",
+        },
+    )
