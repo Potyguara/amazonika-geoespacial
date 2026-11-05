@@ -9,3 +9,5 @@ from app.models.report import ReportEmission
 
 from app.models.technical_piece import TechnicalPiece
 from app.models.rural_mapbiomas_pilot import RuralMapBiomasPilotRun
+
+from app.models.rural_consolidated import RuralConsolidatedJob
