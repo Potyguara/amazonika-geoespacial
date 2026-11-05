@@ -1,0 +1,80 @@
+# Isolated Diagnóstico Rural homologation; does not connect to production volumes.
+# Start ONLY with --project-name amazonika-rural-homolog --env-file .env.rural-homolog.
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: amazonika_rural_homolog
+      POSTGRES_USER: rural_homolog
+      POSTGRES_PASSWORD: ${RURAL_HOMOLOG_DB_PASSWORD:?configure .env.rural-homolog}
+    command: ["postgres", "-c", "max_connections=20", "-c", "shared_buffers=128MB"]
+    shm_size: 128mb
+    mem_limit: 768m
+    cpus: 0.5
+    volumes:
+      - rural_homolog_postgis:/var/lib/postgresql/data
+    networks:
+      - rural_private
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rural_homolog -d amazonika_rural_homolog"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://rural_homolog:${RURAL_HOMOLOG_DB_PASSWORD:?configure .env.rural-homolog}@db:5432/amazonika_rural_homolog
+      PUBLIC_BASE_URL: http://127.0.0.1:13002
+      CORS_ORIGINS: http://127.0.0.1:13002,http://localhost:13002
+      GEE_ENABLED: "false"
+      GEE_INTERNAL_PILOT_ENABLED: "false"
+      GEE_BROWSER_PREVIEW_ENABLED: "false"
+      STORAGE_DIR: /data/uploads
+    ports:
+      - "127.0.0.1:18002:8000"
+    mem_limit: 1536m
+    cpus: 1
+    volumes:
+      - rural_homolog_uploads:/data/uploads
+    networks:
+      - rural_private
+      - rural_egress
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web.production
+      args:
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:18002/api/v1
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:18002/api/v1
+    ports:
+      - "127.0.0.1:13002:3000"
+    mem_limit: 1024m
+    cpus: 0.75
+    networks:
+      - rural_egress
+    depends_on:
+      api:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+networks:
+  rural_private:
+    internal: true
+  rural_egress:
+volumes:
+  rural_homolog_postgis:
+  rural_homolog_uploads:
