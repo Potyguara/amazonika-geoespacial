@@ -117,7 +117,7 @@ def _read_features(code: str) -> list[dict]:
             content_type = (response.headers.get("Content-Type") or "").lower()
     except (OSError, TimeoutError) as exc:
         cause = getattr(exc, "reason", exc)
-        if isinstance(cause, ssl.SSLError) and "handshake failure" in str(cause).lower():
+        if isinstance(cause, ssl.SSLError) and any(word in str(cause).lower() for word in ("handshake failure", "handshake_failure")):
             # Python's TLS ClientHello may be rejected even where libcurl on
             # this same container negotiates HTTPS successfully. Retain
             # certificate and hostname validation; do not weaken TLS settings.
