@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     google_map_tiles_enabled: bool = False
     gee_enabled: bool = False
     gee_browser_preview_enabled: bool = False
+    gee_internal_pilot_enabled: bool = False
     gee_project_id: str | None = None
     gee_service_account_email: str | None = None
     gee_service_account_key_file: str | None = None
