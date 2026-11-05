@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from io import BytesIO
 import math
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+import ssl
 from urllib.parse import urlsplit
 
 from PIL import Image as PILImage
@@ -86,6 +88,8 @@ def fetch_mapbiomas_thematic_thumbnail(
         palette=[CLASS_COLORS[code] for code in codes],
         forceRgbOutput=True,
     )
+    # Diagnose the exact failing stage without logging signed URLs, private
+    # geometry or service-account data. Only error category/HTTP status escapes.
     try:
         thumbnail_url = colored.getThumbURL({
             "region": bbox,
@@ -93,21 +97,42 @@ def fetch_mapbiomas_thematic_thumbnail(
             "format": "png",
             "crs": "EPSG:4326",
         })
-        # Token-bearing thumbnail URL is never logged or returned. Allow
-        # only the official HTTPS Earth Engine/Google raster delivery hosts.
-        destination = urlsplit(thumbnail_url)
-        hostname = (destination.hostname or "").lower()
-        if (destination.scheme != "https" or destination.username or
-                destination.password or destination.port not in (None, 443) or
-                not (hostname == "earthengine.googleapis.com" or
-                     hostname.endswith(".earthengine.googleapis.com") or
-                     hostname == "earthengine-highvolume.googleapis.com" or
-                     hostname.endswith(".googleusercontent.com"))):
-            raise ValueError("Host de miniatura Earth Engine não autorizado.")
+    except Exception as exc:
+        raise RuntimeError(
+            "Etapa EE_GET_THUMB_URL falhou; "
+            f"categoria={type(exc).__name__}"
+        ) from exc
+
+    destination = urlsplit(thumbnail_url)
+    hostname = (destination.hostname or "").lower()
+    if (destination.scheme != "https" or destination.username or
+            destination.password or destination.port not in (None, 443) or
+            not (hostname == "earthengine.googleapis.com" or
+                 hostname.endswith(".earthengine.googleapis.com") or
+                 hostname == "earthengine-highvolume.googleapis.com" or
+                 hostname.endswith(".googleusercontent.com"))):
+        # Avoid outputting the URL or hostname: it may contain a signed token.
+        raise RuntimeError("Etapa EE_THUMB_HOST falhou; origem HTTPS não autorizada.")
+
+    try:
         with urlopen(thumbnail_url, timeout=45) as response:
             raw = response.read(MAX_THUMB_BYTES + 1)
+    except HTTPError as exc:
+        raise RuntimeError(
+            f"Etapa EE_THUMB_DOWNLOAD falhou; HTTP={exc.code}"
+        ) from exc
+    except URLError as exc:
+        reason = getattr(exc, "reason", None)
+        category = type(reason).__name__ if reason is not None else "URLError"
+        if isinstance(reason, ssl.SSLError):
+            category = "SSLError"
+        raise RuntimeError(
+            f"Etapa EE_THUMB_DOWNLOAD falhou; categoria={category}"
+        ) from exc
     except Exception as exc:
-        raise RuntimeError("Earth Engine não retornou a miniatura temática.") from exc
+        raise RuntimeError(
+            f"Etapa EE_THUMB_DOWNLOAD falhou; categoria={type(exc).__name__}"
+        ) from exc
     if len(raw) > MAX_THUMB_BYTES or not raw.startswith(bytes.fromhex("89504e470d0a1a0a")):
         raise ValueError("Miniatura temática inválida ou acima de 3 MB.")
     try:
