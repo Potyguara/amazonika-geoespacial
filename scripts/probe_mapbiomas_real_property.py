@@ -104,8 +104,11 @@ def main() -> int:
         # Avoid printing remote exceptions that could include credentials,
         # account identifiers or registered parcel identifiers.
         print("FALHA_HOMOLOGACAO:", type(exc).__name__)
-        if isinstance(exc, ValueError):
-            print(str(exc)[:300])
+        from app.services.rural_official_car import OfficialCarQueryError
+        from app.services.rural_official_sigef import OfficialSigefQueryError
+        if isinstance(exc, (ValueError, OfficialCarQueryError, OfficialSigefQueryError)):
+            # These application-generated messages contain no private keys.
+            print("DIAGNOSTICO:", str(exc)[:300])
         else:
             print("Confira fontes oficiais, limites de área, credenciais e cotas GEE.")
         return 2
