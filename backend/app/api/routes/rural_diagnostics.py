@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.config import get_settings
 from app.models.catalog import GeoFeature
 from app.services.auth import require_permission
 from app.services.rural_official_sigef import (OfficialSigefQueryError, locate_official_sigef, resolve_official_sigef)
@@ -441,7 +442,9 @@ def rural_mapbiomas_status():
 @router.post("/mapbiomas/preview",
              dependencies=[Depends(require_permission("analysis.execute"))])
 def rural_mapbiomas_preview(payload: MapBiomasPreviewRequest):
-    """On-demand class-area statistics; no bulk MapBiomas raster download."""
+    """On-demand class-area statistics; disabled on public API by default."""
+    if not get_settings().gee_browser_preview_enabled:
+        raise HTTPException(503, "Prévia MapBiomas indisponível ao público durante homologação comercial.")
     try:
         return mapbiomas_preview(payload.geometry, payload.year)
     except ValueError as exc:
@@ -459,6 +462,8 @@ class MapBiomasPdfRequest(BaseModel):
              dependencies=[Depends(require_permission("analysis.export"))])
 def rural_mapbiomas_pdf(payload: MapBiomasPdfRequest, db: Session = Depends(get_db)):
     """Revalidate cadastral geometry and recompute remote EE class areas."""
+    if not get_settings().gee_browser_preview_enabled:
+        raise HTTPException(503, "Exportação MapBiomas indisponível ao público durante homologação comercial.")
     resolved = _resolve_pdf_subject(payload.subject, db)
     try:
         report = mapbiomas_preview(resolved["geometry"], payload.year)
