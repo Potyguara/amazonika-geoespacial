@@ -71,6 +71,7 @@ export function RuralDiagnosticsModule() {
   const [monitoringGeometry, setMonitoringGeometry] = useState<Record<string, unknown> | null>(null);
   const [monitoringLayers, setMonitoringLayers] = useState<Array<{name: string; title: string; program: string}>>([]);
   const [monitoringLayer, setMonitoringLayer] = useState("");
+  const [monitoringMode, setMonitoringMode] = useState<"INPE" | "IBAMA">("INPE");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [monitoringPreview, setMonitoringPreview] = useState<{
     program: string; layer_title: string; interfering_features: number;
@@ -214,7 +215,7 @@ export function RuralDiagnosticsModule() {
     return await response.json() as {name: string; geometry: Record<string, unknown>};
   };
 
-  const openMonitoring = async (candidate: Candidate) => {
+  const openMonitoring = async (candidate: Candidate, mode: "INPE" | "IBAMA") => {
     setBusy(true);
     setError(null);
     setMonitoringPreview(null);
@@ -223,12 +224,15 @@ export function RuralDiagnosticsModule() {
     try {
       const [detail, catalogResponse] = await Promise.all([
         resolveCandidateGeometry(candidate),
-        fetch(`${API_URL}/rural-diagnostics/monitoring/layers`, {credentials: "include"}),
+        mode === "INPE"
+          ? fetch(`${API_URL}/rural-diagnostics/monitoring/layers`, {credentials: "include"})
+          : Promise.resolve(null),
       ]);
-      if (!catalogResponse.ok) throw new Error(await messageFromError(catalogResponse));
-      const catalog = await catalogResponse.json() as {
-        layers: Array<{name: string; title: string; program: string}>;
-      };
+      if (catalogResponse && !catalogResponse.ok) throw new Error(await messageFromError(catalogResponse));
+      const catalog = catalogResponse
+        ? await catalogResponse.json() as {layers: Array<{name: string; title: string; program: string}>}
+        : {layers: []};
+      setMonitoringMode(mode);
       setMonitoringCandidate(candidate);
       setMonitoringGeometry(detail.geometry);
       setMonitoringLayers(catalog.layers);
@@ -241,7 +245,7 @@ export function RuralDiagnosticsModule() {
   };
 
   const downloadMonitoringPdf = async () => {
-    if (!monitoringCandidate || !monitoringLayer) return;
+    if (!monitoringCandidate || (monitoringMode === "INPE" && !monitoringLayer)) return;
     setPdfBusy(true);
     setError(null);
     try {
@@ -257,7 +261,7 @@ export function RuralDiagnosticsModule() {
         } : {}),
         ...(isCar ? {car_code: monitoringCandidate.cadastral_code} : {}),
       };
-      const response = await fetch(`${API_URL}/rural-diagnostics/monitoring/preview-pdf`, {
+      const response = await fetch(`${API_URL}/rural-diagnostics/${monitoringMode === "IBAMA" ? "ibama/embargos/preview-pdf" : "monitoring/preview-pdf"}`, {
         method: "POST",
         credentials: "include",
         headers: {"Content-Type": "application/json"},
@@ -271,7 +275,9 @@ export function RuralDiagnosticsModule() {
       const downloadUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = downloadUrl;
-      anchor.download = "AMAZONIKA_DIAGNOSTICO_AMBIENTAL_PREVIA.pdf";
+      anchor.download = monitoringMode === "IBAMA"
+        ? "AMAZONIKA_EMBARGOS_IBAMA_PREVIA.pdf"
+        : "AMAZONIKA_DIAGNOSTICO_AMBIENTAL_PREVIA.pdf";
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -284,16 +290,18 @@ export function RuralDiagnosticsModule() {
   };
 
   const runMonitoring = async () => {
-    if (!monitoringGeometry || !monitoringLayer) return;
+    if (!monitoringGeometry || (monitoringMode === "INPE" && !monitoringLayer)) return;
     setBusy(true);
     setError(null);
     setMonitoringPreview(null);
     try {
-      const response = await fetch(`${API_URL}/rural-diagnostics/monitoring/preview`, {
+      const response = await fetch(`${API_URL}/rural-diagnostics/${monitoringMode === "IBAMA" ? "ibama/embargos/preview" : "monitoring/preview"}`, {
         method: "POST",
         credentials: "include",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({layer_name: monitoringLayer, geometry: monitoringGeometry}),
+        body: JSON.stringify(monitoringMode === "IBAMA"
+          ? {geometry: monitoringGeometry}
+          : {layer_name: monitoringLayer, geometry: monitoringGeometry}),
       });
       if (!response.ok) throw new Error(await messageFromError(response));
       setMonitoringPreview(await response.json());
@@ -437,8 +445,12 @@ export function RuralDiagnosticsModule() {
                 {busy && selectedId === candidate.feature_id ? "Analisando…" : "Analisar imóvel"}
               </button>
               <button type="button" className="rural-monitoring-button" disabled={busy || result.has_more}
-                onClick={() => void openMonitoring(candidate)}>
+                onClick={() => void openMonitoring(candidate, "INPE")}>
                 <FileSearch size={17} /> PRODES / DETER
+              </button>
+              <button type="button" className="rural-monitoring-button" disabled={busy || result.has_more}
+                onClick={() => void openMonitoring(candidate, "IBAMA")}>
+                <FileSearch size={17} /> Embargos IBAMA
               </button>
               </div>
             </article>
@@ -450,16 +462,20 @@ export function RuralDiagnosticsModule() {
       {monitoringCandidate && (
         <section className="rural-diagnostic-results rural-monitoring-panel">
           <h3>Prévia ambiental — {monitoringCandidate.name}</h3>
-          <p>Selecione uma camada publicada pelo INPE. A consulta retorna somente as feições na extensão do imóvel.</p>
-          <label>Camada TerraBrasilis
-            <select value={monitoringLayer} onChange={(event) => setMonitoringLayer(event.target.value)}>
-              {monitoringLayers.map((layer) => (
-                <option key={layer.name} value={layer.name}>{layer.program} — {layer.title}</option>
-              ))}
-            </select>
-          </label>
+          <p>{monitoringMode === "INPE"
+            ? "Selecione uma camada publicada pelo INPE. A consulta retorna somente as feições na extensão do imóvel."
+            : "Áreas de embargo publicadas pelo IBAMA. A interseção espacial não comprova responsabilidade do titular do imóvel."}</p>
+          {monitoringMode === "INPE" && (
+            <label>Camada TerraBrasilis
+              <select value={monitoringLayer} onChange={(event) => {setMonitoringLayer(event.target.value); setMonitoringPreview(null);}}>
+                {monitoringLayers.map((layer) => (
+                  <option key={layer.name} value={layer.name}>{layer.program} — {layer.title}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <div>
-            <button type="button" disabled={busy || !monitoringLayer}
+            <button type="button" disabled={busy || (monitoringMode === "INPE" && !monitoringLayer)}
               onClick={() => void runMonitoring()}>Consultar monitoramento</button>
             <button type="button" className="rural-monitoring-cancel"
               onClick={() => {setMonitoringCandidate(null); setMonitoringPreview(null);}}>
@@ -509,7 +525,7 @@ export function RuralDiagnosticsModule() {
           </div>
         </section>
       )}
-      <p className="rural-diagnostic-note">Etapa atual: busca por coordenada (SIGEF e PostGIS) ou código CAR (SICAR WFS público). PRODES, MapBiomas e outros serviços serão incorporados em etapas posteriores. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
+      <p className="rural-diagnostic-note">Etapa atual: busca por coordenada (SIGEF e PostGIS) ou código CAR (SICAR WFS público); consultas ambientais PRODES/DETER e Embargos IBAMA. MapBiomas, clima e demais bases serão incorporados em etapas posteriores. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
     </section>
   );
 }
