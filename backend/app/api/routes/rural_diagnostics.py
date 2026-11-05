@@ -19,6 +19,7 @@ from app.db.session import get_db
 from app.models.catalog import GeoFeature
 from app.services.auth import require_permission
 from app.services.rural_official_sigef import (OfficialSigefQueryError, locate_official_sigef, resolve_official_sigef)
+from app.services.rural_official_car import (OfficialCarQueryError, normalize_car, fetch_car_candidate, resolve_car_candidate)
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -232,3 +233,39 @@ def retrieve_official_sigef_perimeter(payload: OfficialSigefSelection):
         )
     except OfficialSigefQueryError as exc:
         raise HTTPException(409, str(exc)[:260]) from exc
+
+
+class OfficialCarSelection(BaseModel):
+    car_code: str = Field(min_length=40, max_length=60)
+    feature_token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+@router.get("/official-car/lookup")
+def locate_car_official(car_code: str = Query(..., min_length=40, max_length=60)):
+    """Exact lookup in the public CAR layer for the code's UF, not a UF scan."""
+    try:
+        code = normalize_car(car_code)
+        candidate = fetch_car_candidate(code)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except OfficialCarQueryError as exc:
+        raise HTTPException(503, str(exc)[:280]) from exc
+    return {
+        "searched_code": code,
+        "candidate_count": 1 if candidate else 0,
+        "candidates": [candidate] if candidate else [],
+        "status": "FOUND" if candidate else "NOT_FOUND_IN_PUBLIC_WFS",
+        "coverage": "Consulta exata ao WFS público SICAR da UF indicada no código.",
+        "notice": "Ausência no serviço público não significa inexistência de inscrição CAR.",
+    }
+
+
+@router.post("/official-car/perimeter", dependencies=[Depends(require_permission("analysis.execute"))])
+def retrieve_official_car_perimeter(payload: OfficialCarSelection):
+    """Revalidate the official CAR geometry before using it for spatial analysis."""
+    try:
+        return resolve_car_candidate(payload.car_code, payload.feature_token)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except OfficialCarQueryError as exc:
+        raise HTTPException(409, str(exc)[:280]) from exc
