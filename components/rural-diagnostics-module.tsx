@@ -312,6 +312,50 @@ export function RuralDiagnosticsModule() {
     }
   };
 
+  const downloadMapBiomasPdf = async () => {
+    if (!monitoringCandidate || !mapbiomasPreview) return;
+    setPdfBusy(true);
+    setError(null);
+    try {
+      const isSigef = monitoringCandidate.retrieval === "OFFICIAL_WFS";
+      const isCar = monitoringCandidate.retrieval === "OFFICIAL_CAR_WFS";
+      const response = await fetch(`${API_URL}/rural-diagnostics/mapbiomas/preview-pdf`, {
+        method: "POST",
+        credentials: "include",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          year: mapbiomasYear,
+          subject: {
+            retrieval: isSigef ? "OFFICIAL_WFS" : isCar ? "OFFICIAL_CAR_WFS" : "LOCAL_VECTOR",
+            feature_id: monitoringCandidate.feature_id,
+            ...(isSigef ? {
+              latitude: result?.coordinate.latitude,
+              longitude: result?.coordinate.longitude,
+            } : {}),
+            ...(isCar ? {car_code: monitoringCandidate.cadastral_code} : {}),
+          },
+        }),
+      });
+      if (!response.ok) throw new Error(await messageFromError(response));
+      const blob = await response.blob();
+      if (blob.type !== "application/pdf" || blob.size === 0) {
+        throw new Error("O serviço não retornou um PDF válido.");
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "AMAZONIKA_MAPBIOMAS_USO_DO_SOLO_PREVIA.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Falha ao gerar PDF MapBiomas.");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const runMonitoring = async () => {
     if (!monitoringGeometry || (monitoringMode === "INPE" && !monitoringLayer)) return;
     setBusy(true);
@@ -553,6 +597,14 @@ export function RuralDiagnosticsModule() {
                   <small>Código {entry.code}</small>
                 </div>
               ))}
+              <div className="rural-monitoring-report-action">
+                <button type="button" disabled={pdfBusy || busy}
+                  onClick={() => void downloadMapBiomasPdf()}>
+                  <FileSearch size={17} />
+                  {pdfBusy ? "Gerando PDF…" : "Baixar prévia PDF — MapBiomas"}
+                </button>
+                <small>Nova consulta remota; a área por classe será recalculada para emissão preliminar.</small>
+              </div>
               <p className="rural-diagnostic-note">{mapbiomasPreview.warning}</p>
             </div>
           )}
