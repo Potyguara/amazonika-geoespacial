@@ -116,3 +116,46 @@ def test_gee_reduce_uses_remote_pixel_area_and_grouped_classification():
     opts = next(v for k,v in calls if k=="reduceRegion")
     assert opts["scale"] == 30 and opts["bestEffort"] is False
     assert opts["maxPixels"] == mb.MAX_PIXELS
+
+
+def test_preliminary_mapbiomas_pdf_document():
+    from datetime import datetime, timezone
+    from app.services.rural_mapbiomas_pdf import mapbiomas_pdf
+    report = mb._normalize_statistics(
+        {"groups": [{"class":3,"sum":21.5},{"class":15,"sum":12}]},
+        2025, 35,
+    )
+    pdf = mapbiomas_pdf(
+        property_name="Fazenda Teste",
+        cadastral_source="SIGEF",
+        cadastral_code="BR-123",
+        report=report,
+        generated_at=datetime(2026,11,5,tzinfo=timezone.utc),
+    )
+    assert pdf.startswith(b"%PDF")
+    assert len(pdf) > 2000
+
+
+def test_mapbiomas_pdf_route_revalidates_and_recomputes(monkeypatch):
+    from uuid import uuid4
+    identifier = uuid4()
+    calls = {}
+    monkeypatch.setattr(routes, "resolve_rural_perimeter", lambda uid, db: (
+        calls.update({"id": uid}) or {
+            "name":"Teste","source_name":"SIGEF","geometry":SUBJECT,
+            "feature_id":str(uid),
+        }
+    ))
+    def fake_preview(geometry,year):
+        calls["year"] = year
+        calls["geometry"] = geometry
+        return mb._normalize_statistics(
+            {"groups":[{"class":3,"sum":5.5}]}, year, 5.8)
+    monkeypatch.setattr(routes, "mapbiomas_preview", fake_preview)
+    subject = routes.RuralPreviewPdfRequest(
+        retrieval="LOCAL_VECTOR",feature_id=str(identifier))
+    payload = routes.MapBiomasPdfRequest(subject=subject,year=2025)
+    response = routes.rural_mapbiomas_pdf(payload, db=object())
+    assert response.body.startswith(b"%PDF")
+    assert response.headers["x-report-type"] == "preliminary-rural-mapbiomas"
+    assert calls == {"id": identifier,"year":2025,"geometry":SUBJECT}
