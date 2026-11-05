@@ -46,15 +46,28 @@ docker exec amazonika-pilot-postgres-test \
 Se o `pg_isready` indicar que o banco ainda não está pronto,
 execute novamente **somente** o comando `pg_isready` antes de prosseguir.
 
-## 3. Verificar pacote TestClient e executar integração
+## 3. Construir imagem de testes HTTP separada
+
+A imagem `amazonika-api-testes` não contém `httpx`, necessário ao
+`fastapi.testclient.TestClient`. Não modificar a imagem existente nem
+instalar `httpx` na API/web em execução. Criar imagem **independente**
+somente para testes, com `httpx==0.28.1` fixado:
 
 ```bash
-docker run --rm --network none --entrypoint python amazonika-api-testes \
-  -c "import httpx, pytest, sqlalchemy, psycopg; print('DEPENDENCIAS_HTTP_OK')"
+cd /tmp/amazonika-rural-homolog
+docker build --network bridge \
+  -f backend/Dockerfile.pilot-http-test \
+  -t amazonika-api-pilot-http-test backend
+
+docker run --rm --network none \
+  --entrypoint python amazonika-api-pilot-http-test \
+  -c "import httpx, pytest, sqlalchemy, psycopg; print('DEPENDENCIAS_HTTP_OK', httpx.__version__)"
 ```
 
-Se qualquer pacote estiver ausente, pare e informe a saída. Não instalar
-pacotes na produção para corrigir um teste.
+Se o build falhar por indisponibilidade de PyPI, pare e informe a saída;
+não instale dependências diretamente na VPS nem na produção.
+
+## 3.1. Teste HTTP integrado na rede isolada
 
 ```bash
 docker run --rm --network amazonika-pilot-test-net \
@@ -65,7 +78,7 @@ docker run --rm --network amazonika-pilot-test-net \
   -e GEE_INTERNAL_PILOT_ENABLED=false \
   -e GEE_BROWSER_PREVIEW_ENABLED=false \
   -v "$PWD/backend:/app:ro" -w /app \
-  --entrypoint python amazonika-api-testes \
+  --entrypoint python amazonika-api-pilot-http-test \
   -m pytest -p no:cacheprovider tests/test_rural_pilot_postgres_http.py -v
 ```
 
@@ -79,6 +92,7 @@ de apenas uma tentativa. Todos os serviços externos são simulados.
 ```bash
 docker rm -f amazonika-pilot-postgres-test
 docker network rm amazonika-pilot-test-net
+docker image rm amazonika-api-pilot-http-test
 curl -fsS http://127.0.0.1:18000/ready
 ```
 
