@@ -159,3 +159,13 @@ def test_mapbiomas_pdf_route_revalidates_and_recomputes(monkeypatch):
     assert response.body.startswith(b"%PDF")
     assert response.headers["x-report-type"] == "preliminary-rural-mapbiomas"
     assert calls == {"id": identifier,"year":2025,"geometry":SUBJECT}
+
+
+def test_real_world_mapbiomas_sample_class_identification():
+    """Regressão dos códigos observados na primeira consulta GEE real."""
+    data = {"groups": [{"class": 24, "sum": 3.9815}, {"class": 11, "sum": 0.9087}]}
+    result = mb._normalize_statistics(data, 2025, 4.9)
+    assert result["classified_area_hectares"] == pytest.approx(4.8902)
+    assert result["classes"][0]["name"] == "Área Urbanizada"
+    assert result["classes"][1]["name"] == "Campo Alagado e Área Pantanosa"
+    assert result["classes"][0]["percent_classified"] == pytest.approx(81.418, abs=.003)
