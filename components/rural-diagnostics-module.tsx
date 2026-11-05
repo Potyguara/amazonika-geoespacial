@@ -95,6 +95,9 @@ export function RuralDiagnosticsModule() {
     setResult(null);
     setSelectedId(null);
     setOfficialWarning(null);
+    setMonitoringCandidate(null);
+    setMonitoringPreview(null);
+    setMonitoringGeometry(null);
     try {
       const query = new URLSearchParams({
         latitude: String(lat),
@@ -153,6 +156,9 @@ export function RuralDiagnosticsModule() {
     setOfficialWarning(null);
     setFinished(null);
     setResult(null);
+    setMonitoringCandidate(null);
+    setMonitoringPreview(null);
+    setMonitoringGeometry(null);
     try {
       const query = new URLSearchParams({ car_code: code });
       const response = await fetch(`${API_URL}/rural-diagnostics/official-car/lookup?${query}`, {
