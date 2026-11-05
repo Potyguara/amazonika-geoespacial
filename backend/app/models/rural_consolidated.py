@@ -25,6 +25,7 @@ class RuralConsolidatedJob(Base, UUIDMixin):
     progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     report_type: Mapped[str] = mapped_column(String(40), nullable=False, default="FULL_FARM_CONSOLIDATED")
     snapshot_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    options_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text)
     pdf_sha256: Mapped[str | None] = mapped_column(String(64))
     pdf_relative_path: Mapped[str | None] = mapped_column(String(160))
