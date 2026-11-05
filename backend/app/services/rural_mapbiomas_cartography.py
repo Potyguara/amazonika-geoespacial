@@ -97,7 +97,7 @@ def fetch_mapbiomas_thematic_thumbnail(
             raw = response.read(MAX_THUMB_BYTES + 1)
     except Exception as exc:
         raise RuntimeError("Earth Engine não retornou a miniatura temática.") from exc
-    if len(raw) > MAX_THUMB_BYTES or not raw.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+    if len(raw) > MAX_THUMB_BYTES or not raw.startswith(bytes.fromhex("89504e470d0a1a0a")):
         raise ValueError("Miniatura temática inválida ou acima de 3 MB.")
     try:
         with PILImage.open(BytesIO(raw)) as picture:
