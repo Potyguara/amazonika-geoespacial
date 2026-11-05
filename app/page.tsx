@@ -19,6 +19,7 @@ import { SettingsModule } from "@/components/settings-module";
 import { ThematicMapsModule } from "@/components/thematic-maps-module";
 import { ProfessionalProfile } from "@/components/professional-profile";
 import { AnalysesModule } from "@/components/analyses-module";
+import { RuralDiagnosticsModule } from "@/components/rural-diagnostics-module";
 import { TechnicalPiecesModule, type TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
 import { getApiUrl } from "@/lib/api";
 import {
@@ -30,6 +31,7 @@ import {
   ChevronUp,
   FileSearch,
   FileText,
+  Sprout,
   Layers3,
   LockKeyhole,
   LogOut,
@@ -213,7 +215,7 @@ export default function Home() {
   const [analysisHolderDocument, setAnalysisHolderDocument] = useState("");
   const [analysisResetNonce, setAnalysisResetNonce] = useState(0);
   const [activeView, setActiveView] = useState<
-    "map" | "sigef" | "analyses" | "pieces" | "thematic" | "sources" | "users" | "settings"
+    "map" | "sigef" | "analyses" | "rural" | "pieces" | "thematic" | "sources" | "users" | "settings"
   >("map");
   const [sigefCurrent, setSigefCurrent] = useState<SourceVersion | null>(null);
   const [pieceRevision, setPieceRevision] = useState(0);
@@ -977,6 +979,12 @@ export default function Home() {
             <FileSearch size={18} /> Análises
           </button>
           <button
+            className={activeView === "rural" ? "nav-active" : ""}
+            onClick={() => { setActiveView("rural"); setMobileSidebarOpen(false); }}
+          >
+            <Sprout size={18} /> Diagnóstico Rural
+          </button>
+          <button
             className={activeView === "pieces" ? "nav-active" : ""}
             onClick={() => { setActiveView("pieces"); setMobileSidebarOpen(false); }}
           >
@@ -1063,6 +1071,8 @@ export default function Home() {
                   ? "Gestão SIGEF"
                   : activeView === "analyses"
                     ? "Análises"
+                    : activeView === "rural"
+                      ? "Diagnóstico Territorial Rural"
                     : activeView === "thematic"
                       ? "Mapas Temáticos"
                     : activeView === "sources"
@@ -1466,6 +1476,7 @@ export default function Home() {
           />
         )}
         {activeView === "analyses" && <AnalysesModule />}
+        {activeView === "rural" && <RuralDiagnosticsModule />}
         {activeView === "pieces" && (
           <TechnicalPiecesModule revision={pieceRevision}
             onOpen={(piece) => {
