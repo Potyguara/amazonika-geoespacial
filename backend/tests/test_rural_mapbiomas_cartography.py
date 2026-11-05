@@ -150,3 +150,16 @@ def test_ee_thumbnail_unapproved_host_rejected_without_download(monkeypatch):
             SUBJECT, year=2025, class_codes=[11, 6]
         )
     assert "secret-token" not in str(exc.value)
+
+
+def test_safe_ee_markers_never_echo_request_identifiers():
+    raw = (
+        "Image.visualize: Invalid palette; "
+        "https://earthengine.googleapis.com/x?token=secret-value "
+        "user@example.com AP-1600600-A6E111C5A76B465095609A74F8A758A4"
+    )
+    safe = cm._safe_ee_reason(RuntimeError(raw))
+    assert "palette" in safe.lower()
+    for private in ("secret-value", "user@example.com", "AP-1600600", "earthengine.googleapis.com"):
+        assert private not in safe
+    assert cm._safe_ee_reason(RuntimeError("random opaque id 123")) == "sem categoria reconhecida"
