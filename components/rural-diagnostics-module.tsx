@@ -18,7 +18,9 @@ type Candidate = {
   vertex_count: number | null;
   reference_date: string | null;
   imported_at: string | null;
-  retrieval?: "LOCAL_VECTOR" | "OFFICIAL_WFS";
+  retrieval?: "LOCAL_VECTOR" | "OFFICIAL_WFS" | "OFFICIAL_CAR_WFS";
+  declared_area_hectares?: number | null;
+  status?: string | null;
   uf_id?: number | string | null;
 };
 
@@ -57,6 +59,7 @@ function formatArea(value: number | null): string {
 export function RuralDiagnosticsModule() {
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
+  const [carCode, setCarCode] = useState("");
   const [result, setResult] = useState<LocateResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -127,6 +130,47 @@ export function RuralDiagnosticsModule() {
     }
   };
 
+  const findCarByCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = carCode.trim().toUpperCase().replace(/\\s/g, "");
+    if (!/^[A-Z]{2}-[0-9]{7}-[A-F0-9]{32}$/.test(code)) {
+      setError("Código CAR inválido. Informe UF-IBGE(7 dígitos)-identificador(32 caracteres).");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setOfficialWarning(null);
+    setFinished(null);
+    setResult(null);
+    try {
+      const query = new URLSearchParams({ car_code: code });
+      const response = await fetch(`${API_URL}/rural-diagnostics/official-car/lookup?${query}`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error(await messageFromError(response));
+      const data = await response.json() as {
+        candidate_count: number; candidates: Candidate[];
+        coverage: string; notice: string; status: string;
+      };
+      setResult({
+        coordinate: { latitude: NaN, longitude: NaN },
+        candidate_count: data.candidate_count,
+        has_more: false,
+        candidates: data.candidates,
+        point_only: data.candidate_count === 0,
+        coverage: data.coverage,
+        notice: data.notice,
+      });
+      if (data.status === "NOT_FOUND_IN_PUBLIC_WFS") {
+        setOfficialWarning("O código informado não foi localizado no WFS público. Isso não comprova inexistência do CAR; verifique o recibo e a disponibilidade do SICAR.");
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Consulta CAR indisponível.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const analyzeProperty = async (candidate: Candidate) => {
     setBusy(true);
     setError(null);
@@ -134,19 +178,24 @@ export function RuralDiagnosticsModule() {
     setSelectedId(candidate.feature_id);
     try {
       const isOfficial = candidate.retrieval === "OFFICIAL_WFS";
+      const isCar = candidate.retrieval === "OFFICIAL_CAR_WFS";
       const detailResponse = await fetch(
         isOfficial
           ? `${API_URL}/rural-diagnostics/official-sigef/perimeter`
-          : `${API_URL}/rural-diagnostics/properties/${candidate.feature_id}`,
+          : isCar
+            ? `${API_URL}/rural-diagnostics/official-car/perimeter`
+            : `${API_URL}/rural-diagnostics/properties/${candidate.feature_id}`,
         {
           credentials: "include",
-          ...(isOfficial
+          ...((isOfficial || isCar)
             ? {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  latitude: result?.coordinate.latitude,
-                  longitude: result?.coordinate.longitude,
+                  ...(isOfficial ? {
+                    latitude: result?.coordinate.latitude,
+                    longitude: result?.coordinate.longitude,
+                  } : { car_code: candidate.cadastral_code }),
                   feature_token: candidate.feature_id,
                 }),
               }
@@ -177,6 +226,8 @@ export function RuralDiagnosticsModule() {
             cadastral_code: candidate.cadastral_code,
             cadastral_reference_date: candidate.reference_date,
             cadastral_retrieval: candidate.retrieval ?? "LOCAL_VECTOR",
+            declared_area_hectares: candidate.declared_area_hectares ?? null,
+            cadastral_status: candidate.status ?? null,
             input_coordinate: result?.coordinate,
           },
         }),
@@ -239,6 +290,16 @@ export function RuralDiagnosticsModule() {
         </button>
       </form>
 
+      <form className="rural-coordinate-form" onSubmit={(event) => void findCarByCode(event)}>
+        <label>Código do imóvel no CAR
+          <input value={carCode} onChange={(event) => setCarCode(event.target.value)}
+            placeholder="AP-1600303-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" required />
+        </label>
+        <button type="submit" disabled={busy}>
+          <Search size={17} /> {busy ? "Consultando…" : "Consultar CAR oficial"}
+        </button>
+      </form>
+
       <div className="rural-diagnostic-advisory">
         <MapPin size={18} />
         <p>Uma coordenada não define sozinha o perímetro. Quando houver vários cadastros sobrepostos, selecione o imóvel correto. Sem geometria encontrada, a análise de área exige CAR validado ou importação do perímetro.</p>
@@ -253,16 +314,18 @@ export function RuralDiagnosticsModule() {
           <p>{result.coverage}</p>
           {result.has_more && <p className="rural-diagnostic-error">Há mais de 20 registros nesta coordenada. Refine a identificação com o código cadastral.</p>}
           {result.candidates.length === 0 && (
-            <p>Não encontramos perímetro cadastral nas versões locais disponíveis. Nenhuma conclusão de ausência de cadastro deve ser feita com esse resultado.</p>
+            <p>Nenhum perímetro foi encontrado nesta consulta. Isso não prova ausência de imóvel ou cadastro; confirme a cobertura da fonte selecionada.</p>
           )}
           {result.candidates.map((candidate) => (
             <article className="rural-candidate" key={candidate.feature_id}>
               <div>
                 <strong>{candidate.name}</strong>
                 <small>{candidate.source_name} · {candidate.institution}</small>
-                {candidate.retrieval === "OFFICIAL_WFS" && <span className="rural-candidate-official">Consulta oficial em tempo real</span>}
+                {(candidate.retrieval === "OFFICIAL_WFS" || candidate.retrieval === "OFFICIAL_CAR_WFS") && <span className="rural-candidate-official">Consulta oficial em tempo real</span>}
                 <span>Identificação: {candidate.cadastral_code || "não informada"}</span>
                 <span>Área da geometria: {formatArea(candidate.area_hectares)}</span>
+                {candidate.declared_area_hectares != null && <span>Área declarada no CAR: {formatArea(candidate.declared_area_hectares)}</span>}
+                {candidate.status && <span>Status publicado: {candidate.status}</span>}
                 <span>Referência: {candidate.reference_date || (candidate.retrieval === "OFFICIAL_WFS" ? "consulta WFS atual" : "não informada")}</span>
               </div>
               <button type="button" disabled={busy || result.has_more}
@@ -292,7 +355,7 @@ export function RuralDiagnosticsModule() {
           </div>
         </section>
       )}
-      <p className="rural-diagnostic-note">Etapa atual: localiza parcelas pelo SIGEF WFS oficial e pelos cadastros locais. CAR nacional, PRODES, MapBiomas e outras consultas sob demanda serão adicionadas em etapas posteriores. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
+      <p className="rural-diagnostic-note">Etapa atual: busca por coordenada (SIGEF e PostGIS) ou código CAR (SICAR WFS público). PRODES, MapBiomas e outros serviços serão incorporados em etapas posteriores. Nenhum resultado é certificado automaticamente como regularidade ambiental ou dominial.</p>
     </section>
   );
 }
