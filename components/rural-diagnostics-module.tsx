@@ -71,6 +71,7 @@ export function RuralDiagnosticsModule() {
   const [monitoringGeometry, setMonitoringGeometry] = useState<Record<string, unknown> | null>(null);
   const [monitoringLayers, setMonitoringLayers] = useState<Array<{name: string; title: string; program: string}>>([]);
   const [monitoringLayer, setMonitoringLayer] = useState("");
+  const [pdfBusy, setPdfBusy] = useState(false);
   const [monitoringPreview, setMonitoringPreview] = useState<{
     program: string; layer_title: string; interfering_features: number;
     overlap_hectares: number; overlap_percent: number | null;
@@ -230,6 +231,49 @@ export function RuralDiagnosticsModule() {
       setError(reason instanceof Error ? reason.message : "Monitoramento indisponível.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const downloadMonitoringPdf = async () => {
+    if (!monitoringCandidate || !monitoringLayer) return;
+    setPdfBusy(true);
+    setError(null);
+    try {
+      const isSigef = monitoringCandidate.retrieval === "OFFICIAL_WFS";
+      const isCar = monitoringCandidate.retrieval === "OFFICIAL_CAR_WFS";
+      const payload = {
+        retrieval: isSigef ? "OFFICIAL_WFS" : isCar ? "OFFICIAL_CAR_WFS" : "LOCAL_VECTOR",
+        feature_id: monitoringCandidate.feature_id,
+        layer_name: monitoringLayer,
+        ...(isSigef ? {
+          latitude: result?.coordinate.latitude,
+          longitude: result?.coordinate.longitude,
+        } : {}),
+        ...(isCar ? {car_code: monitoringCandidate.cadastral_code} : {}),
+      };
+      const response = await fetch(`${API_URL}/rural-diagnostics/monitoring/preview-pdf`, {
+        method: "POST",
+        credentials: "include",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await messageFromError(response));
+      const blob = await response.blob();
+      if (blob.type !== "application/pdf" || blob.size === 0) {
+        throw new Error("O servidor não retornou um arquivo PDF válido.");
+      }
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = "AMAZONIKA_DIAGNOSTICO_AMBIENTAL_PREVIA.pdf";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 15000);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível gerar a prévia PDF.");
+    } finally {
+      setPdfBusy(false);
     }
   };
 
@@ -426,6 +470,14 @@ export function RuralDiagnosticsModule() {
                   ? "Não calculado"
                   : monitoringPreview.overlap_percent.toLocaleString("pt-BR", {maximumFractionDigits: 2}) + "%"}.</p>
                 <small>{monitoringPreview.warning}</small>
+                <div className="rural-monitoring-report-action">
+                  <button type="button" disabled={pdfBusy || busy}
+                    onClick={() => void downloadMonitoringPdf()}>
+                    <FileSearch size={17} />
+                    {pdfBusy ? "Gerando PDF…" : "Baixar prévia PDF"}
+                  </button>
+                  <small>Documento preliminar: dados oficiais serão consultados novamente pelo servidor.</small>
+                </div>
                 {monitoringPreview.features.slice(0, 20).map((feature, index) => (
                   <p key={feature.id || index}>Feição {index + 1}: {formatArea(feature.overlap_hectares)}</p>
                 ))}
