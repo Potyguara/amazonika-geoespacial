@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,11 +34,19 @@ def _can_access(user: User, job: RuralConsolidatedJob) -> bool:
     )
 
 
+class ConsolidatedOptions(BaseModel):
+    monitoring_layer_name: str | None = Field(
+        default=None, min_length=1, max_length=160,
+        pattern=r"^[A-Za-z0-9_.:-]+$",
+    )
+
+
 @router.post("/analyses/{analysis_id}", status_code=202,
              dependencies=[Depends(require_permission("analysis.execute"))])
 def create_consolidated_report(
     analysis_id: UUID,
     tasks: BackgroundTasks,
+    options: ConsolidatedOptions | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("analysis.execute")),
 ):
@@ -55,6 +64,7 @@ def create_consolidated_report(
         status="QUEUED",
         progress_percent=0,
         snapshot_json={},
+        options_json=options.model_dump() if options else {},
     )
     db.add(job)
     db.commit()
