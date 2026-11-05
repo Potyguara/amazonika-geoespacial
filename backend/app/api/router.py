@@ -11,5 +11,6 @@ from app.api.routes.google_tiles import router as google_tiles_router
 from app.api.routes.mapbox_satellite import router as mapbox_satellite_router
 from app.api.routes.tile_budget import router as tile_budget_router
 from app.api.routes.thematic_maps import router as thematic_maps_router
+from app.api.routes.rural_diagnostics import router as rural_diagnostics_router
 api_router=APIRouter(prefix="/api/v1")
-api_router.include_router(auth_router); api_router.include_router(security_router); api_router.include_router(users_router); api_router.include_router(sources_router); api_router.include_router(analyses_router); api_router.include_router(reports_router); api_router.include_router(tools_router); api_router.include_router(technical_pieces_router); api_router.include_router(google_tiles_router); api_router.include_router(mapbox_satellite_router); api_router.include_router(tile_budget_router); api_router.include_router(thematic_maps_router)
+api_router.include_router(auth_router); api_router.include_router(security_router); api_router.include_router(users_router); api_router.include_router(sources_router); api_router.include_router(analyses_router); api_router.include_router(reports_router); api_router.include_router(tools_router); api_router.include_router(technical_pieces_router); api_router.include_router(google_tiles_router); api_router.include_router(mapbox_satellite_router); api_router.include_router(tile_budget_router); api_router.include_router(thematic_maps_router); api_router.include_router(rural_diagnostics_router)
