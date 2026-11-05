@@ -32,8 +32,8 @@ def main():
     ):
         raise SystemExit("BLOQUEADO: provisionamento permitido somente no banco rural homologado.")
     email = os.environ.get("RURAL_HOMOLOG_ADMIN_EMAIL", "").strip().lower()
-    if not email.endswith("@example.invalid") or len(email) > 120:
-        raise SystemExit("Use e-mail de teste do domínio @example.invalid.")
+    if not email.endswith("@example.com") or len(email) > 120:
+        raise SystemExit("Use e-mail de teste do domínio reservado @example.com.")
     password = sys.stdin.readline().rstrip("\r\n")
     if len(password) < 14:
         raise SystemExit("Senha de homologação deve possuir ao menos 14 caracteres.")
