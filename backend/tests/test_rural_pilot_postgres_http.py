@@ -90,6 +90,11 @@ def test_admin_http_audited_once_in_disposable_postgres(monkeypatch):
     monkeypatch.setattr(pilot, "resolve_car_candidate", lambda *args: {
         "geometry": geom, "name": "Imóvel teste", "source_name": "SICAR",
     })
+    # The dedicated budget is disabled by default, even when GEE flags are true.
+    # In this disposable mocked integration test, explicitly opt in to a fake allowance.
+    monkeypatch.setattr(pilot, "gee_budget_snapshot", lambda: {
+        "enabled": True, "daily_limit": 5,
+    })
     monkeypatch.setattr(pilot, "_initialize_gee", lambda: object())
     monkeypatch.setattr(pilot, "_reduce_class_areas", lambda *args, **kwargs: (
         calls.append("reduction") or {"groups": [{"class": 11, "sum": 1}]}
