@@ -101,3 +101,44 @@ def test_ibama_service_failure_is_not_no_occurrence(monkeypatch):
                    if x["code"] == "ENVIRONMENTAL_ENFORCEMENT")
     assert section["status"] == "UNAVAILABLE"
     assert snap["ibama_embargos"]["status"] == "UNAVAILABLE"
+
+
+def test_monitoring_requires_explicit_layer(monkeypatch):
+    from app.services import rural_consolidated as svc
+    snap = build_job_snapshot(FakeSession([]), _analysis())
+    monkeypatch.setattr(svc, "monitoring_preview", lambda *_args: (_ for _ in ()).throw(
+        AssertionError("Unexpected monitoring call")
+    ))
+    svc.analyze_monitoring(snap, {}, None)
+    assert snap.get("monitoring_result") is None
+    section = next(x for x in snap["sections"] if x["code"] == "PRODES_DETER")
+    assert section["status"] == "NOT_RUN"
+
+
+def test_monitoring_independent_real_result(monkeypatch):
+    from app.services import rural_consolidated as svc
+    snap = build_job_snapshot(FakeSession([]), _analysis())
+    monkeypatch.setattr(svc, "monitoring_preview", lambda layer, geometry: {
+        "status": "ANALYZED", "layer": layer, "layer_title": "PRODES Teste",
+        "source": "INPE", "program": "PRODES",
+        "queried_at": "2026-11-05T20:00:00+00:00",
+        "interfering_features": 1, "overlap_hectares": 0.8,
+        "method": "WFS", "warning": "Indicador remoto",
+        "features": [{"id": "test-feature", "overlap_hectares": 0.8}],
+    })
+    svc.analyze_monitoring(snap, {}, "testing:prodes")
+    section = next(x for x in snap["sections"] if x["code"] == "PRODES_DETER")
+    assert section["status"] == "COMPLETE"
+    assert snap["monitoring_result"]["count"] == 1
+    assert svc.render_preliminary_consolidated_pdf(snap).startswith(b"%PDF")
+
+
+def test_monitoring_failure_is_not_clean_report(monkeypatch):
+    from app.services import rural_consolidated as svc
+    snap = build_job_snapshot(FakeSession([]), _analysis())
+    def fails(*_args):
+        raise svc.MonitoringQueryError("Upstream unavailable")
+    monkeypatch.setattr(svc, "monitoring_preview", fails)
+    svc.analyze_monitoring(snap, {}, "testing:prodes")
+    section = next(x for x in snap["sections"] if x["code"] == "PRODES_DETER")
+    assert section["status"] == "UNAVAILABLE"
