@@ -6549,3 +6549,28 @@ input {
 .rural-monitoring-panel > div > button:disabled { opacity: .5; cursor: not-allowed; }
 .rural-monitoring-panel > div > button.rural-monitoring-cancel { color: #355c4d; background: #fff; border-color: #cadbd1; }
 @media (max-width:700px) { .rural-candidate-buttons { display:grid; width:100%; } }
+
+.rural-monitoring-report-action {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid #bed9c9;
+  background: #f4f9f5;
+  border-radius: 11px;
+  display: grid;
+  gap: 7px;
+  justify-items: start;
+}
+.rural-monitoring-report-action button {
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  border: 1px solid #15533d;
+  background: #15533d;
+  color: white;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.rural-monitoring-report-action button:disabled { cursor: not-allowed; opacity: .55; }
+.rural-monitoring-report-action small { color: #516b5c; }
