@@ -24,6 +24,7 @@ from app.services.rural_official_sigef import (OfficialSigefQueryError, locate_o
 from app.services.rural_official_car import (OfficialCarQueryError, normalize_car, fetch_car_candidate, resolve_car_candidate)
 from app.services.rural_monitoring import MonitoringQueryError, monitoring_catalog, monitoring_preview
 from app.services.rural_diagnostic_pdf import build_rural_monitoring_pdf
+from app.services.rural_ibama_embargos import embargo_preview, IbamaEmbargoError
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -371,5 +372,52 @@ def rural_preliminary_pdf(payload: RuralPreviewPdfRequest, db: Session = Depends
             "Content-Disposition": 'attachment; filename="AMAZONIKA_DIAGNOSTICO_AMBIENTAL_PREVIA.pdf"',
             "Cache-Control": "no-store",
             "X-Report-Type": "preliminary-rural-monitoring",
+        },
+    )
+
+
+class IbamaEmbargoPreviewRequest(BaseModel):
+    geometry: dict
+
+
+@router.post("/ibama/embargos/preview",
+             dependencies=[Depends(require_permission("analysis.execute"))])
+def rural_ibama_embargo_preview(payload: IbamaEmbargoPreviewRequest):
+    """Preview official embargo polygons intersecting the selected perimeter."""
+    try:
+        return embargo_preview(payload.geometry)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)[:260]) from exc
+    except IbamaEmbargoError as exc:
+        raise HTTPException(503, str(exc)[:260]) from exc
+
+
+@router.post("/ibama/embargos/preview-pdf",
+             dependencies=[Depends(require_permission("analysis.export"))])
+def rural_ibama_embargo_pdf(payload: RuralPreviewPdfRequest,
+                           db: Session = Depends(get_db)):
+    """Server-side revalidation and official IBAMA query before PDF generation."""
+    subject = _resolve_pdf_subject(payload, db)
+    try:
+        embargo = embargo_preview(subject["geometry"], include_geometry=True)
+        document = build_rural_monitoring_pdf(
+            property_name=subject.get("name") or "Imóvel rural",
+            property_source=subject.get("source_name") or "Base cadastral",
+            cadastral_code=payload.car_code or subject.get("feature_id"),
+            subject_geometry=subject["geometry"],
+            monitoring=embargo,
+            generated_at=datetime.now(timezone.utc),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)[:260]) from exc
+    except IbamaEmbargoError as exc:
+        raise HTTPException(503, str(exc)[:260]) from exc
+    return Response(
+        content=document,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'attachment; filename="AMAZONIKA_EMBARGOS_IBAMA_PREVIA.pdf"',
+            "Cache-Control": "no-store",
+            "X-Report-Type": "preliminary-rural-ibama",
         },
     )
