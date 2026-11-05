@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import datetime, timezone
+from sqlalchemy import func, select
 from typing import Literal
 from uuid import UUID
 
@@ -28,7 +29,11 @@ from app.services.rural_diagnostic_pdf import build_rural_monitoring_pdf
 from app.services.rural_ibama_embargos import embargo_preview, IbamaEmbargoError
 from app.services.rural_mapbiomas import gee_configuration, mapbiomas_preview, MapBiomasError
 from app.services.rural_mapbiomas_pdf import mapbiomas_pdf
-from app.services.rural_mapbiomas_pilot import build_restricted_mapbiomas_pdf, verify_pilot_enabled
+from app.services.rural_mapbiomas_pilot import (
+    MAX_AREA_HA, MAX_PLATFORM_ATTEMPTS_DAY,
+    build_restricted_mapbiomas_pdf, verify_pilot_enabled,
+)
+from app.models.rural_mapbiomas_pilot import RuralMapBiomasPilotRun
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -498,18 +503,43 @@ class InternalMapBiomasPdfRequest(BaseModel):
 
 @router.get("/mapbiomas/internal-pilot/status")
 def rural_internal_pilot_status(
+    db: Session = Depends(get_db),
     user=Depends(require_permission("analysis.export")),
 ):
-    """Return admin-only pilot readiness; never disclose keys or quotas of others."""
+    """Admin-only quota snapshot based on committed audit reservations.
+
+    Attempts include failures and are counted before invoking paid GEE work.
+    This is NOT a Google EECU or billing metric; Cloud Monitoring is authoritative.
+    """
     if "ADMINISTRADOR" not in {role.code for role in user.roles}:
         raise HTTPException(403, "Piloto MapBiomas restrito ao administrador.")
+    today = datetime.now(timezone.utc).date()
+    platform_used = db.scalar(
+        select(func.count()).select_from(RuralMapBiomasPilotRun).where(
+            RuralMapBiomasPilotRun.quota_day == today
+        )
+    ) or 0
+    user_used = db.scalar(
+        select(func.count()).select_from(RuralMapBiomasPilotRun).where(
+            RuralMapBiomasPilotRun.quota_day == today,
+            RuralMapBiomasPilotRun.user_id == user.id,
+        )
+    ) or 0
+    enabled = bool(get_settings().gee_internal_pilot_enabled and get_settings().gee_enabled)
     return {
-        "enabled": bool(get_settings().gee_internal_pilot_enabled and get_settings().gee_enabled),
+        "enabled": enabled,
         "year": 2025,
-        "max_area_hectares": 1200,
+        "max_area_hectares": MAX_AREA_HA,
         "max_attempts_per_user_utc_day": 1,
-        "max_platform_attempts_utc_day": 5,
-        "notice": "Homologação interna, cobrança por consulta, sem retentativas automáticas.",
+        "max_platform_attempts_utc_day": MAX_PLATFORM_ATTEMPTS_DAY,
+        "quota_day_utc": today.isoformat(),
+        "attempts_user_today": user_used,
+        "attempts_platform_today": platform_used,
+        "remaining_user_today": max(0, 1 - user_used),
+        "remaining_platform_today": max(0, MAX_PLATFORM_ATTEMPTS_DAY - platform_used),
+        "blocked": not enabled or user_used >= 1 or platform_used >= MAX_PLATFORM_ATTEMPTS_DAY,
+        "usage_basis": "local_committed_attempts_not_google_eecu",
+        "notice": "Cota de tentativas interna; não equivale ao faturamento ou à cota EECU do Google. Falhas contam; sem retentativas automáticas.",
     }
 
 
