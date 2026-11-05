@@ -20,6 +20,7 @@ from app.models.catalog import GeoFeature
 from app.services.auth import require_permission
 from app.services.rural_official_sigef import (OfficialSigefQueryError, locate_official_sigef, resolve_official_sigef)
 from app.services.rural_official_car import (OfficialCarQueryError, normalize_car, fetch_car_candidate, resolve_car_candidate)
+from app.services.rural_monitoring import MonitoringQueryError, monitoring_catalog, monitoring_preview
 
 router = APIRouter(
     prefix="/rural-diagnostics",
@@ -269,3 +270,28 @@ def retrieve_official_car_perimeter(payload: OfficialCarSelection):
         raise HTTPException(422, str(exc)) from exc
     except OfficialCarQueryError as exc:
         raise HTTPException(409, str(exc)[:280]) from exc
+
+
+class MonitoringPreviewRequest(BaseModel):
+    layer_name: str = Field(min_length=1, max_length=160)
+    geometry: dict
+
+
+@router.get("/monitoring/layers")
+def rural_monitoring_layers():
+    """List current public PRODES/DETER WFS layers; never infer layer names."""
+    try:
+        return monitoring_catalog()
+    except MonitoringQueryError as exc:
+        raise HTTPException(503, str(exc)[:260]) from exc
+
+
+@router.post("/monitoring/preview", dependencies=[Depends(require_permission("analysis.execute"))])
+def rural_monitoring_preview(payload: MonitoringPreviewRequest):
+    """Read-only bounded spatial intersection with a selected official layer."""
+    try:
+        return monitoring_preview(payload.layer_name, payload.geometry)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)[:260]) from exc
+    except MonitoringQueryError as exc:
+        raise HTTPException(503, str(exc)[:260]) from exc
