@@ -19,7 +19,11 @@ class ThematicMatplotlibTests(unittest.TestCase):
         for kind,magic in (("pdf",b"%PDF"),("png",b"\\x89PNG")):
             raw=render_matplotlib("Unidades geológicas","",self.layers,
                 "IBGE",{"mode":"minimalista","grid":"border","property":"outline"},fmt=kind)
-            self.assertTrue(raw.startswith(magic))
+            self.assertTrue(
+                raw.startswith(magic),
+                f"Formato solicitado={kind}; prefixo retornado={raw[:20]!r}; "
+                f"tamanho={len(raw)}; magic esperado={magic!r}",
+            )
             self.assertGreater(len(raw),1000)
     def test_disallow_impossible_manual_scale(self):
         with self.assertRaisesRegex(ValueError,"Escala manual"):
