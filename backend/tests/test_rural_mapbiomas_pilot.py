@@ -109,6 +109,10 @@ def test_postgres_global_lock_denies_parallel_calls_before_sicar(monkeypatch):
 
 def test_pilot_records_a_failed_attempt_and_never_refunds_quota(monkeypatch):
     from app.models.rural_mapbiomas_pilot import RuralMapBiomasPilotRun
+    # Internal budget uses its own DB engine; no PostgreSQL in offline suite.
+    monkeypatch.setattr(pilot, "gee_budget_snapshot", lambda: {
+        "enabled": True, "daily_limit": 5,
+    })
     class FakeConnection:
         def __enter__(self): return self
         def __exit__(self, *args): return False
@@ -145,6 +149,9 @@ def test_pilot_records_a_failed_attempt_and_never_refunds_quota(monkeypatch):
 
 
 def test_pilot_one_attempt_per_user_day_blocks_before_reservation(monkeypatch):
+    monkeypatch.setattr(pilot, "gee_budget_snapshot", lambda: {
+        "enabled": True, "daily_limit": 5,
+    })
     class FakeConnection:
         def __enter__(self): return self
         def __exit__(self, *args): return False
