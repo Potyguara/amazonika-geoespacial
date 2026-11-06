@@ -136,6 +136,10 @@ def test_full_consolidated_job_isolated_pg_and_private_pdf(monkeypatch, tmp_path
 
         job = db.get(RuralConsolidatedJob, __import__("uuid").UUID(job_id))
         assert job.snapshot_json["territorial_evidence"]["analyzed_count"] == 0
+        assert job.snapshot_json["ibama_embargos"]["count"] == 0
+        assert job.snapshot_json["ibama_embargos"]["source"] == "IBAMA — teste mockado"
+        assert next(section for section in job.snapshot_json["sections"]
+                    if section["code"] == "ENVIRONMENTAL_ENFORCEMENT")["status"] == "NO_OCCURRENCE"
         assert job.report_type == "FULL_FARM_CONSOLIDATED"
 
     # DB and generated files are disposable by the calling test environment.
