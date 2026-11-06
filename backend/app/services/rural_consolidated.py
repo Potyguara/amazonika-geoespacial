@@ -5,6 +5,7 @@ from the existing territorial report. Background processing stores a frozen
 source snapshot, then builds a clearly marked *partial* consolidated report.
 """
 from datetime import datetime, timezone
+from copy import deepcopy
 from hashlib import sha256
 from html import escape
 from io import BytesIO
@@ -330,9 +331,9 @@ def render_preliminary_consolidated_pdf(snapshot: dict) -> bytes:
     ]))
     story.extend([t, Spacer(1,10*mm), P("Escopo desta prévia", "h2"),
         P("A estrutura de consolidação está operacional. Esta emissão preliminar "
-          "reutiliza apenas resultados comprovados de uma análise territorial "
-          "preexistente. Monitoramento, fiscalização, MapBiomas, solo, clima e "
-          "demais temas não foram executados por este processamento."),
+          "reutiliza evidências de sobreposição já registradas e pode consultar "
+          "separadamente embargos IBAMA e uma camada INPE explicitamente selecionada. "
+          "MapBiomas, solos, clima e demais temas permanecem não executados."),
         P("Não há imagem de satélite nem mapa temático neste marco inicial. "
           "Eles serão incluídos somente com imagens e geodados reais, "
           "metodologia verificada e orçamento de processamento aprovado.", "small"),
@@ -469,18 +470,20 @@ def run_consolidated_job(job_id: UUID) -> None:
             )
             if not geometry_json:
                 raise ValueError("Perímetro ausente para fiscalização.")
-            job.snapshot_json = snap
+            # Never share mutable nested lists/dicts with SQLAlchemy JSON state.
+            # The in-place provider updates below must be detected and persisted.
+            job.snapshot_json = deepcopy(snap)
             job.progress_percent = 35
             db.commit()
             geom = json.loads(geometry_json)
             analyze_ibama_embargos(snap, geom)
-            job.snapshot_json = dict(snap)
+            job.snapshot_json = deepcopy(snap)
             job.progress_percent = 60
             db.commit()
             analyze_monitoring(
                 snap, geom, (job.options_json or {}).get("monitoring_layer_name")
             )
-            job.snapshot_json = dict(snap)
+            job.snapshot_json = deepcopy(snap)
             job.progress_percent = 80
             db.commit()
             data = render_preliminary_consolidated_pdf(snap)
