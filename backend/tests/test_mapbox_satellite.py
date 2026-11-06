@@ -7,11 +7,13 @@ from app.api.routes import mapbox_satellite as gateway
 
 class MapboxSatelliteTests(unittest.TestCase):
     def test_disabled_by_default(self):
-        with patch.object(gateway, "get_settings") as settings:
+        with patch.object(gateway, "get_settings") as settings, \
+             patch.object(gateway, "snapshot", return_value={"blocked": False}) as budget_snapshot:
             settings.return_value.mapbox_satellite_enabled = False
             settings.return_value.mapbox_access_token = "fake"
             result = gateway.mapbox_status(user=None)
             self.assertFalse(result["enabled"])
+            budget_snapshot.assert_called_once_with("mapbox")
             with self.assertRaises(HTTPException) as ctx:
                 gateway.satellite_tile(z=2, x=1, y=1, user=None)
             self.assertEqual(ctx.exception.status_code, 503)
