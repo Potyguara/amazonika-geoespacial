@@ -4,10 +4,21 @@ from pathlib import Path
 
 import pytest
 
-SPEC = importlib.util.spec_from_file_location(
-    "rural_gee_smoke", Path(__file__).resolve().parents[2] / "scripts" /
-    "probe_mapbiomas_real_property.py"
+# The source script lives in the repository's top-level scripts/, not
+# backend/scripts/. CI uses the complete checkout, whereas the isolated
+# Docker test mounts backend at /app and repository scripts at /scripts.
+SCRIPT_NAME = "probe_mapbiomas_real_property.py"
+CANDIDATES = (
+    Path(__file__).resolve().parents[2] / "scripts" / SCRIPT_NAME,
+    Path("/scripts") / SCRIPT_NAME,
 )
+SCRIPT_PATH = next((path for path in CANDIDATES if path.is_file()), None)
+if SCRIPT_PATH is None:
+    pytest.skip(
+        "Script de teste GEE ausente: monte o diretório scripts/ em /scripts:ro.",
+        allow_module_level=True,
+    )
+SPEC = importlib.util.spec_from_file_location("rural_gee_smoke", SCRIPT_PATH)
 smoke = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(smoke)
 
