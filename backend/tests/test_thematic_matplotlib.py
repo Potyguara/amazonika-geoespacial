@@ -16,7 +16,7 @@ class ThematicMatplotlibTests(unittest.TestCase):
             Layer("Propriedade","Cliente",p,"#cf2727","property"),
         ]
     def test_render_pdf_and_png(self):
-        for kind,magic in (("pdf",b"%PDF"),("png",b"\\x89PNG")):
+        for kind,magic in (("pdf",b"%PDF"),("png",bytes.fromhex("89504e470d0a1a0a"))):
             raw=render_matplotlib("Unidades geológicas","",self.layers,
                 "IBGE",{"mode":"minimalista","grid":"border","property":"outline"},fmt=kind)
             self.assertTrue(
