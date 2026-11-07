@@ -2470,7 +2470,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   return (
     <div className="real-map-wrap">
-      <LayerAttributeSearch layers={layers} onSelect={focusAttributeSearchResult} />
+      <LayerAttributeSearch layers={layers} onSelect={focusAttributeSearchResult} hidden={hideAdvancedTools} />
       <div
         ref={mapElement}
         className={`real-map ${identifyActive ? "identify-mode" : ""}`}
