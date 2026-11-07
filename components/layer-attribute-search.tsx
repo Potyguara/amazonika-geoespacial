@@ -43,9 +43,11 @@ const ANM_OFFICIAL = "__anm_official__";
 export function LayerAttributeSearch({
   layers,
   onSelect,
+  hidden = false,
 }: {
   layers: SearchLayer[];
   onSelect: (item: LayerSearchResult, label: string) => void;
+  hidden?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [sourceId, setSourceId] = useState(CAR_OFFICIAL);
@@ -56,6 +58,11 @@ export function LayerAttributeSearch({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fieldBusy, setFieldBusy] = useState(false);
+
+  // Dismiss the search while a global layers/dialog panel is active.
+  useEffect(() => {
+    if (hidden) setExpanded(false);
+  }, [hidden]);
 
   useEffect(() => {
     if (sourceId === CAR_OFFICIAL || sourceId === ANM_OFFICIAL) {
@@ -128,18 +135,20 @@ export function LayerAttributeSearch({
     ? "Processos minerários — ANM SIGMINE"
     : layers.find((layer) => layer.id === sourceId)?.name ?? "Camada";
 
+  if (hidden) return null;
+
   return (
-    <div className="absolute right-4 top-4 z-[90] w-[min(370px,calc(100%-2rem))] text-sm">
+    <div className="layer-attribute-search" data-testid="layer-attribute-search">
       {!expanded ? (
         <button type="button"
           onClick={() => setExpanded(true)}
           title="Pesquisar feições pelos atributos da camada"
-          className="ml-auto flex items-center gap-2 rounded-xl border border-emerald-700/20 bg-white px-4 py-3 font-semibold text-emerald-950 shadow-lg hover:bg-emerald-50">
+          className="layer-attribute-search-toggle flex items-center gap-2 rounded-xl border border-emerald-700/20 bg-white px-4 py-3 font-semibold text-emerald-950 shadow-lg hover:bg-emerald-50">
           <Search size={17}/> Pesquisar camadas
         </button>
       ) : (
         <section aria-label="Pesquisa por atributos das camadas"
-          className="rounded-2xl border border-emerald-900/15 bg-white p-4 shadow-2xl">
+          className="layer-attribute-search-panel rounded-2xl border border-emerald-900/15 bg-white p-4 shadow-2xl">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2 font-bold text-emerald-950">
               <Search size={18}/> Localizar feição
@@ -157,13 +166,17 @@ export function LayerAttributeSearch({
                   setError("");
                 }}
                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm text-slate-900">
-                <option value={CAR_OFFICIAL}>CAR oficial — SICAR (por código)</option>
-                <option value={ANM_OFFICIAL}>Processos minerários — ANM (por número)</option>
-                {layers.filter(layer => layer.id).map(layer => (
-                  <option key={layer.id} value={layer.id}>
-                    {layer.name}{layer.enabled ? "" : " (oculta no mapa)"}
-                  </option>
-                ))}
+                <optgroup label="Consultas oficiais externas — fora do catálogo">
+                  <option value={CAR_OFFICIAL}>CAR — SICAR (consultar código)</option>
+                  <option value={ANM_OFFICIAL}>Processos minerários — ANM (consultar número)</option>
+                </optgroup>
+                <optgroup label="Camadas cadastradas no sistema">
+                  {layers.filter(layer => layer.id).map(layer => (
+                    <option key={layer.id} value={layer.id}>
+                      {layer.name}{layer.enabled ? "" : " (oculta no mapa)"}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </label>
             {sourceId !== CAR_OFFICIAL && sourceId !== ANM_OFFICIAL && (
@@ -217,8 +230,9 @@ export function LayerAttributeSearch({
             </div>
           )}
           <p className="mt-3 text-[11px] leading-4 text-slate-500">
-            Pesquisa limitada à versão vetorial disponível da camada. Para fontes
-            apenas WMS, é necessária uma base WFS ou importação correspondente.
+            {sourceId === CAR_OFFICIAL || sourceId === ANM_OFFICIAL
+              ? "Consulta pontual à fonte oficial externa. CAR e ANM ainda não são camadas do catálogo nem ficam automaticamente ativadas no mapa; a geometria encontrada aparece em destaque."
+              : "Consulta à versão vetorial local cadastrada. Uma camada exibida apenas por WMS precisa de WFS ou de base vetorial sincronizada para permitir pesquisa."}
           </p>
         </section>
       )}
