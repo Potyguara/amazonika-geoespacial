@@ -133,6 +133,17 @@ def test_anm_returns_official_geojson_and_fixed_source(monkeypatch):
     assert "NUMERO%3D850123" in called[0]
 
 
+
+def test_anm_accepts_process_with_and_without_dot():
+    import re
+    for value in ("850.123/2020", "850123/2020"):
+        matched = search.ANM_PROCESS_PATTERN.fullmatch(value)
+        assert matched is not None
+        assert matched.groups() == ("850", "123", "2020")
+    for invalid in ("850-123/2020", "850123/20", "850.123/2020 OR 1=1"):
+        assert search.ANM_PROCESS_PATTERN.fullmatch(invalid) is None
+
+
 def test_anm_service_failure_is_503_not_no_results(monkeypatch):
     def fail(*args, **kwargs):
         raise search.URLError("remote inaccessible")
