@@ -28,6 +28,7 @@ import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "o
 import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
+import { LayerAttributeSearch, type LayerSearchResult } from "@/components/layer-attribute-search";
 import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile } from "@/components/pecas-tecnicas-workspace";
 import type { SituationSnapshot } from "@/components/situation-map-preview";
 import type { TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
@@ -232,6 +233,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
   const measureSourceRef = useRef(new VectorSource());
+  const attributeSearchSourceRef = useRef(new VectorSource());
   const [measureMode, setMeasureMode] = useState<"LineString" | "Polygon" | null>(null);
   const [measureValue, setMeasureValue] = useState("");
   const officialSourceRef = useRef(new VectorSource());
@@ -1115,7 +1117,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             }),
         }),
 
-        // Camada universal de seleção.
+        // Destaque persistente de resultados localizados pela lupa de atributos.
+        // Independente da ferramenta Identificar e do perímetro de análise.
+        new VectorLayer({
+          source: attributeSearchSourceRef.current,
+          updateWhileAnimating: true,
+          updateWhileInteracting: true,
+          zIndex: 99999,
+          style: identifyHighlightStyles,
+        }),
+                // Camada universal de seleção.
         // Fica acima das bases territoriais e da geometria consultada.
         new VectorLayer({
           source: identifySelectionSourceRef.current,
@@ -2408,6 +2419,48 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     setMeasureMode(current => current === mode ? null : mode);
   };
 
+  const focusAttributeSearchResult = (item: LayerSearchResult, layerName: string) => {
+    try {
+      const map = mapRef.current;
+      if (!map || !item.geometry) throw new Error("Mapa ainda não está pronto.");
+      const feature = new GeoJSON().readFeature({
+        type: "Feature",
+        geometry: item.geometry,
+        properties: item.properties ?? {},
+      }, { dataProjection: "EPSG:4326", featureProjection: map.getView().getProjection() });
+      // Some OpenLayers GeoJSON typings admit Feature[] as well as Feature.
+      const selectedFeature = Array.isArray(feature) ? feature[0] : feature;
+      if (!selectedFeature) throw new Error("Resultado sem feição vetorial.");
+      const geometry = selectedFeature.getGeometry();
+      if (!geometry) throw new Error("Resultado sem geometria vetorial.");
+      const extent = geometry.getExtent();
+      if (!extent.every(Number.isFinite)) throw new Error("Extensão inválida.");
+      attributeSearchSourceRef.current.clear();
+      attributeSearchSourceRef.current.addFeature(selectedFeature);
+      map.getView().fit(extent, {
+        size: map.getSize(),
+        padding: [90, 90, 90, 90],
+        maxZoom: 17,
+        duration: 650,
+      });
+      setIdentifiedFeature({
+        title: item.title,
+        layer: layerName,
+        attributes: [
+          ["external_id", item.external_id ?? "—"],
+          ...Object.entries(item.properties ?? {}).filter(([key]) =>
+            !["geometry", "geom"].includes(key)
+          ).slice(0, 40),
+        ],
+      });
+      setIdentifyCandidates([]);
+      setFeaturePanelOffset({ x: 0, y: 0 });
+      setExtentMessage(null);
+    } catch (error) {
+      setExtentMessage(error instanceof Error ? error.message : "Não foi possível localizar a feição.");
+    }
+  };
+
   const toggleIdentify = () => {
     setMeasureMode(null);
     setDrawKind(null);
@@ -2417,6 +2470,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   return (
     <div className="real-map-wrap">
+      <LayerAttributeSearch layers={layers} onSelect={focusAttributeSearchResult} hidden={hideAdvancedTools} />
       <div
         ref={mapElement}
         className={`real-map ${identifyActive ? "identify-mode" : ""}`}
