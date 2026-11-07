@@ -256,7 +256,7 @@ ANM_PROCESS_LAYER = (
     "https://geo.anm.gov.br/arcgis/rest/services/"
     "SIGMINE/dados_anm/MapServer/0/query"
 )
-ANM_PROCESS_PATTERN = re.compile(r"^(\\d{3})\\.?(\\d{3})/(\\d{4})$")
+ANM_PROCESS_PATTERN = re.compile(r"^(\d{3})\.?(\d{3})/(\d{4})$")
 
 
 @router.get("/anm-process")
