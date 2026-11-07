@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -247,3 +250,104 @@ def find_official_car(
         raise HTTPException(422, str(exc)[:180]) from exc
     except OfficialCarQueryError as exc:
         raise HTTPException(503, "O WFS oficial do SICAR está indisponível ou não concluiu a pesquisa.") from exc
+
+
+ANM_PROCESS_LAYER = (
+    "https://geo.anm.gov.br/arcgis/rest/services/"
+    "SIGMINE/dados_anm/MapServer/0/query"
+)
+ANM_PROCESS_PATTERN = re.compile(r"^(\\d{3})\\.?(\\d{3})/(\\d{4})$")
+
+
+@router.get("/anm-process")
+def find_official_anm_process(
+    process_number: str = Query(min_length=10, max_length=20),
+):
+    """Exact public ANM process (active SIGMINE layer 0).
+
+    Uses a fixed approved URL and integer-only SQL predicate. No
+    caller-supplied remote URL or arbitrary ArcGIS WHERE clause.
+    """
+    value = process_number.strip()
+    match = ANM_PROCESS_PATTERN.fullmatch(value)
+    if not match:
+        raise HTTPException(
+            422, "Informe o processo ANM no formato 850.123/2020.",
+        )
+    numero = int(match.group(1) + match.group(2))
+    ano = int(match.group(3))
+    params = {
+        "where": f"NUMERO={numero} AND ANO={ano}",
+        "outFields": "PROCESSO,NUMERO,ANO,FASE,SUBS,AREA_HA,UF,DSProcesso",
+        "returnGeometry": "true",
+        "outSR": "4326",
+        "f": "geojson",
+        "resultRecordCount": "15",
+    }
+    url = ANM_PROCESS_LAYER + "?" + urlencode(params)
+    try:
+        request = Request(url, headers={
+            "User-Agent": "Amazonika-Geoespacial/1.0",
+            "Accept": "application/geo+json,application/json",
+        })
+        with urlopen(request, timeout=20) as resp:
+            if "json" not in (resp.headers.get("Content-Type") or "").lower():
+                raise ValueError("Resposta oficial não é GeoJSON")
+            raw = resp.read(2_500_001)
+        if len(raw) > 2_500_000:
+            raise ValueError("Resposta muito grande")
+        payload = json.loads(raw)
+        if (
+            not isinstance(payload, dict)
+            or payload.get("type") != "FeatureCollection"
+            or not isinstance(payload.get("features"), list)
+            or payload.get("exceededTransferLimit")
+            or len(payload["features"]) >= 15
+        ):
+            raise ValueError("Consulta ANM incompleta ou inválida")
+        from shapely.geometry import shape
+        results = []
+        for record in payload["features"]:
+            if not isinstance(record, dict) or not isinstance(record.get("geometry"), dict):
+                raise ValueError("Processo ANM sem geometria")
+            geometry = record["geometry"]
+            if len(json.dumps(geometry)) > 600_000:
+                raise ValueError("Geometria excedeu limite para o mapa")
+            obj = shape(geometry)
+            if obj.is_empty or not obj.is_valid:
+                raise ValueError("Geometria ANM inválida")
+            props = record.get("properties") or {}
+            if not isinstance(props, dict):
+                raise ValueError("Atributos ANM inválidos")
+            result_number = props.get("NUMERO")
+            result_year = props.get("ANO")
+            if str(result_number) != str(numero) or str(result_year) != str(ano):
+                raise ValueError("Resposta oficial não corresponde ao processo consultado")
+            external = str(props.get("PROCESSO") or f"{numero}/{ano}")[:40]
+            results.append({
+                "feature_id": str(record.get("id") or external)[:100],
+                "title": "Processo minerário " + external,
+                "external_id": external,
+                "matched_field": "PROCESSO",
+                "matched_value": external,
+                "bbox": list(obj.bounds),
+                "geometry": geometry,
+                "properties": {
+                    field: props.get(field)
+                    for field in ("PROCESSO", "NUMERO", "ANO", "FASE",
+                                  "SUBS", "AREA_HA", "UF", "DSProcesso")
+                    if props.get(field) is not None
+                },
+            })
+        return {
+            "source_name": "ANM — SIGMINE oficial (processos ativos)",
+            "query": value,
+            "results": results,
+            "source_url": ANM_PROCESS_LAYER,
+        }
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError,
+            KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            503, "O serviço vetorial da ANM não concluiu a pesquisa. "
+                 "Não é possível afirmar ausência do processo.",
+        ) from exc
