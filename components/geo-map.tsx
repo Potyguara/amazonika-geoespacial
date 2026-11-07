@@ -1761,7 +1761,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
       for (const feature of officialSourceRef.current.getFeaturesInExtent(extent)) {
         if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
-        const geometry = feature.getGeometry();
+        // OpenLayers may type readFeature as a Feature or an array.
+      // Normalize explicitly before accessing geometry or adding the overlay.
+      const selectedFeature = Array.isArray(feature) ? feature[0] : feature;
+      if (!selectedFeature) throw new Error("Resultado sem feição vetorial.");
+      const geometry = selectedFeature.getGeometry();
         if (!geometry) continue;
         snapLayerSourceRef.current.addFeature(
           new Feature({ geometry: geometry.clone() }),
@@ -2433,7 +2437,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       const extent = geometry.getExtent();
       if (!extent.every(Number.isFinite)) throw new Error("Extensão inválida.");
       attributeSearchSourceRef.current.clear();
-      attributeSearchSourceRef.current.addFeature(feature);
+      attributeSearchSourceRef.current.addFeature(selectedFeature);
       map.getView().fit(extent, {
         size: map.getSize(),
         padding: [90, 90, 90, 90],
