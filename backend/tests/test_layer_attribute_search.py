@@ -87,3 +87,56 @@ def test_car_no_match_is_empty_after_successful_lookup(monkeypatch):
         car_code="AP-1600238-047B060C8AF84B3CB46946155615281E"
     )
     assert result["results"] == []
+
+
+def test_anm_rejects_injection_and_invalid_process():
+    with pytest.raises(HTTPException) as exc:
+        search.find_official_anm_process(process_number="850123/2020' OR 1=1")
+    assert exc.value.status_code == 422
+
+
+def test_anm_returns_official_geojson_and_fixed_source(monkeypatch):
+    import json
+    from io import BytesIO
+
+    class Response:
+        headers = {"Content-Type": "application/geo+json"}
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, size):
+            return json.dumps({
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "id": "ANM-1",
+                    "geometry": {"type": "Polygon", "coordinates": [[
+                        [-51.2, 0], [-51.1, 0], [-51.1, 0.1],
+                        [-51.2, 0.1], [-51.2, 0],
+                    ]]},
+                    "properties": {
+                        "PROCESSO": "850123/2020", "NUMERO": 850123,
+                        "ANO": 2020, "FASE": "Pesquisa",
+                        "NOME": "Não deve ser retornado",
+                    },
+                }],
+            }).encode()
+    called = []
+    def fake_urlopen(request, timeout):
+        called.append(request.full_url)
+        return Response()
+    monkeypatch.setattr(search, "urlopen", fake_urlopen)
+    result = search.find_official_anm_process(process_number="850.123/2020")
+    assert len(result["results"]) == 1
+    assert result["results"][0]["properties"]["FASE"] == "Pesquisa"
+    assert "NOME" not in result["results"][0]["properties"]
+    assert "geo.anm.gov.br" in called[0]
+    assert "NUMERO%3D850123" in called[0]
+
+
+def test_anm_service_failure_is_503_not_no_results(monkeypatch):
+    def fail(*args, **kwargs):
+        raise search.URLError("remote inaccessible")
+    monkeypatch.setattr(search, "urlopen", fail)
+    with pytest.raises(HTTPException) as exc:
+        search.find_official_anm_process(process_number="850.123/2020")
+    assert exc.value.status_code == 503
