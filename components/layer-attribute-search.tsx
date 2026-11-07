@@ -38,6 +38,7 @@ function errorMessage(status: number, body: unknown): string {
 }
 
 const CAR_OFFICIAL = "__car_official__";
+const ANM_OFFICIAL = "__anm_official__";
 
 export function LayerAttributeSearch({
   layers,
@@ -57,9 +58,9 @@ export function LayerAttributeSearch({
   const [fieldBusy, setFieldBusy] = useState(false);
 
   useEffect(() => {
-    if (sourceId === CAR_OFFICIAL) {
-      setFields(["cod_imovel"]);
-      setField("cod_imovel");
+    if (sourceId === CAR_OFFICIAL || sourceId === ANM_OFFICIAL) {
+      setFields(sourceId === CAR_OFFICIAL ? ["cod_imovel"] : ["PROCESSO"]);
+      setField(sourceId === CAR_OFFICIAL ? "cod_imovel" : "PROCESSO");
       setError("");
       return;
     }
@@ -102,6 +103,8 @@ export function LayerAttributeSearch({
     try {
       const url = sourceId === CAR_OFFICIAL
         ? `${getApiUrl()}/layer-search/car?car_code=${encodeURIComponent(q)}`
+        : sourceId === ANM_OFFICIAL
+        ? `${getApiUrl()}/layer-search/anm-process?process_number=${encodeURIComponent(q)}`
         : `${getApiUrl()}/layer-search/features?${new URLSearchParams({
             source_id: sourceId, field, q, limit: "15",
           })}`;
@@ -121,6 +124,8 @@ export function LayerAttributeSearch({
 
   const selectedName = sourceId === CAR_OFFICIAL
     ? "CAR oficial — SICAR"
+    : sourceId === ANM_OFFICIAL
+    ? "Processos minerários — ANM SIGMINE"
     : layers.find((layer) => layer.id === sourceId)?.name ?? "Camada";
 
   return (
@@ -153,6 +158,7 @@ export function LayerAttributeSearch({
                 }}
                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm text-slate-900">
                 <option value={CAR_OFFICIAL}>CAR oficial — SICAR (por código)</option>
+                <option value={ANM_OFFICIAL}>Processos minerários — ANM (por número)</option>
                 {layers.filter(layer => layer.id).map(layer => (
                   <option key={layer.id} value={layer.id}>
                     {layer.name}{layer.enabled ? "" : " (oculta no mapa)"}
@@ -160,7 +166,7 @@ export function LayerAttributeSearch({
                 ))}
               </select>
             </label>
-            {sourceId !== CAR_OFFICIAL && (
+            {sourceId !== CAR_OFFICIAL && sourceId !== ANM_OFFICIAL && (
               <label className="block text-xs font-semibold text-slate-700">
                 Atributo
                 <select value={field} onChange={(e) => setField(e.target.value)}
@@ -171,16 +177,16 @@ export function LayerAttributeSearch({
               </label>
             )}
             <label className="block text-xs font-semibold text-slate-700">
-              {sourceId === CAR_OFFICIAL ? "Código completo do CAR" : "Valor do atributo"}
+              {sourceId === CAR_OFFICIAL ? "Código completo do CAR" : sourceId === ANM_OFFICIAL ? "Número do processo ANM" : "Valor do atributo"}
               <input value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={sourceId === CAR_OFFICIAL ? "AP-160... (código completo)" : "Digite o código, processo ou nome"}
+                placeholder={sourceId === CAR_OFFICIAL ? "AP-160... (código completo)" : sourceId === ANM_OFFICIAL ? "850.123/2020" : "Digite o código, processo ou nome"}
                 maxLength={120}
                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm text-slate-900"
               />
             </label>
             <button type="submit"
-              disabled={busy || fieldBusy || !query.trim() || (sourceId !== CAR_OFFICIAL && !field)}
+              disabled={busy || fieldBusy || !query.trim() || (sourceId !== CAR_OFFICIAL && sourceId !== ANM_OFFICIAL && !field)}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-800 px-3 py-2.5 font-bold text-white disabled:opacity-50">
               {busy ? <Loader2 size={16} className="animate-spin"/> : <Search size={16}/>}
               {busy ? "Pesquisando…" : "Buscar e localizar"}
