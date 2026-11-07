@@ -6585,3 +6585,42 @@ input {
 .rural-landcover-class span, .rural-landcover-class small { color: #597063; }
 .rural-landcover-track { height: 9px; border-radius: 8px; background: #edf3ee; overflow: hidden; }
 .rural-landcover-track > div { height: 100%; border-radius: 8px; }
+
+
+/* A lupa fica junto ao painel de camadas, sem atravessar a barra superior.
+   O formulário abre para cima e desaparece quando o gerenciador está ativo. */
+.layer-attribute-search {
+  position: absolute;
+  z-index: 45;
+  left: 14px;
+  bottom: 14px;
+  width: min(358px, calc(100% - 28px));
+  font-size: 12px;
+  pointer-events: none;
+}
+.layer-attribute-search-toggle,
+.layer-attribute-search-panel {
+  pointer-events: auto;
+}
+.layer-attribute-search-toggle {
+  min-height: 38px;
+  box-shadow: 0 4px 18px rgba(22, 65, 44, 0.2);
+}
+.layer-attribute-search-panel {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: min(610px, calc(100vh - 200px));
+  overflow-y: auto;
+}
+@media (max-width: 650px) {
+  .layer-attribute-search {
+    left: 8px;
+    bottom: 10px;
+    width: min(340px, calc(100% - 16px));
+  }
+  .layer-attribute-search-panel {
+    max-height: min(530px, calc(100vh - 170px));
+  }
+}
