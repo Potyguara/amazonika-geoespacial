@@ -135,13 +135,13 @@ def _search_local(
           AND (
             CASE WHEN :field='external_id' THEN external_id
                  WHEN :field='name' THEN name
-                 ELSE properties::jsonb ->> :field END
+                 ELSE CAST(properties AS jsonb) ->> :field END
           ) ILIKE :pattern ESCAPE '\\'
         ORDER BY
           CASE WHEN (
             CASE WHEN :field='external_id' THEN external_id
                  WHEN :field='name' THEN name
-                 ELSE properties::jsonb ->> :field END
+                 ELSE CAST(properties AS jsonb) ->> :field END
           ) = :query THEN 0 ELSE 1 END, external_id
         LIMIT :limit
     """)
@@ -155,7 +155,7 @@ def _search_local(
     for row in rows:
         raw_geom = row["geometry_json"]
         if not isinstance(raw_geom, str) or len(raw_geom) > 600_000:
-            continue  # Too large to safely return as map overlay.
+            raise HTTPException(413, "Feição localizada, mas sua geometria excede o limite de visualização.")
         bbox = [row[k] for k in ("xmin", "ymin", "xmax", "ymax")]
         if any(value is None for value in bbox):
             continue
