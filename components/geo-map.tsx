@@ -1761,11 +1761,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
       for (const feature of officialSourceRef.current.getFeaturesInExtent(extent)) {
         if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
-        // OpenLayers may type readFeature as a Feature or an array.
-      // Normalize explicitly before accessing geometry or adding the overlay.
-      const selectedFeature = Array.isArray(feature) ? feature[0] : feature;
-      if (!selectedFeature) throw new Error("Resultado sem feição vetorial.");
-      const geometry = selectedFeature.getGeometry();
+        const geometry = feature.getGeometry();
         if (!geometry) continue;
         snapLayerSourceRef.current.addFeature(
           new Feature({ geometry: geometry.clone() }),
@@ -2432,7 +2428,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         geometry: item.geometry,
         properties: item.properties ?? {},
       }, { dataProjection: "EPSG:4326", featureProjection: map.getView().getProjection() });
-      const geometry = feature.getGeometry();
+      // Some OpenLayers GeoJSON typings admit Feature[] as well as Feature.
+      const selectedFeature = Array.isArray(feature) ? feature[0] : feature;
+      if (!selectedFeature) throw new Error("Resultado sem feição vetorial.");
+      const geometry = selectedFeature.getGeometry();
       if (!geometry) throw new Error("Resultado sem geometria vetorial.");
       const extent = geometry.getExtent();
       if (!extent.every(Number.isFinite)) throw new Error("Extensão inválida.");
