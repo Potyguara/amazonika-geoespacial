@@ -50,6 +50,7 @@ services:
       dockerfile: Dockerfile.production
     restart: unless-stopped
     environment:
+      ANM_CA_BUNDLE: /etc/ssl/amazonika/anm-ca-bundle.pem
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       CORS_ORIGINS: ${CORS_ORIGINS}
       STORAGE_DIR: /data/uploads
@@ -65,6 +66,7 @@ services:
     mem_limit: 1536m
     cpus: 1.0
     volumes:
+      - ./deploy/certs/anm-ca-bundle.pem:/etc/ssl/amazonika/anm-ca-bundle.pem:ro
       - uploads_data:/data/uploads
     networks:
       - geo_private
