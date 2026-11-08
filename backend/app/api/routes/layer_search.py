@@ -7,7 +7,9 @@ separate exact-code official SICAR WFS adapter, with clear errors.
 from __future__ import annotations
 
 import json
+import os
 import re
+import ssl
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -254,7 +256,7 @@ def find_official_car(
 
 ANM_PROCESS_LAYER = (
     "https://geo.anm.gov.br/arcgis/rest/services/"
-    "SIGMINE/dados_anm/MapServer/0/query"
+    "SIGMINE/dados_anm/FeatureServer/0/query"
 )
 ANM_PROCESS_PATTERN = re.compile(r"^(\d{3})\.?(\d{3})/(\d{4})$")
 
@@ -276,8 +278,9 @@ def find_official_anm_process(
         )
     numero = int(match.group(1) + match.group(2))
     ano = int(match.group(3))
+    normalized_process = f"{numero}/{ano}"
     params = {
-        "where": f"NUMERO={numero} AND ANO={ano}",
+        "where": f"PROCESSO=\'{normalized_process}\'",
         "outFields": "PROCESSO,NUMERO,ANO,FASE,SUBS,AREA_HA,UF,DSProcesso",
         "returnGeometry": "true",
         "outSR": "4326",
@@ -290,7 +293,16 @@ def find_official_anm_process(
             "User-Agent": "Amazonika-Geoespacial/1.0",
             "Accept": "application/geo+json,application/json",
         })
-        with urlopen(request, timeout=20) as resp:
+        # The public ANM host currently omits its Sectigo intermediate.
+        # A deployment-specific CA bundle supplements trust roots without
+        # disabling hostname verification or affecting other connectors.
+        ca_bundle = os.environ.get("ANM_CA_BUNDLE", "").strip()
+        if ca_bundle and not os.path.isfile(ca_bundle):
+            raise ValueError("Arquivo de certificados ANM indisponível")
+        ssl_context = ssl.create_default_context(
+            cafile=ca_bundle if ca_bundle else None
+        )
+        with urlopen(request, timeout=20, context=ssl_context) as resp:
             if "json" not in (resp.headers.get("Content-Type") or "").lower():
                 raise ValueError("Resposta oficial não é GeoJSON")
             raw = resp.read(2_500_001)
@@ -321,7 +333,9 @@ def find_official_anm_process(
                 raise ValueError("Atributos ANM inválidos")
             result_number = props.get("NUMERO")
             result_year = props.get("ANO")
-            if str(result_number) != str(numero) or str(result_year) != str(ano):
+            if (str(result_number) != str(numero)
+                    or str(result_year) != str(ano)
+                    or str(props.get("PROCESSO")) != normalized_process):
                 raise ValueError("Resposta oficial não corresponde ao processo consultado")
             external = str(props.get("PROCESSO") or f"{numero}/{ano}")[:40]
             results.append({
