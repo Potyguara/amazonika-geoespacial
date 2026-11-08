@@ -60,12 +60,14 @@ services:
       GOOGLE_MAP_TILES_ENABLED: ${GOOGLE_MAP_TILES_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+      ANM_CA_BUNDLE: /etc/ssl/amazonika/anm-ca-bundle.pem
     ports:
       - "127.0.0.1:18000:8000"
     mem_limit: 1536m
     cpus: 1.0
     volumes:
       - uploads_data:/data/uploads
+      - ./deploy/certs/anm-ca-bundle.pem:/etc/ssl/amazonika/anm-ca-bundle.pem:ro
     networks:
       - geo_private
       - geo_egress
