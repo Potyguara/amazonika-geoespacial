@@ -121,7 +121,9 @@ def test_anm_returns_official_geojson_and_fixed_source(monkeypatch):
                 }],
             }).encode()
     called = []
-    def fake_urlopen(request, timeout):
+    def fake_urlopen(request, timeout, context):
+        assert context.verify_mode != 0
+        assert context.check_hostname
         called.append(request.full_url)
         return Response()
     monkeypatch.setattr(search, "urlopen", fake_urlopen)
@@ -130,7 +132,9 @@ def test_anm_returns_official_geojson_and_fixed_source(monkeypatch):
     assert result["results"][0]["properties"]["FASE"] == "Pesquisa"
     assert "NOME" not in result["results"][0]["properties"]
     assert "geo.anm.gov.br" in called[0]
-    assert "NUMERO%3D850123" in called[0]
+    assert "PROCESSO%3D%27850123%2F2020%27" in called[0]
+    assert "FeatureServer%2F0" not in called[0]
+    assert "/FeatureServer/0/query?" in called[0]
 
 
 
@@ -150,4 +154,14 @@ def test_anm_service_failure_is_503_not_no_results(monkeypatch):
     monkeypatch.setattr(search, "urlopen", fail)
     with pytest.raises(HTTPException) as exc:
         search.find_official_anm_process(process_number="850.123/2020")
+    assert exc.value.status_code == 503
+
+
+def test_anm_missing_custom_ca_fails_closed(monkeypatch):
+    monkeypatch.setenv("ANM_CA_BUNDLE", "/nonexistent/anm-ca.pem")
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Do not contact ANM when configured CA is missing")
+    monkeypatch.setattr(search, "urlopen", unexpected)
+    with pytest.raises(HTTPException) as exc:
+        search.find_official_anm_process(process_number="858.027/2019")
     assert exc.value.status_code == 503
