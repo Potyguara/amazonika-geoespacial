@@ -547,7 +547,7 @@ def render_professional_plant(
         reference_card(pdf,Rect(right.x,135,right.w,140),zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
                        palette=palette)
-        header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette)
+        header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette,dark_text=True)
         _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
         _continuation(pdf,rows,first,w,h,title,stamp,palette)
         return w,h,map_scale
