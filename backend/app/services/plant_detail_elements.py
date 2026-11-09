@@ -335,10 +335,10 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,
             p.drawOn(pdf,x+1,y)
         y-=14
     # O espaço para carimbo somente é usado quando não colide com o texto.
-    if y-31>=rect.y+22:
+    if y>=rect.y+48:
         pdf.setDash(3,3)
         pdf.setStrokeColor(colors.HexColor("#308467"))
-        pdf.roundRect(x,rect.y+19,width,min(30,y-rect.y-38),4,stroke=1,fill=0)
+        pdf.roundRect(x,rect.y+22,width,22,4,stroke=1,fill=0)
         pdf.setDash()
         _text(pdf,"CARIMBO DO RESPONSÁVEL TÉCNICO",
               x+8,rect.y+30,size=6,bold=True,color="#308467",
