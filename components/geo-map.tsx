@@ -301,6 +301,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [importError, setImportError] = useState<string | null>(null);
   const [importedMetadata, setImportedMetadata] = useState<Record<string, string> | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
+
+  // A confirmação de importação é transitória. O temporizador é
+  // reiniciado para cada nova importação e cancelado na desmontagem.
+  useEffect(() => {
+    if (!importNotice) return;
+    const timeout = window.setTimeout(() => setImportNotice(null), 7000);
+    return () => window.clearTimeout(timeout);
+  }, [importNotice]);
   const [geometryMetrics, setGeometryMetrics] = useState<{
     areaHectares: number | null;
     perimeterMeters: number | null;
@@ -3101,7 +3109,20 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       {extentMessage && <div className="map-operation-feedback error" role="alert" onClick={() => setExtentMessage(null)}>{extentMessage}</div>}
       {importingVector && <div className="map-operation-feedback">Importando e convertendo arquivo vetorial…</div>}
       {importError && <div className="map-operation-feedback error">{importError}</div>}
-      {importNotice && <div className="map-operation-feedback" role="status">{importNotice}</div>}
+      {importNotice && (
+        <div className="map-operation-feedback import-notice" role="status">
+          <span>{importNotice}</span>
+          <button
+            type="button"
+            className="import-notice-dismiss"
+            onClick={() => setImportNotice(null)}
+            aria-label="Fechar aviso de importação"
+            title="Fechar aviso"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div
         className={`official-layer-status ${loadingOfficial ? "loading" : ""}`}
