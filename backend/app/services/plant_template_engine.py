@@ -301,9 +301,9 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
     pdf.setStrokeColor(_color(dark))
     pdf.rect(box.x, box.y, box.w, box.h, stroke=1, fill=1)
     if elements.get("grid", True):
-        _grid(pdf, (box.x, box.y, box.w, box.h), (xmin,ymin,xmax,ymax),
+        _grid(pdf, (actual.x, actual.y, actual.w, actual.h), (xmin,ymin,xmax,ymax),
               xy, zone, hemi)
-    label_layout = LabelLayout((box.x, box.y, box.w, box.h))
+    label_layout = LabelLayout((actual.x, actual.y, actual.w, actual.h))
     center = tuple(sum(p[i] for p in points)/len(points) for i in (0,1))
     center_xy = xy(*center)
     for p in parcels:
@@ -330,7 +330,7 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
                 _azimuth_and_distance(
                     pdf, point, coords[(i+1) % len(coords)],
                     p.segments[i], p.confrontants[i], center_xy,
-                    (box.x, box.y, box.w, box.h),
+                    (actual.x, actual.y, actual.w, actual.h),
                     layout=label_layout,
                     show_azimuth=bool(elements.get("azimuths")),
                     show_distance=bool(elements.get("distances")),
@@ -349,13 +349,27 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
         _text(pdf, f"ESCALA 1:{scale:,}".replace(",", "."),
               box.x + 12, box.y + 13, 8, bold, dark)
     if elements.get("scale_bar", True):
-        length = min(95, box.w * .20)
-        x, y = box.x + box.w - length - 20, box.y + 14
+        # Escala gráfica com segmento em distância real (m), sem sobrepor
+        # as marcas da grade; comprimento e rótulos coerentes com a escala.
+        px_per_m = _pt_meter(scale)
+        target_m = 100 * 72 / (.0254 * scale)
+        magnitude = 10 ** math.floor(math.log10(max(target_m, 1)))
+        choices = (1, 2, 2.5, 5, 10)
+        meters = next((v*magnitude for v in choices if v*magnitude >= target_m), 10*magnitude)
+        length = meters * px_per_m
+        if length > min(130, box.w * .23):
+            meters /= 2
+            length /= 2
+        x, y = box.x + box.w - length - 25, box.y + 22
+        pdf.setFillColor(_color("#FFFFFF"))
         pdf.setStrokeColor(_color(dark))
+        pdf.roundRect(x-9, y-13, length+21, 34, 3, fill=1, stroke=0)
+        pdf.setFillColor(_color(dark))
         pdf.rect(x,y,length/2,5,stroke=1,fill=1)
-        pdf.rect(x+length/2,y,length/2,5,stroke=1,fill=0)
-        _text(pdf, "0", x,y-9,5.8,regular,dark)
-        _text(pdf, f"{length/_pt_meter(scale):.0f} m",x+length-23,y-9,5.8,regular,dark)
+        pdf.setFillColor(colors.white)
+        pdf.rect(x+length/2,y,length/2,5,stroke=1,fill=1)
+        _text(pdf, "0", x,y-8,6.5,regular,dark)
+        _text(pdf, f"{meters:g} m",x+length-18,y-8,6.5,regular,dark)
     return scale
 
 
@@ -468,8 +482,8 @@ def render_professional_plant(
         summary_y=max(410,t-1125)
         if summary_y+75 < t-1040:
             _summary_card(pdf,Rect(sidebar_x,summary_y,sidebar_w,75),parcels,palette)
-        bottom_h=min(335, _table_height(len(rows),3,font_size=5.7))
-        first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=3,font_size=5.7)
+        bottom_h=min(335, _table_height(len(rows),2,font_size=7.0))
+        first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
 
     elif layout_template=="cartographic_frame":
         frame=Rect(33,418,w-66,h-536)
@@ -492,8 +506,8 @@ def render_professional_plant(
         _neighbors_card(pdf,cards[2][1],parcels,palette)
         _legend_card(pdf,cards[3][1],palette)
         _signature_card(pdf,cards[4][1],owner_name,professional,palette)
-        bottom_h=min(340, _table_height(len(rows),3,font_size=5.7))
-        first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=3,font_size=5.7)
+        bottom_h=min(340, _table_height(len(rows),2,font_size=7.0))
+        first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
 
     else:  # modern_lateral
         left=Rect(34,445,w*.57-34,h-563)
