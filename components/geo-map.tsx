@@ -1131,7 +1131,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 properties: {},
               },
               {
-                dataProjection: "EPSG:4674",
+                dataProjection: "EPSG:4326",
                 featureProjection: "EPSG:3857",
               },
             ) as Feature;
@@ -1382,7 +1382,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 const feature = format.readFeature(
                   item,
                   {
-                    dataProjection: "EPSG:4674",
+                    dataProjection: "EPSG:4326",
                     featureProjection: "EPSG:3857",
                   },
                 ) as Feature;
