@@ -990,7 +990,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         const rawDate = typeof metadata.last_updated === "string"
           ? metadata.last_updated : null;
         const parsed = rawDate ? new Date(rawDate) : null;
-        const dateOnly = rawDate?.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+        const dateOnly = rawDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
         const value = dateOnly
           ? `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`
           : parsed && !Number.isNaN(parsed.getTime())
