@@ -12,6 +12,9 @@ git log -1 --oneline
 echo "===== SINTAXE BACKEND ====="
 python3 -m py_compile \
   backend/app/services/plant_template_engine.py \
+  backend/app/services/plant_detail_elements.py \
+  backend/app/services/plant_memorial_professional.py \
+  backend/app/services/plant_geomagnetism.py \
   backend/app/services/plant_memorial_v3.py \
   backend/app/api/routes/tools.py
 
@@ -21,6 +24,7 @@ docker build -f backend/Dockerfile.production \
 
 echo "===== TESTES DO MOTOR ====="
 for testfile in \
+  test_plant_landscape_memorial_wmm.py \
   test_plant_detail_elements.py \
   test_professional_plant_refinement.py \
   test_professional_plant_engine.py \
