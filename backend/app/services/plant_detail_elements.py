@@ -37,38 +37,26 @@ def group_confrontations(parcels):
             else:
                 local.append(dict(name=label,start=segment["start"],end=segment["end"],
                                   distance=distance,segments=[i]))
-        # Quando o mesmo confrontante continua atravessando o vértice inicial,
-        # agrupar a transição circular sem perder o marco de partida da cadeia.
-        if len(local) > 1 and local[0]["name"].casefold() == local[-1]["name"].casefold():
-            first, last = local[0], local.pop()
-            first["start"] = last["start"]
-            first["distance"] += last["distance"]
-            first["segments"] = last["segments"] + first["segments"]
+        # Preservar a sequência da planilha: o confrontante do primeiro
+        # e do último trecho pode ser o mesmo, mas ambos são trechos
+        # distintos no quadro de confrontações.
         groups.extend(local)
     return groups
 
 
 def grouped_label_positions(parcel):
-    """Índices dos segmentos mais centrais em cada confrontação contígua."""
-    labels = [str(v or "").strip() for v in parcel.confrontants]
-    if not labels:
-        return set()
-    starts = [i for i, label in enumerate(labels)
-              if label and label.casefold() != labels[(i-1) % len(labels)].casefold()]
-    if not starts:
-        return {len(labels)//2} if labels[0] else set()
-    result = set()
-    for j,start in enumerate(starts):
-        end = starts[(j+1) % len(starts)]
-        indices = []
-        i = start
-        while True:
-            indices.append(i)
-            i = (i+1) % len(labels)
-            if i == end:
-                break
-        result.add(indices[len(indices)//2])
-    return result
+    """Um rótulo central para cada sequência contígua na ordem original."""
+    labels=[str(v or "").strip() for v in parcel.confrontants]
+    positions=set()
+    i=0
+    while i<len(labels):
+        j=i+1
+        while j<len(labels) and labels[j].casefold()==labels[i].casefold():
+            j+=1
+        if labels[i]:
+            positions.add(i+(j-i)//2)
+        i=j
+    return positions
 
 
 def _font_names():
