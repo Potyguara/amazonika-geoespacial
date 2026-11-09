@@ -341,7 +341,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
             starting=parcel.segments[0]
             alt=parcel.altitudes[0]
             altpart=f" e Altitude: {_br_number(alt,2)} m" if alt is not None else ""
-            intro=(f"Inicia-se a descrição deste perímetro no vértice <b>{escape(starting['start'])}</b>, "
+            intro=(f"Inicia-se a descrição deste perímetro no vértice <font color='#186C52'><b>{escape(starting['start'])}</b></font>, "
                    f"de coordenadas (Longitude: {_dms(starting['lon'],'lon')}, "
                    f"Latitude: {_dms(starting['lat'],'lat')}{altpart}); linha ideal.")
             narrative(intro,space=13)
@@ -364,7 +364,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                      f"{_br_number(group['distance'],2)} m",
                      W-margin-8,y-15,6.6,"Helvetica-Bold","#FFFFFF",right=True)
                 y-=32
-                prose=(f"Deste, segue confrontando com <b>{escape(group['name'])}</b>, "
+                prose=(f"Deste, segue confrontando com <font color='#176746'><b>{escape(group['name'])}</b></font>, "
                        "com os seguintes azimutes e distâncias: ")
                 for segindex in group["segments"]:
                     seg=parcel.segments[segindex]
@@ -378,7 +378,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                             f"Latitude: {_dms(seg['next_lat'],'lat')}{altpart})")
                     prose+=(f"<b>{_azimuth_minutes(seg['azimuth'])} e "
                             f"{_br_number(seg['distance'],2)} m</b> até o vértice "
-                            f"<b>{escape(seg['end'])}</b>, {ending}; ")
+                            f"<font color='#186C52'><b>{escape(seg['end'])}</b></font>, {ending}; ")
                 narrative(prose.rstrip("; ")+("; linha ideal;" if idx<len(groups)-1 else "."),space=12)
             narrative(f"<b>ÁREA DESTA PARCELA:</b> {_br_number(parcel.area_ha,4)} ha · "
                       f"<b>PERÍMETRO:</b> {_br_number(parcel.perimeter,2)} m",space=10)
