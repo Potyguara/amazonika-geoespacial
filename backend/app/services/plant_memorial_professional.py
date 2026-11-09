@@ -351,9 +351,31 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
         # Manter revisão do usuário, eliminando somente prólogo padrão duplicado.
         source=_remove_redundant_auto_header(edited_memorial)
         confrontants=[name for p in parcels for name in p.confrontants]
-        for block in re.split(r"\n\s*\n",source):
-            text=" ".join(line.strip() for line in block.splitlines() if line.strip())
-            if text:
+        # A descrição editada mantém seu conteúdo, mas cada transição
+        # explícita de confrontante recebe a mesma faixa dos textos gerados.
+        chains=group_confrontations(parcels)
+        parts=re.split(
+            r"(?i)(?=deste,?\s+segue\s+confrontando\s+com\s+)",
+            source,
+        )
+        banner_number=0
+        for part in parts:
+            for block in re.split(r"\n\s*\n",part):
+                text=" ".join(line.strip() for line in block.splitlines()
+                              if line.strip())
+                if not text:
+                    continue
+                is_transition=re.match(
+                    r"(?i)^deste,?\s+segue\s+confrontando\s+com\s+",
+                    text,
+                )
+                if is_transition:
+                    for group in chains:
+                        prefix=text[is_transition.end():]
+                        if prefix.casefold().startswith(str(group["name"]).casefold()):
+                            banner_number+=1
+                            confrontation_banner(banner_number,group)
+                            break
                 narrative(_highlight_memorial_text(text,confrontants),space=10)
     else:
         for p_index,parcel in enumerate(parcels):
