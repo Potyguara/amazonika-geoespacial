@@ -267,41 +267,46 @@ def compass_rose(pdf,cx,cy,r,palette):
 def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=None):
     _box(pdf,rect,"QUADRO DE ASSINATURAS",palette)
     dark,pale,accent,_=palette
-    x=rect.x+15
-    width=rect.w-30
-    def signed_section(title,name,subtitle,y):
-        _text(pdf,title,x,y,size=6.6,bold=True,color=accent)
-        line_y=y-36
+    x=rect.x+13
+    width=rect.w-26
+    compact=rect.h<245
+    first=rect.top-42
+    second=rect.top-(105 if compact else 123)
+    def section(title,name,subtitle,y):
+        _text(pdf,title,x,y,size=6.2,bold=True,color=accent)
+        line_y=y-(25 if compact else 35)
         pdf.setStrokeColor(colors.HexColor("#526960"))
         pdf.line(x,line_y,x+width,line_y)
-        _text(pdf,name or "Não informado",x+2,line_y-14,size=8,bold=True,
-              color=dark,max_width=width-4)
+        _text(pdf,name or "Não informado",x+2,line_y-11,
+              size=7.1,bold=True,color=dark,max_width=width-4)
         if subtitle:
-            _text(pdf,subtitle,x+2,line_y-26,size=6.5,color="#687C71",
+            _text(pdf,subtitle,x+2,line_y-22,size=5.7,color="#687C71",
                   max_width=width-4)
-    signed_section("PROPRIETÁRIO / DETENTOR",owner,
-                   f"CPF/CNPJ: {owner_cpf}" if owner_cpf else "Documento não informado",
-                   rect.top-43)
-    prof_parts=[str(professional.get(k) or "").strip()
-                for k in ("profession","crea","visto","art")]
-    prof_label=" | ".join(v for v in prof_parts if v)
-    signed_section("RESPONSÁVEL TÉCNICO",professional.get("full_name"),
-                   prof_label or "Registro e ART não informados",
-                   rect.top-130)
-    box_y=rect.y+12
-    box_h=max(38,rect.h-235)
-    if box_y+box_h<rect.top-198:
-        pdf.setDash(4,3)
-        pdf.setStrokeColor(colors.HexColor("#308467"))
-        pdf.roundRect(x,box_y,width,box_h,6,stroke=1,fill=0)
-        pdf.setDash()
-        regular,bold,_=_font_names()
-        _text(pdf,"CARIMBO DO RESPONSÁVEL TÉCNICO",
-              x+12,box_y+box_h/2+4,size=6.3,bold=True,color="#308467",
-              max_width=width-24)
-        if date_text:
-            _text(pdf,"Elaborado em "+date_text,x+12,box_y+box_h/2-12,
-                  size=6.2,color="#687C71")
+    section("PROPRIETÁRIO / DETENTOR",owner,
+            f"CPF/CNPJ: {owner_cpf}" if owner_cpf else "Documento não informado",first)
+    details=[
+        ("Profissão",professional.get("profession")),
+        ("CREA/CAU",professional.get("crea")),
+        ("Visto",professional.get("visto")),
+        ("ART",professional.get("art")),
+    ]
+    prof_label=" | ".join(str(v).strip() for _,v in details if v)
+    section("RESPONSÁVEL TÉCNICO",professional.get("full_name"),
+            prof_label or "Registro e ART não informados",second)
+    if not compact:
+        box_y=rect.y+12
+        box_h=min(55,max(32,rect.h-213))
+        if box_y+box_h < second-64:
+            pdf.setDash(4,3)
+            pdf.setStrokeColor(colors.HexColor("#308467"))
+            pdf.roundRect(x,box_y,width,box_h,6,stroke=1,fill=0)
+            pdf.setDash()
+            _text(pdf,"CARIMBO DO RESPONSÁVEL TÉCNICO",
+                  x+12,box_y+box_h/2+3,size=6.1,bold=True,color="#308467",
+                  max_width=width-24)
+            if date_text:
+                _text(pdf,"Elaborado em "+date_text,x+12,box_y+box_h/2-11,
+                      size=6.0,color="#687C71")
 
 
 def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01/01"):
