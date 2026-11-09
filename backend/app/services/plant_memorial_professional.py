@@ -304,41 +304,26 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
 
     def confrontation_banner(number, group):
         nonlocal y
-        # O cabeçalho e a primeira linha do trecho devem permanecer juntos.
-        if y < 164:
+        # Nome completo: cabeçalho cresce conforme a quebra real de linhas.
+        name_para=_para(escape("Confrontante: "+str(group["name"])),
+                        size=8.4,leading=10.7,color="#FFFFFF",bold=True)
+        _,name_h=name_para.wrap(W-2*margin-79,300)
+        bar_h=max(43,name_h+29)
+        if y<bar_h+115:
             new_page()
-        bar_h=29
         pdf.setFillColor(_col(c["primary"]))
-        pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,5,fill=1,stroke=0)
+        pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,5,stroke=0,fill=1)
         pdf.setFillColor(_col(c["gold"]))
         pdf.rect(margin,y-bar_h,5,bar_h,stroke=0,fill=1)
-        pdf.setFillColor(_col(c["gold"]))
-        pdf.circle(margin+25,y-14,10,stroke=0,fill=1)
-        _str(pdf,str(number),margin+25,y-17,8,"Helvetica-Bold",
+        pdf.circle(margin+24,y-17,10,stroke=0,fill=1)
+        _str(pdf,str(number),margin+24,y-20,8,"Helvetica-Bold",
              c["primary"],center=True)
-        name=str(group["name"])
-        # Reserva trecho à direita; não elide o nome: o restante vai
-        # para segunda linha quando necessário.
-        descriptor=(f"{_short(group['start'])} → {_short(group['end'])} · "
-                    f"{_br_number(group['distance'],2)} m")
-        available=W-2*margin-205
-        name_para=_para(escape("Confrontante: "+name),size=8.1,
-                        leading=10.2,color="#FFFFFF",bold=True)
-        _,name_h=name_para.wrap(available,100)
-        if name_h>19:
-            # Uma segunda linha demanda aumento real da faixa.
-            pdf.setFillColor(_col(c["primary"]))
-            pdf.roundRect(margin,y-bar_h-14,W-2*margin,22,5,stroke=0,fill=1)
-            pdf.setFillColor(_col(c["gold"]))
-            pdf.rect(margin,y-bar_h-14,5,22,stroke=0,fill=1)
-            name_para.drawOn(pdf,margin+42,y-8-name_h)
-            y-=bar_h+14
-        else:
-            name_para.drawOn(pdf,margin+42,y-9-name_h)
-            y-=bar_h
-        _str(pdf,descriptor,W-margin-9,y+12,6.4,
+        name_para.drawOn(pdf,margin+42,y-10-name_h)
+        subtitle=(f"{_short(group['start'])} → {_short(group['end'])} · "
+                  f"{_br_number(group['distance'],2)} m")
+        _str(pdf,subtitle,W-margin-11,y-bar_h+9,7.0,
              "Helvetica-Bold","#FFFFFF",right=True)
-        y-=13
+        y-=bar_h+13
 
     def narrative(html,*,keep_min=18,space=7):
         nonlocal y
@@ -385,23 +370,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
             narrative(intro,space=13)
             groups=group_confrontations([parcel])
             for idx,group in enumerate(groups):
-                if y<160:new_page()
-                bar_h=23
-                pdf.setFillColor(_col(c["primary"]))
-                pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,3,stroke=0,fill=1)
-                pdf.setFillColor(_col(c["gold"]))
-                pdf.rect(margin,y-bar_h,4,bar_h,fill=1,stroke=0)
-                _str(pdf,str(idx+1),margin+15,y-15,8,"Helvetica-Bold","#FFFFFF")
-                group_title=f"Confrontante: {group['name']}"
-                limit=W-2*margin-185
-                while len(group_title)>6 and pdfmetrics.stringWidth(
-                        group_title,"Helvetica-Bold",7.2)>limit:
-                    group_title=group_title[:-2].rstrip()+"…"
-                _str(pdf,group_title,margin+32,y-15,7.2,"Helvetica-Bold","#FFFFFF")
-                _str(pdf,f"{_short(group['start'])} → {_short(group['end'])} · "
-                     f"{_br_number(group['distance'],2)} m",
-                     W-margin-8,y-15,6.6,"Helvetica-Bold","#FFFFFF",right=True)
-                y-=32
+                confrontation_banner(idx+1,group)
                 prose=(f"Deste, segue confrontando com <font color='#176746'><b>{escape(group['name'])}</b></font>, "
                        "com os seguintes azimutes e distâncias: ")
                 for segindex in group["segments"]:
