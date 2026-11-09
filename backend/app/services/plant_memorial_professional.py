@@ -287,55 +287,64 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
             new_page()
             pending=blocks[1]
 
-    for p_index,parcel in enumerate(parcels):
-        if p_index:
-            if y<120:new_page()
-            _str(pdf,f"POLÍGONO {p_index+1}",margin,y,8,"Helvetica-Bold",c["primary"])
-            y-=21
-        starting=parcel.segments[0]
-        alt=parcel.altitudes[0]
-        altpart=f" e Altitude: {_br_number(alt,2)} m" if alt is not None else ""
-        intro=(f"Inicia-se a descrição deste perímetro no vértice <b>{escape(starting['start'])}</b>, "
-               f"de coordenadas (Longitude: {_dms(starting['lon'],'lon')}, "
-               f"Latitude: {_dms(starting['lat'],'lat')}{altpart}); linha ideal.")
-        narrative(intro,space=13)
-        groups=group_confrontations([parcel])
-        for idx,group in enumerate(groups):
-            if y<160:new_page()
-            bar_h=23
-            pdf.setFillColor(_col(c["primary"]))
-            pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,3,stroke=0,fill=1)
-            pdf.setFillColor(_col(c["gold"]))
-            pdf.rect(margin,y-bar_h,4,bar_h,fill=1,stroke=0)
-            _str(pdf,str(idx+1),margin+15,y-15,8,"Helvetica-Bold","#FFFFFF")
-            group_title=f"Confrontante: {group['name']}"
-            _str(pdf,group_title[:64],margin+32,y-15,7.2,"Helvetica-Bold","#FFFFFF")
-            _str(pdf,f"{_short(group['start'])} → {_short(group['end'])} · "
-                 f"{_br_number(group['distance'],2)} m",
-                 W-margin-8,y-15,6.6,"Helvetica-Bold","#FFFFFF",right=True)
-            y-=32
-            prose=(f"Deste, segue confrontando com <b>{escape(group['name'])}</b>, "
-                   "com os seguintes azimutes e distâncias: ")
-            for segindex in group["segments"]:
-                seg=parcel.segments[segindex]
-                end_idx=(segindex+1)%len(parcel.points)
-                alt=parcel.altitudes[end_idx]
-                altpart=f" e Altitude: {_br_number(alt,2)} m" if alt is not None else ""
-                close=end_idx==0
-                ending=("ponto inicial da descrição deste perímetro."
-                        if close else
-                        f"(Longitude: {_dms(seg['next_lon'],'lon')}, "
-                        f"Latitude: {_dms(seg['next_lat'],'lat')}{altpart})")
-                prose+=(f"<b>{_azimuth_minutes(seg['azimuth'])} e "
-                        f"{_br_number(seg['distance'],2)} m</b> até o vértice "
-                        f"<b>{escape(seg['end'])}</b>, {ending}; ")
-            narrative(prose.rstrip("; ")+("; linha ideal;" if idx<len(groups)-1 else "."),space=12)
-        narrative(f"<b>ÁREA DESTA PARCELA:</b> {_br_number(parcel.area_ha,4)} ha · "
-                  f"<b>PERÍMETRO:</b> {_br_number(parcel.perimeter,2)} m",space=10)
-    narrative("Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
-              "geodésicos calculados sobre o elipsóide GRS80. A precisão depende "
-              "da fonte da geometria; esta emissão não constitui certificação fundiária.",
-              space=13)
+    if edited_memorial is not None:
+        # Aplicar o mesmo template A/B/C ao texto aprovado pelo usuário.
+        # Conteúdo textual preservado, sem gerar novo texto automaticamente.
+        for line in edited_memorial.splitlines():
+            if line.strip():
+                narrative(escape(line),space=4)
+            else:
+                y-=5
+    else:
+        for p_index,parcel in enumerate(parcels):
+            if p_index:
+                if y<120:new_page()
+                _str(pdf,f"POLÍGONO {p_index+1}",margin,y,8,"Helvetica-Bold",c["primary"])
+                y-=21
+            starting=parcel.segments[0]
+            alt=parcel.altitudes[0]
+            altpart=f" e Altitude: {_br_number(alt,2)} m" if alt is not None else ""
+            intro=(f"Inicia-se a descrição deste perímetro no vértice <b>{escape(starting['start'])}</b>, "
+                   f"de coordenadas (Longitude: {_dms(starting['lon'],'lon')}, "
+                   f"Latitude: {_dms(starting['lat'],'lat')}{altpart}); linha ideal.")
+            narrative(intro,space=13)
+            groups=group_confrontations([parcel])
+            for idx,group in enumerate(groups):
+                if y<160:new_page()
+                bar_h=23
+                pdf.setFillColor(_col(c["primary"]))
+                pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,3,stroke=0,fill=1)
+                pdf.setFillColor(_col(c["gold"]))
+                pdf.rect(margin,y-bar_h,4,bar_h,fill=1,stroke=0)
+                _str(pdf,str(idx+1),margin+15,y-15,8,"Helvetica-Bold","#FFFFFF")
+                group_title=f"Confrontante: {group['name']}"
+                _str(pdf,group_title[:64],margin+32,y-15,7.2,"Helvetica-Bold","#FFFFFF")
+                _str(pdf,f"{_short(group['start'])} → {_short(group['end'])} · "
+                     f"{_br_number(group['distance'],2)} m",
+                     W-margin-8,y-15,6.6,"Helvetica-Bold","#FFFFFF",right=True)
+                y-=32
+                prose=(f"Deste, segue confrontando com <b>{escape(group['name'])}</b>, "
+                       "com os seguintes azimutes e distâncias: ")
+                for segindex in group["segments"]:
+                    seg=parcel.segments[segindex]
+                    end_idx=(segindex+1)%len(parcel.points)
+                    alt=parcel.altitudes[end_idx]
+                    altpart=f" e Altitude: {_br_number(alt,2)} m" if alt is not None else ""
+                    close=end_idx==0
+                    ending=("ponto inicial da descrição deste perímetro."
+                            if close else
+                            f"(Longitude: {_dms(seg['next_lon'],'lon')}, "
+                            f"Latitude: {_dms(seg['next_lat'],'lat')}{altpart})")
+                    prose+=(f"<b>{_azimuth_minutes(seg['azimuth'])} e "
+                            f"{_br_number(seg['distance'],2)} m</b> até o vértice "
+                            f"<b>{escape(seg['end'])}</b>, {ending}; ")
+                narrative(prose.rstrip("; ")+("; linha ideal;" if idx<len(groups)-1 else "."),space=12)
+            narrative(f"<b>ÁREA DESTA PARCELA:</b> {_br_number(parcel.area_ha,4)} ha · "
+                      f"<b>PERÍMETRO:</b> {_br_number(parcel.perimeter,2)} m",space=10)
+        narrative("Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
+                  "geodésicos calculados sobre o elipsóide GRS80. A precisão depende "
+                  "da fonte da geometria; esta emissão não constitui certificação fundiária.",
+                  space=13)
     if y<225:
         new_page()
     _str(pdf,f"{address or 'Local não informado'}, "
