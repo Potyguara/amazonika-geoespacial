@@ -635,11 +635,22 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             magnetic_declination_degrees=magnetic_declination_degrees,
         )
         printer.showPage()
-        _memorial_pdf(
-            printer, parcels, title, owner_name, owner_rg, owner_cpf,
-            property_address, memorial_heading, professional, croqui, stamp,
-            edited_memorial, property_metadata=property_metadata,
-        )
+        if edited_memorial is not None:
+            # Redação editada pelo responsável permanece intocada.
+            _memorial_pdf(
+                printer, parcels, title, owner_name, owner_rg, owner_cpf,
+                property_address, memorial_heading, professional, croqui, stamp,
+                edited_memorial, property_metadata=property_metadata,
+            )
+        else:
+            from app.services.plant_memorial_professional import render_memorial_professional
+            render_memorial_professional(
+                printer, parcels=parcels, template=layout_template,
+                title=title, owner=owner_name, owner_rg=owner_rg,
+                owner_cpf=owner_cpf, address=property_address,
+                professional=professional, property_metadata=property_metadata,
+                survey_date=reference_dt, stamp=stamp, croqui=croqui,
+            )
         printer.save()
         return buffer.getvalue(), (paper_format or "A2").upper(), selected_scale
 
