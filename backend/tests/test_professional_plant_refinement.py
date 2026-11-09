@@ -28,6 +28,19 @@ class ProfessionalRefinementTests(unittest.TestCase):
         self.assertGreater(h, 350)
         self.assertLess(h, 460)
 
+    def test_a2_bottom_table_holds_all_61_vertices_readably(self):
+        output = io.BytesIO()
+        pdf = Canvas(output, pagesize=A2)
+        rows = synthetic_rows(61)
+        h = _table_height(61, 2, font_size=7.0)
+        self.assertLess(h, 475)
+        visible = _table(
+            pdf, Rect(33, 54, A2[0]-66, h),
+            rows, PALETTES["classic_lateral"], columns=2, font_size=7.0,
+        )
+        self.assertEqual(visible, 61)
+        pdf.save()
+
     def test_two_columns_do_not_duplicate_or_skip_rows(self):
         output = io.BytesIO()
         pdf = Canvas(output, pagesize=A2)
