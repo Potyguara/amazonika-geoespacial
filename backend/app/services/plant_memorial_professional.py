@@ -329,7 +329,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                 prose+=(f"<b>{_azimuth_minutes(seg['azimuth'])} e "
                         f"{_br_number(seg['distance'],2)} m</b> até o vértice "
                         f"<b>{escape(seg['end'])}</b>, {ending}; ")
-            narrative(prose.rstrip("; ")+".",space=12)
+            narrative(prose.rstrip("; ")+("; linha ideal;" if idx<len(groups)-1 else "."),space=12)
         narrative(f"<b>ÁREA DESTA PARCELA:</b> {_br_number(parcel.area_ha,4)} ha · "
                   f"<b>PERÍMETRO:</b> {_br_number(parcel.perimeter,2)} m",space=10)
     narrative("Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
