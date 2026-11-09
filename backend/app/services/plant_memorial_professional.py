@@ -400,11 +400,12 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
         prepared=[]
         for value,bold_text in [(name,True),*[(entry,False) for entry in details]]:
             item=_para(escape(value),size=7.0 if bold_text else 6.4,
-                       leading=9.1 if bold_text else 8.8,color=c["dark"],
+                       leading=9.6 if bold_text else 9.0,color=c["dark"],
                        bold=bold_text)
+            item.style.alignment=TA_CENTER
             _,height=item.wrap(signature_width-8,800)
             prepared.append((item,height))
-        block_height=13+40+sum(h+3 for _,h in prepared)+12
+        block_height=13+40+sum(h+7 for _,h in prepared)+12
         return title,prepared,block_height
     owner_details=[
         f"CPF/CNPJ: {owner_cpf}" if owner_cpf else "CPF/CNPJ não informado",
@@ -436,13 +437,14 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                  size=7.2,leading=9.1,color=c["dark"])+17
     for i,(label,items,_) in enumerate(signatures):
         xx=margin+i*(signature_width+18)
-        _str(pdf,label,xx,y,6.7,"Helvetica-Bold",c["gold"])
-        line_y=y-40
+        _str(pdf,label,xx+signature_width/2,y,6.7,"Helvetica-Bold",
+             c["gold"],center=True)
+        line_y=y-45
         pdf.setStrokeColor(_col(c["primary"]))
         pdf.line(xx,line_y,xx+signature_width,line_y)
         current=line_y-14
         for paragraph,height in items:
-            paragraph.drawOn(pdf,xx+3,current-height)
-            current-=height+4
+            paragraph.drawOn(pdf,xx+4,current-height)
+            current-=height+7
     # Reservar altura até o maior bloco de qualificações para o rodapé.
     footer()
