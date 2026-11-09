@@ -456,13 +456,30 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
     def paragraph(text,bold=False,space=4):
         nonlocal y
         raw=escape(text)
-        if bold:raw=f"<b>{raw}</b>"
-        p=Paragraph(raw,body)
-        _,height=p.wrap(w-2*margin,2000)
-        if y-height-space < 91:
+        if bold:
+            raw=f"<b>{raw}</b>"
+        pending=Paragraph(raw,body)
+        page_width=w-2*margin
+        while True:
+            available=y-91-space
+            if available < body.leading*2:
+                next_page()
+                available=y-91-space
+            pieces=pending.split(page_width,available)
+            if not pieces:
+                if abs(y-(h-93))<1:
+                    raise ValueError("Trecho do memorial excede a área imprimível.")
+                next_page()
+                continue
+            first=pieces[0]
+            _,height=first.wrap(page_width,available)
+            first.drawOn(pdf,margin,y-height)
+            y-=height
+            if len(pieces)==1:
+                y-=space
+                break
             next_page()
-        p.drawOn(pdf,margin,y-height)
-        y-=height+space
+            pending=pieces[1]
     # Texto aprovado pelo usuário tem precedência sobre a versão automática.
     # A edição não altera cálculos geométricos ou o carimbo da primeira folha.
     if edited_memorial is not None:
@@ -776,6 +793,25 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             raise ValueError("A observação de croqui não cabe no rodapé deste formato.")
         warning.drawOn(pdf,38,40-warning_height)
     pdf.showPage()
+    if layout_template == 'inferior' and enabled('coordinates') and count > 12:
+        row_h = 13 if fmt in ('A4', 'A3') else 14
+        max_rows = max(1, int((h - 145 - 30) / row_h))
+        for first in range(12, count, max_rows):
+            last = min(count, first + max_rows)
+            subset = last - first
+            pdf.setPageSize((w, h))
+            pdf.setStrokeColor(DARK)
+            pdf.rect(23, 23, w-46, h-46, fill=0, stroke=1)
+            pdf.setFont('Helvetica-Bold', 11)
+            pdf.setFillColor(GREEN)
+            pdf.drawString(38, h-44, f'QUADRO DE COORDENADAS — {title[:65]}')
+            pdf.setFont('Helvetica', 7)
+            pdf.setFillColor(DARK)
+            pdf.drawString(38, h-59, f'Continuação: vértices {first+1} a {last} de {count}')
+            table_height = 23 + (subset+1)*row_h + 7
+            _coordinates_table(pdf, (38, h-90-table_height, w-76, table_height),
+                               parcels, transformer, 7.0, row_start=first, row_end=last)
+            pdf.showPage()
     _memorial_pdf(
         pdf,parcels,title,owner_name,owner_rg,owner_cpf,property_address,
         memorial_heading,professional,croqui,stamp,edited_memorial,
