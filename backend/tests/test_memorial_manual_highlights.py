@@ -7,6 +7,7 @@ from pypdf import PdfReader
 
 from app.services.plant_memorial_professional import (
     _para, _highlight_memorial_text, _remove_redundant_auto_header,
+    _without_legacy_signature,
 )
 from app.services.plant_detail_elements import grouped_label_positions
 
@@ -20,6 +21,21 @@ class MemorialManualRegressionTests(unittest.TestCase):
         self.assertIn("<b>Ramal São Benedito do Aporema</b>",marked)
         self.assertIn("<b>EQGV-M-0305</b>",marked)
         self.assertTrue(_para(marked,justify=True).style.alignment==4)
+
+    def test_legacy_footer_is_not_duplicated(self):
+        old=("A descrição termina no vértice inicial.\n"
+             "________________________________________\n"
+             "RESPONSÁVEL DE TESTE Engenheiro Agrimensor Registro.")
+        cleaned=_without_legacy_signature(
+            old,{"full_name":"RESPONSÁVEL DE TESTE"}
+        )
+        self.assertEqual(cleaned,"A descrição termina no vértice inicial.")
+        manual="Texto revisado com assinatura particular."
+        self.assertEqual(
+            _without_legacy_signature(
+                manual,{"full_name":"RESPONSÁVEL DE TESTE"}),
+            manual,
+        )
 
     def test_untrusted_markup_remains_escaped(self):
         marked=_highlight_memorial_text(
