@@ -337,9 +337,37 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
     # antes de posicionar os rótulos.
     label_layout = LabelLayout((actual.x+21, actual.y+24,
                                 actual.w-42, actual.h-48))
-    rose_x,rose_y=actual.x+67,actual.y+104
+    from shapely.geometry import Polygon as ShapelyPolygon, box as shape_box
+    geometries=[
+        ShapelyPolygon([xy(*transformer.transform(*pos)) for pos in p.points])
+        for p in parcels
+    ]
+    def furniture_free(rect):
+        shape=shape_box(rect.x,rect.y,rect.x+rect.w,rect.y+rect.h)
+        return not any(geom.intersects(shape) for geom in geometries)
+    # Escolher quadrante livre da geometria. Manter distância do bordo UTM.
+    rose_candidates=[
+        (actual.x+68,actual.y+103),
+        (actual.x+68,actual.top-85),
+        (actual.x+actual.w-72,actual.y+103),
+    ]
+    rose_x,rose_y=next(
+        ((x,y) for x,y in rose_candidates
+         if furniture_free(Box(x-52,y-52,104,104))),
+        rose_candidates[0],
+    )
     rose_rect=Box(rose_x-52,rose_y-52,104,104)
-    scale_rect=Rect(actual.x+actual.w-220,actual.top-150,208,138)
+    scale_candidates=[
+        Rect(actual.x+actual.w-220,actual.top-150,208,138),
+        Rect(actual.x+actual.w-220,actual.y+20,208,138),
+        Rect(actual.x+20,actual.top-150,208,138),
+    ]
+    scale_rect=next(
+        (rect for rect in scale_candidates
+         if furniture_free(rect)
+         and not Box(rect.x,rect.y,rect.w,rect.h).intersects(rose_rect,3)),
+        scale_candidates[0],
+    )
     if elements.get("north",True):
         label_layout.reserved.append(rose_rect)
     if elements.get("scale_text",True) or elements.get("scale_bar",True):
@@ -381,6 +409,8 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
                 )
     regular, bold, _ = _fonts()
     if elements.get("north", True):
+        pdf.setFillColor(colors.white)
+        pdf.circle(rose_x,rose_y,53,fill=1,stroke=0)
         compass_rose(pdf,rose_x,rose_y,36,palette)
     # Escala numérica e gráfica reunidas no mesmo quadro técnico.
     if elements.get("scale_text", True) or elements.get("scale_bar", True):
