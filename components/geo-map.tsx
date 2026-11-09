@@ -2033,7 +2033,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         const geometry = feature.getGeometry();
         if (geometry instanceof MultiPolygon) {
           for (const coords of geometry.getCoordinates()) {
-            separate.push(new Feature({ geometry: new Polygon(coords) }));
+            separate.push(new Feature({ ...feature.getProperties(), geometry: new Polygon(coords) }));
           }
         } else {
           separate.push(feature);
