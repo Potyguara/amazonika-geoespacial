@@ -398,8 +398,7 @@ def _heading(pdf, title, place, paper_format, scale, w, h, palette, model):
         pdf.rect(24, h-103, w-48, 3, fill=1, stroke=0)
         _text(pdf, "PLANTA GEORREFERENCIADA", 34, h-48, 9, bold, dark)
         _text(pdf, title.upper(), 34, h-87, 23, bold, dark, w*.65)
-    _text(pdf, place or "Localização não informada", w-310, h-48,
-          7.0, regular, "#FFFFFF" if model!="modern_lateral" else dark, 270)
+    # Dados cartográficos detalhados são desenhados após o cálculo de escala.
 
 
 def _footer(pdf, w, stamp, disclaimer, palette):
@@ -434,6 +433,7 @@ def render_professional_plant(
     property_address, professional, raster, raster_source,
     paper_format, orientation, scale_denominator, plant_elements,
     stamp, croqui, disclaimer, layout_template, property_metadata,
+    survey_date=None, magnetic_declination_degrees=None,
 ):
     """Desenha a planta e suas folhas de coordenadas; não chama showPage final.
 
@@ -463,6 +463,8 @@ def render_professional_plant(
         f"+proj=utm +zone={zone} {'+south' if hemi=='S' else ''} "
         "+ellps=GRS80 +units=m +no_defs")
     transformer=Transformer.from_crs("EPSG:4674",crs,always_xy=True)
+    from pyproj import Proj
+    convergence=Proj(crs).get_factors(mid_lon,mid_lat).meridian_convergence
     rows=_rows(parcels,transformer)
     elements=plant_elements or {}
     if elements.get("situation", True) and raster is None:
@@ -482,10 +484,12 @@ def render_professional_plant(
         _image_card(pdf,Rect(sidebar_x,t-460,sidebar_w,222),
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        _neighbors_card(pdf,Rect(sidebar_x,t-645,sidebar_w,172),parcels,palette)
-        _legend_card(pdf,Rect(sidebar_x,t-800,sidebar_w,143),palette)
-        _signature_card(pdf,Rect(sidebar_x,t-1040,sidebar_w,227),
-                        owner_name,professional,palette)
+        confrontations_card(pdf,Rect(sidebar_x,t-645,sidebar_w,172),parcels,palette)
+        reference_card(pdf,Rect(sidebar_x,t-800,sidebar_w,143),zone,hemi,
+                       convergence=convergence,declination=magnetic_declination_degrees,
+                       palette=palette)
+        signature_card(pdf,Rect(sidebar_x,t-1040,sidebar_w,227),
+                       owner_name,owner_cpf,professional,palette,date_text=survey_date)
         summary_y=max(410,t-1125)
         if summary_y+75 < t-1040:
             _summary_card(pdf,Rect(sidebar_x,summary_y,sidebar_w,75),parcels,palette)
@@ -513,9 +517,12 @@ def render_professional_plant(
         _image_card(pdf,cards[1][1],
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        _neighbors_card(pdf,cards[2][1],parcels,palette)
-        _legend_card(pdf,cards[3][1],palette)
-        _signature_card(pdf,cards[4][1],owner_name,professional,palette)
+        confrontations_card(pdf,cards[2][1],parcels,palette)
+        reference_card(pdf,cards[3][1],zone,hemi,
+                       convergence=convergence,declination=magnetic_declination_degrees,
+                       palette=palette)
+        signature_card(pdf,cards[4][1],owner_name,owner_cpf,professional,palette,
+                       date_text=survey_date)
         # Quadro adaptativo conforme a quantidade efetiva de vértices.
         first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
 
@@ -533,15 +540,19 @@ def render_professional_plant(
         _image_card(pdf,Rect(left.x+half+12,242,half,188),
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        _neighbors_card(pdf,Rect(left.x,58,half,172),parcels,palette)
-        _signature_card(pdf,Rect(left.x+half+12,58,half,172),
-                        owner_name,professional,palette)
+        confrontations_card(pdf,Rect(left.x,58,half,172),parcels,palette)
+        signature_card(pdf,Rect(left.x+half+12,58,half,172),
+                       owner_name,owner_cpf,professional,palette,date_text=survey_date)
         _summary_card(pdf,Rect(right.x,290,right.w,135),parcels,palette)
-        _legend_card(pdf,Rect(right.x,135,right.w,140),palette)
+        reference_card(pdf,Rect(right.x,135,right.w,140),zone,hemi,
+                       convergence=convergence,declination=magnetic_declination_degrees,
+                       palette=palette)
+        header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette)
         _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
         _continuation(pdf,rows,first,w,h,title,stamp,palette)
         return w,h,map_scale
 
+    header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette)
     _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
     _continuation(pdf,rows,first,w,h,title,stamp,palette)
     return w,h,map_scale
