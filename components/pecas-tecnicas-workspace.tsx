@@ -46,6 +46,7 @@ export type PecasPolygon = {
   vertices: string[];
   confrontants: string[];
   altitudes: string[];
+  vertexDetails?: Array<Record<string, unknown>>;
   areaHa: number;
   perimeterM: number;
 };
@@ -71,6 +72,7 @@ type Props = {
   data: PecasData;
   onDataChange: (key: keyof PecasData, value: string | boolean) => void;
   polygons: PecasPolygon[];
+  importedMetadata?: Record<string, string> | null;
   selectedIds: string[];
   rasterKey: string;
   onSelect: (id: string, checked: boolean) => void;
@@ -123,7 +125,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function PecasTecnicasWorkspace({
-  open, onClose, data, onDataChange, polygons, selectedIds, rasterKey, onSelect,
+  open, onClose, data, onDataChange, polygons, importedMetadata, selectedIds, rasterKey, onSelect,
   onRenamePolygon, onRenameVertex, onConfrontant, memorialText,
   memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
@@ -286,6 +288,16 @@ export function PecasTecnicasWorkspace({
             <div className="pecas-card">
               <h3>1. Identificação do imóvel</h3>
               <p>As informações abaixo compõem a planta e o memorial. As correções do responsável técnico valem somente para esta peça.</p>
+              {importedMetadata?.source === "SIGEF_ODS" && (
+                <div className="pecas-card" aria-label="Dados preservados da planilha SIGEF">
+                  <h4>Identificação SIGEF importada</h4>
+                  <dl>
+                    {([["Situação jurídica", "legal_status"], ["Natureza da área", "area_nature"], ["Natureza do serviço", "service_nature"], ["Tipo de pessoa", "person_type"], ["Município", "municipality"], ["SNCR/INCRA", "sncr"], ["Cartório/CNS", "cns"], ["Matrícula", "registration"], ["Sistema geodésico", "reference_system"]] as const).map(([label, key]) => (
+                      <div key={key}><dt>{label}</dt><dd>{importedMetadata[key] || "Não informado na planilha"}</dd></div>
+                    ))}
+                  </dl>
+                </div>
+              )}
               <div className="pecas-form-grid">
                 {field("Denominação do imóvel ou lote", "title", "Ex.: Fazenda Boa Vista")}
                 {field("Nome completo do detentor / posseiro", "owner")}
@@ -357,7 +369,7 @@ export function PecasTecnicasWorkspace({
                 {selectedIds.includes(polygon.id) && (
                   <div className="pecas-table-wrap">
                     <table className="pecas-table">
-                      <thead><tr><th>#</th><th>Nome do vértice</th><th>Confrontante do segmento</th></tr></thead>
+                      <thead><tr><th>#</th><th>Nome do vértice</th><th>Confrontante do segmento</th><th>Altitude elipsoidal (m)</th><th>Método</th><th>Tipo limite</th></tr></thead>
                       <tbody>
                         {polygon.vertices.map((name, index) => (
                           <tr key={index}>
@@ -367,6 +379,9 @@ export function PecasTecnicasWorkspace({
                             <td><input aria-label={`Confrontante do segmento ${index + 1}`}
                               value={polygon.confrontants[index] ?? ""}
                               onChange={(e) => onConfrontant(polygon.id, index, e.target.value)} /></td>
+                            <td>{polygon.altitudes[index] ?? "—"}</td>
+                            <td>{String(polygon.vertexDetails?.[index]?.positioning_method ?? "—")}</td>
+                            <td>{String(polygon.vertexDetails?.[index]?.boundary_type ?? "—")}</td>
                           </tr>
                         ))}
                       </tbody>
