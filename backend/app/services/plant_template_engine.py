@@ -476,7 +476,9 @@ def render_professional_plant(
     _heading(pdf,title,property_address,paper_format,scale_denominator,w,h,palette,layout_template)
 
     if layout_template=="classic_lateral":
-        map_box=Rect(33,415,w*.687-36,h-535)
+        bottom_h=min(475, _table_height(len(rows),2,font_size=7.0))
+        map_floor=54+bottom_h+25
+        map_box=Rect(33,map_floor,w*.687-36,h-120-map_floor)
         sidebar_x=map_box.x+map_box.w+14
         sidebar_w=w-sidebar_x-33
         map_scale=_map(pdf,map_box,parcels,transformer,zone,hemi,
@@ -493,11 +495,14 @@ def render_professional_plant(
         summary_y=max(410,t-1125)
         if summary_y+75 < t-1040:
             _summary_card(pdf,Rect(sidebar_x,summary_y,sidebar_w,75),parcels,palette)
-        bottom_h=min(335, _table_height(len(rows),2,font_size=7.0))
+        # 61 vértices em A2: tabela ampla, sem reduzir para fonte microscópica.
+        # Aumentar o quadro desloca o rodapé do mapa, não sua borda superior.
         first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
 
     elif layout_template=="cartographic_frame":
-        frame=Rect(33,418,w-66,h-536)
+        bottom_h=min(475, _table_height(len(rows),2,font_size=7.0))
+        map_floor=54+bottom_h+25
+        frame=Rect(33,map_floor,w-66,h-118-map_floor)
         # Painéis sobrepostos à moldura, respeitando uma faixa segura
         # para que a geometria permaneça inteiramente visível.
         map_scale=_map(pdf,frame,parcels,transformer,zone,hemi,
@@ -517,7 +522,7 @@ def render_professional_plant(
         _neighbors_card(pdf,cards[2][1],parcels,palette)
         _legend_card(pdf,cards[3][1],palette)
         _signature_card(pdf,cards[4][1],owner_name,professional,palette)
-        bottom_h=min(340, _table_height(len(rows),2,font_size=7.0))
+        # Quadro adaptativo conforme a quantidade efetiva de vértices.
         first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
 
     else:  # modern_lateral
