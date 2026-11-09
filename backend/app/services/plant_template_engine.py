@@ -485,7 +485,7 @@ def _footer(pdf, w, stamp, disclaimer, palette):
     _text(pdf, stamp, 29, 19, 5.7, regular, palette[0], w-55)
 
 
-def _continuation(pdf, rows, start, w, h, title, stamp, palette):
+def _continuation(pdf, rows, start, w, h, title, stamp, palette, model):
     remaining = rows[start:]
     if not remaining:
         return
@@ -494,7 +494,7 @@ def _continuation(pdf, rows, start, w, h, title, stamp, palette):
         pdf.showPage()
         pdf.setPageSize((w, h))
         _heading(pdf, title, "Continuação do quadro de coordenadas", "",
-                 None, w, h, palette, "modern_lateral")
+                 None, w, h, palette, model)
         written = _table(pdf, rect, remaining, palette,
                          columns=2 if w>1100 else 1, font_size=6.4 if w<650 else 7.0)
         if written <= 0:
@@ -603,7 +603,7 @@ def render_professional_plant(
                        columns=2 if w>1100 else 1,
                        font_size=6.4 if w<650 else 7.0)
         _footer(pdf,w,stamp,None,palette)
-        _continuation(pdf,rows,written,w,h,title,stamp,palette)
+        _continuation(pdf,rows,written,w,h,title,stamp,palette,layout_template)
         return w,h,map_scale
 
     if orientation=="paisagem":
@@ -644,7 +644,7 @@ def render_professional_plant(
         header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette,
                          dark_text=(layout_template=="modern_lateral"))
         _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
-        _continuation(pdf,rows,0,w,h,title,stamp,palette)
+        _continuation(pdf,rows,0,w,h,title,stamp,palette,layout_template)
         return w,h,map_scale
 
     if layout_template=="classic_lateral":
@@ -734,10 +734,10 @@ def render_professional_plant(
                        palette=palette)
         header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette,dark_text=True)
         _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
-        _continuation(pdf,rows,first,w,h,title,stamp,palette)
+        _continuation(pdf,rows,first,w,h,title,stamp,palette,layout_template)
         return w,h,map_scale
 
     header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette)
     _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
-    _continuation(pdf,rows,first,w,h,title,stamp,palette)
+    _continuation(pdf,rows,first,w,h,title,stamp,palette,layout_template)
     return w,h,map_scale
