@@ -61,6 +61,28 @@ class SigefSelectionTests(unittest.TestCase):
         self.assertEqual(params["FEATUREID"],["sigef_geo.10983"])
         self.assertTrue(db.closed)
 
+    def test_real_feature_id_multipolygon_is_preserved(self):
+        # Identificador e tipo geométrico confirmados na consulta à VPS.
+        geom={
+            "type":"MultiPolygon",
+            "coordinates":[[[[-51.0, 1.0],[-50.9, 1.0],
+                             [-50.9, 1.1],[-51.0, 1.0]]]],
+        }
+        opener=Opener([{
+            "type":"FeatureCollection",
+            "features":[{"type":"Feature","id":"sigef_geo.288728",
+                         "geometry":geom,"properties":{}}],
+        }])
+        with patch.object(sources,"build_opener",return_value=opener):
+            response=sources.sigef_selected_geometry(
+                uuid4(),feature_id="sigef_geo.288728",
+                parcel_code="",db=FakeDB(),
+            )
+        self.assertEqual(response["geometry"],geom)
+        args=parse_qs(urlsplit(opener.urls[0]).query)
+        self.assertEqual(args["FEATUREID"],["sigef_geo.288728"])
+        self.assertEqual(args["SRSNAME"],["EPSG:4326"])
+
     def test_fallback_on_parcel_uuid_if_featureid_has_no_geometry(self):
         parcel="8a070fa2-0261-4141-892c-30d03169a45e"
         geometry={"type":"Polygon","coordinates":[[[-51,1],[-50.9,1],[-51,1]]]}
