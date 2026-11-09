@@ -92,6 +92,32 @@ class AllFormatsAcceptanceTest(unittest.TestCase):
                         self.assertIn("DESCRIÇÃO DO PERÍMETRO",text)
                         self.assertIn("EQGV-M-001",text)
 
+    def test_edited_memorial_receives_confrontant_banners_and_signatures(self):
+        from app.services.plant_memorial_v3 import make_joint_pdf
+        text=(
+            "Inicia-se a descrição do perímetro no vértice EQGV-M-001; "
+            "linha ideal; deste, segue confrontando com Via pública "
+            "até o vértice EQGV-V-002; linha ideal; "
+            "deste, segue confrontando com Imóvel A até EQGV-V-003."
+        )
+        data,paper,scale=make_joint_pdf(
+            parcels=small_property(),title="LOTE PEQUENO",
+            owner_name="DETENTOR DE TESTE",owner_cpf="000.000.000-00",
+            responsible_name="RESPONSÁVEL DE TESTE",
+            professional={"full_name":"RESPONSÁVEL DE TESTE",
+                          "profession":"Engenheiro Florestal",
+                          "crea":"123456","art":"ART TESTE"},
+            croqui=False,raster_b64=None,raster_source=None,
+            paper_format="A4",orientation="paisagem",
+            layout_template="classic_lateral",plant_elements=FLAGS,
+            edited_memorial=text,
+        )
+        pages=PdfReader(io.BytesIO(data)).pages
+        all_text="\\n".join(p.extract_text() for p in pages)
+        self.assertIn("Confrontante: Via pública",all_text)
+        self.assertIn("Confrontante: Imóvel A",all_text)
+        self.assertIn("RESPONSÁVEL DE TESTE",all_text)
+
     def test_61_vertices_all_models_on_a3_a4(self):
         for paper in ("A3","A4"):
             for orientation in ("retrato","paisagem"):
