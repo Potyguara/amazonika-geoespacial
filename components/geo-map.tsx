@@ -140,6 +140,12 @@ function featureIdentity(feature: Feature) {
   const title = String(
     raw.name ??
       raw.nome ??
+      raw.nome_imovel ??
+      raw.nome_parcela ??
+      raw.denominacao_imovel ??
+      raw.codigo_parcela ??
+      raw.codigo_imovel ??
+      raw.codigo_sigef ??
       raw.nome_uc ??
       raw.nome_proje ??
       raw.nom_pessoa ??
@@ -1437,7 +1443,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             if (!response.ok) {
               throw new Error(`Serviço SIGEF indisponível (HTTP ${response.status}).`);
             }
-            const body = await response.json();
+            const body = await response.json().catch(() => {
+              throw new Error(
+                "O WMS SIGEF não retornou JSON; verifique a disponibilidade do GetFeatureInfo oficial.",
+              );
+            });
             if (controller.signal.aborted) return;
             if (body?.type !== "FeatureCollection" ||
                 !Array.isArray(body.features)) {
