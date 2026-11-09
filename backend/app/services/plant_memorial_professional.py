@@ -54,6 +54,40 @@ def _para(text,size=8,leading=11,color="#34483D",bold=False,justify=False):
     return Paragraph(text,style)
 
 
+def _remove_redundant_auto_header(value):
+    """Remove só o prólogo gerado que já foi impresso no quadro cadastral."""
+    lines=value.strip().splitlines()
+    if not lines or lines[0].strip().upper()!="MEMORIAL DESCRITIVO":
+        return value.strip()
+    for i,line in enumerate(lines):
+        if line.strip().upper().startswith("DESCRIÇÃO DO PERÍMETRO - "):
+            remainder="\n".join(lines[i+1:]).strip()
+            if remainder.lower().startswith("inicia-se a descrição"):
+                return remainder
+    return value.strip()
+
+
+def _highlight_memorial_text(value,confrontants):
+    """Confrontantes e vértices com destaque, sem aceitar HTML bruto."""
+    source=escape(value)
+    patterns=[(escape(name), "#176746") for name in
+              sorted({n.strip() for n in confrontants if n.strip()},
+                     key=len,reverse=True)]
+    patterns.append((None,"#186C52"))
+    tokens=[]
+    for name,color in patterns:
+        regex=(re.compile(re.escape(name),re.I) if name else
+               re.compile(r"(?<![\w-])(?:[A-Z0-9]+-)?[MV]-\d{2,6}(?![\w-])",re.I))
+        def mark(match):
+            token=f"@@HL{len(tokens)}@@"
+            tokens.append(f'<font color="{color}"><b>{match.group(0)}</b></font>')
+            return token
+        source=regex.sub(mark,source)
+    for i,value in enumerate(tokens):
+        source=source.replace(f"@@HL{i}@@",value)
+    return source
+
+
 def _fit_para(pdf,text,x,top,width,*,size=7.2,leading=10,color="#273A30",bold=False):
     item=_para(escape(str(text)),size=size,leading=leading,color=color,bold=bold)
     _,height=item.wrap(width,1000)
@@ -291,13 +325,13 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
             pending=blocks[1]
 
     if edited_memorial is not None and edited_memorial.strip():
-        # Aplicar o mesmo template A/B/C ao texto aprovado pelo usuário.
-        # Conteúdo textual preservado, sem gerar novo texto automaticamente.
-        for line in edited_memorial.splitlines():
-            if line.strip():
-                narrative(escape(line),space=4)
-            else:
-                y-=5
+        # Manter revisão do usuário, eliminando somente prólogo padrão duplicado.
+        source=_remove_redundant_auto_header(edited_memorial)
+        confrontants=[name for p in parcels for name in p.confrontants]
+        for block in re.split(r"\n\s*\n",source):
+            text=" ".join(line.strip() for line in block.splitlines() if line.strip())
+            if text:
+                narrative(_highlight_memorial_text(text,confrontants),space=10)
     else:
         for p_index,parcel in enumerate(parcels):
             if p_index:
