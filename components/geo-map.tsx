@@ -348,7 +348,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
   const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A4");
   const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
-  const [plantLayoutTemplate, setPlantLayoutTemplate] = useState<"lateral" | "inferior">("lateral");
+  const [plantLayoutTemplate, setPlantLayoutTemplate] = useState<PecasData["layoutTemplate"]>("lateral");
   const [scaleChoice, setScaleChoice] = useState("auto");
   const [customScale, setCustomScale] = useState("1500");
   const [surveyDate, setSurveyDate] = useState("");
@@ -2400,7 +2400,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setCroquiNote(Boolean(data.croqui));
       setPaperFormat((data.format as typeof paperFormat) ?? "A4");
       setPaperOrientation((data.orientation as typeof paperOrientation) ?? "paisagem");
-      setPlantLayoutTemplate(data.layoutTemplate === "inferior" ? "inferior" : "lateral");
+      setPlantLayoutTemplate(["inferior", "classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) ? data.layoutTemplate as PecasData["layoutTemplate"] : "lateral");
       setScaleChoice(String(data.scale ?? "auto"));
       setCustomScale(String(data.customScale ?? "1500"));
       if (snapshot.professional) {
@@ -2440,7 +2440,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       case "croqui": setCroquiNote(Boolean(value)); break;
       case "format": setPaperFormat(value as typeof paperFormat); break;
       case "orientation": setPaperOrientation(value as typeof paperOrientation); break;
-      case "layoutTemplate": setPlantLayoutTemplate(value as "lateral" | "inferior"); break;
+      case "layoutTemplate": {
+        const chosen = value as PecasData["layoutTemplate"];
+        setPlantLayoutTemplate(chosen);
+        if (["classic_lateral", "cartographic_frame", "modern_lateral"].includes(chosen)) {
+          setPaperFormat("A2");
+          setPaperOrientation("retrato");
+          setPlantElements(prev => ({...prev, coordinates: true}));
+        }
+        break;
+      }
       case "scale": setScaleChoice(String(value)); break;
       case "customScale": setCustomScale(String(value)); break;
     }
