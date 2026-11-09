@@ -252,7 +252,7 @@ def compass_rose(pdf,cx,cy,r,palette):
     pdf.restoreState()
 
 
-def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=None):
+def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=None,owner_rg=None):
     _box(pdf,rect,"QUADRO DE ASSINATURAS",palette)
     dark,pale,accent,_=palette
     x=rect.x+13
@@ -270,11 +270,14 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=Non
         if subtitle:
             _text(pdf,subtitle,x+2,line_y-22,size=5.7,color="#687C71",
                   max_width=width-4)
+    owner_docs=" | ".join(part for part in (
+        f"CPF/CNPJ: {owner_cpf}" if owner_cpf else "",
+        f"RG: {owner_rg}" if owner_rg else "") if part)
     section("PROPRIETÁRIO / DETENTOR",owner,
-            f"CPF/CNPJ: {owner_cpf}" if owner_cpf else "Documento não informado",first)
+            owner_docs or "Documento não informado",first)
     details=[
         ("Profissão",professional.get("profession")),
-        ("CREA/CAU",professional.get("crea")),
+        ("CREA/CAU",professional.get("crea") or professional.get("cau") or professional.get("registration_number")),
         ("Visto",professional.get("visto")),
         ("ART",professional.get("art")),
     ]
