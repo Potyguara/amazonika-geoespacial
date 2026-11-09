@@ -100,6 +100,7 @@ class MemorialRequest(BaseModel):
     owner_cpf: str | None = Field(default=None, max_length=25)
     property_address: str | None = Field(default=None, max_length=350)
     owner_name: str | None = Field(default=None, max_length=255)
+    property_metadata: dict[str, str] | None = None
     responsible_name: str | None = Field(default=None, max_length=255)
     vertex_prefix: str = Field(default="V", min_length=1, max_length=8)
     professional_override: ProfessionalDocumentOverride | None = None
@@ -355,6 +356,7 @@ def memorial_draft(
                 owner_cpf=payload.owner_cpf,
                 property_address=payload.property_address,
                 memorial_heading=payload.memorial_heading,
+                property_metadata=payload.property_metadata,
             ),
             "ai_used": False,
             "calculation_engine": "pyproj.Geod/GRS80",
@@ -523,6 +525,7 @@ def plant_memorial_pdf(
             plant_elements=payload.plant_elements.model_dump(),
             magnetic_declination_degrees=payload.magnetic_declination_degrees,
             survey_date=payload.survey_date,
+            property_metadata=payload.property_metadata,
         )
         folder = _generated_documents_dir()
         stem = document_id.hex
