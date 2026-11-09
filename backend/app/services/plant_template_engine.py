@@ -370,38 +370,11 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
                 )
     regular, bold, _ = _fonts()
     if elements.get("north", True):
-        nx, ny = box.x + box.w - 29, box.top - 35
-        pdf.setStrokeColor(_color(dark))
-        pdf.setLineWidth(1)
-        pdf.line(nx, ny-13, nx, ny+11)
-        pdf.line(nx, ny+11, nx-5, ny+3)
-        pdf.line(nx, ny+11, nx+5, ny+3)
-        _text(pdf, "N", nx-3, ny+17, 8, bold, dark)
-    if elements.get("scale_text", True):
-        _text(pdf, f"ESCALA 1:{scale:,}".replace(",", "."),
-              box.x + 12, box.y + 13, 8, bold, dark)
-    if elements.get("scale_bar", True):
-        # Escala gráfica com segmento em distância real (m), sem sobrepor
-        # as marcas da grade; comprimento e rótulos coerentes com a escala.
-        px_per_m = _pt_meter(scale)
-        target_m = 100 / px_per_m
-        magnitude = 10 ** math.floor(math.log10(max(target_m, 1)))
-        choices = (1, 2, 2.5, 5, 10)
-        meters = next((v*magnitude for v in choices if v*magnitude >= target_m), 10*magnitude)
-        length = meters * px_per_m
-        if length > min(130, box.w * .23):
-            meters /= 2
-            length /= 2
-        x, y = box.x + box.w - length - 25, box.y + 22
-        pdf.setFillColor(_color("#FFFFFF"))
-        pdf.setStrokeColor(_color(dark))
-        pdf.roundRect(x-9, y-13, length+21, 34, 3, fill=1, stroke=0)
-        pdf.setFillColor(_color(dark))
-        pdf.rect(x,y,length/2,5,stroke=1,fill=1)
-        pdf.setFillColor(colors.white)
-        pdf.rect(x+length/2,y,length/2,5,stroke=1,fill=1)
-        _text(pdf, "0", x,y-8,6.5,regular,dark)
-        _text(pdf, f"{meters:g} m",x+length-18,y-8,6.5,regular,dark)
+        compass_rose(pdf,actual.x+67,actual.y+105,36,palette)
+    # Escala numérica e gráfica reunidas no mesmo quadro técnico.
+    if elements.get("scale_text", True) or elements.get("scale_bar", True):
+        scale_card(pdf,Rect(actual.x+actual.w-220,actual.top-150,208,138),
+                   scale,palette)
     return scale
 
 
