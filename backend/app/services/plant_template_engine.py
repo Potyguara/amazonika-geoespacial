@@ -517,6 +517,7 @@ def render_professional_plant(
         confrontations_card(pdf,regions[2],parcels,palette)
         reference_card(pdf,regions[3],zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source,
                        palette=palette)
         signature_card(pdf,regions[4],owner_name,owner_cpf,professional,palette,
                        date_text=survey_date,owner_rg=owner_rg)
@@ -542,6 +543,7 @@ def render_professional_plant(
         confrontations_card(pdf,Rect(sidebar_x,t-650,sidebar_w,235),parcels,palette)
         reference_card(pdf,Rect(sidebar_x,t-803,sidebar_w,143),zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source,
                        palette=palette)
         signature_card(pdf,Rect(sidebar_x,t-1043,sidebar_w,230),
                        owner_name,owner_cpf,professional,palette,date_text=survey_date,owner_rg=owner_rg)
@@ -577,6 +579,7 @@ def render_professional_plant(
         confrontations_card(pdf,cards[2],parcels,palette)
         reference_card(pdf,cards[3],zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source,
                        palette=palette)
         signature_card(pdf,cards[4],owner_name,owner_cpf,professional,palette,
                        date_text=survey_date,owner_rg=owner_rg)
@@ -603,6 +606,7 @@ def render_professional_plant(
         _summary_card(pdf,Rect(right.x,290,right.w,135),parcels,palette)
         reference_card(pdf,Rect(right.x,135,right.w,140),zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source,
                        palette=palette)
         header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette,dark_text=True)
         _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
