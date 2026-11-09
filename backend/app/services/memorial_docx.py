@@ -53,6 +53,7 @@ def build_memorial_docx(
     owner_name: str | None, owner_rg: str | None, owner_cpf: str | None,
     property_address: str | None, professional: dict, include_warning: bool,
     edited_memorial: str | None = None,
+    property_metadata: dict[str, str] | None = None,
 ) -> bytes:
     config = load_document_template()
     doc = Document()
@@ -105,6 +106,16 @@ def build_memorial_docx(
         ("RG / CPF", "  |  ".join(v for v in (owner_rg, owner_cpf) if v) or "Não informado"),
         ("LOCALIZAÇÃO", property_address or "Não informada"),
     ]
+    for key, label in (
+        ("legal_status", "SITUAÇÃO JURÍDICA"),
+        ("area_nature", "NATUREZA DA ÁREA"),
+        ("sncr", "SNCR/INCRA"),
+        ("cns", "CNS"),
+        ("registration", "MATRÍCULA"),
+    ):
+        val = (property_metadata or {}).get(key)
+        if val:
+            attributes.append((label, val[:250]))
     for idx, (key, value) in enumerate(attributes):
         cells = table.add_row().cells
         cells[0].width, cells[1].width = Cm(4.0), Cm(12.3)
