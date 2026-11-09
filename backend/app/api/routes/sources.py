@@ -51,7 +51,7 @@ def _write_large_upload(upload_id:str,meta:dict)->None:
 
 class OfficialOnlyRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
-        allowed={"geonodeincra.serpro.gov.br","acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
+        allowed={"geoportal.incra.gov.br","geonodeincra.serpro.gov.br","acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
         if (urlsplit(newurl).hostname or "").lower() not in allowed:
             raise HTTPError(newurl,code,"Redirecionamento externo bloqueado",headers,fp)
         return super().redirect_request(req,fp,code,msg,headers,newurl)
@@ -1323,53 +1323,86 @@ def sigef_official_base_metadata(
     if not source or not source.is_active or source.slug != "incra-sigef-brasil":
         raise HTTPException(404, "Fonte SIGEF Brasil não encontrada.")
     db.close()
-    url = (
-        "https://geonodeincra.serpro.gov.br/api/v2/datasets/"
-        "?filter%7Balternate%7D=sigef_geo&page_size=50"
-    )
-    req = UrlRequest(url, headers={
-        "User-Agent": "Amazonika-Geoespacial/1.0",
-        "Accept": "application/json",
-    })
+    # O catálogo do usuário é geoportal.incra.gov.br/catalogue; o host
+    # geonodeincra.serpro.gov.br atende o serviço cartográfico WMS/WFS.
+    # Consultar o recurso no portal responsável pelos metadados.
+    urls = [
+        "https://geoportal.incra.gov.br/api/v2/datasets/"
+        "?search=sigef&page_size=100",
+        "https://geoportal.incra.gov.br/api/v2/resources/"
+        "?search=sigef&page_size=100",
+    ]
     result = {
         "last_updated": None,
         "provider": "INCRA / GeoNode",
+        "resource": "Sigef - todas parcelas",
         "status": "NOT_PUBLISHED",
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
-    try:
-        opener = build_opener(
-            OfficialOnlyRedirectHandler(),
-            HTTPSHandler(context=ssl.create_default_context()),
-        )
-        with opener.open(req, timeout=12) as response:
-            raw = response.read(512 * 1024 + 1)
-        if len(raw) > 512 * 1024:
-            return result
-        payload = json.loads(raw)
+
+    def entries_from(payload):
         if not isinstance(payload, dict):
-            return result
-        datasets = payload.get("datasets") or payload.get("results") or []
-        if isinstance(datasets, dict):
-            datasets = datasets.get("datasets") or datasets.get("results") or []
-        if not isinstance(datasets, list):
-            return result
-        for entry in datasets:
-            if not isinstance(entry, dict):
+            return []
+        for key in ("datasets", "resources", "results"):
+            content = payload.get(key)
+            if isinstance(content, list):
+                return content
+            if isinstance(content, dict):
+                for subkey in ("datasets", "resources", "results"):
+                    if isinstance(content.get(subkey), list):
+                        return content[subkey]
+        return []
+
+    def matches_sigef_all(entry):
+        if not isinstance(entry, dict):
+            return False
+        alternate = str(
+            entry.get("alternate") or entry.get("alternate_name") or ""
+        ).casefold()
+        title = str(entry.get("title") or entry.get("name") or "").casefold()
+        # Não confundir o dataset nacional com o conjunto por categorias.
+        return (
+            alternate.split(":")[-1] == "sigef_geo"
+            or title.strip() in (
+                "sigef - todas parcelas", "sigef - todas as parcelas",
+            )
+        )
+
+    opener = build_opener(
+        OfficialOnlyRedirectHandler(),
+        HTTPSHandler(context=ssl.create_default_context()),
+    )
+    for url in urls:
+        req = UrlRequest(url, headers={
+            "User-Agent": "Amazonika-Geoespacial/1.0",
+            "Accept": "application/json",
+        })
+        try:
+            with opener.open(req, timeout=12) as response:
+                raw = response.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024:
                 continue
-            if str(entry.get("alternate") or entry.get("alternate_name") or "").split(":")[-1] != "sigef_geo":
-                continue
-            modified = entry.get("last_updated") or entry.get("last_modified")
-            if isinstance(modified, str) and len(modified) >= 10:
+            for entry in entries_from(json.loads(raw)):
+                if not matches_sigef_all(entry):
+                    continue
+                # GeoNode v4 usa 'last_updated' no recurso; a data 'date'
+                # corresponde a outra propriedade e NÃO pode substituí-la.
+                modified = entry.get("last_updated") or entry.get("last_modified")
+                if not isinstance(modified, str):
+                    continue
                 try:
                     datetime.fromisoformat(modified.replace("Z", "+00:00"))
                 except ValueError:
                     continue
                 result["last_updated"] = modified
                 result["status"] = "PUBLISHED"
-                break
-    except (HTTPError, URLError, TimeoutError, ValueError, UnicodeDecodeError, TypeError):
-        result["status"] = "UNAVAILABLE"
+                result["metadata_url"] = (
+                    "https://geoportal.incra.gov.br/catalogue/"
+                )
+                return result
+        except (HTTPError, URLError, TimeoutError, ValueError,
+                UnicodeDecodeError, TypeError):
+            result["status"] = "UNAVAILABLE"
     return result
 
 
