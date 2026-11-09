@@ -24,6 +24,7 @@ export type SituationSnapshot = {
   center: number[];
   zoom: number;
   basemap: "osm" | "satellite";
+  show_vertex_labels?: boolean;
 };
 
 type Props = {
@@ -47,6 +48,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   const vertexSourceRef = useRef(new VectorSource());
   const vertexNamesKey = JSON.stringify(vertexNames);
   const [basemap, setBasemap] = useState<"osm" | "satellite" | "google" | "mapbox">(saved?.basemap ?? "satellite");
+  const [situationLabels, setSituationLabels] = useState<boolean>(saved?.show_vertex_labels ?? showVertices);
   const [busy, setBusy] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
   const [mapboxAvailable, setMapboxAvailable] = useState(false);
@@ -226,7 +228,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
   useEffect(() => {
     const labelsSource = vertexSourceRef.current;
     labelsSource.clear();
-    if (!showVertices) return;
+    if (!situationLabels) return;
     const features = new GeoJSON().readFeatures(geometry, {
       dataProjection: "EPSG:4326", featureProjection: "EPSG:3857",
     });
@@ -240,7 +242,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
         }));
       }
     }
-  }, [geometryKey, vertexNamesKey, showVertices]);
+  }, [geometryKey, vertexNamesKey, situationLabels]);
 
   const fit = () => {
     const map = mapRef.current;
@@ -325,6 +327,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
         geometry_key: geoKeyRef.current, token: Date.now(),
         center: [...center], zoom: map.getView().getZoom() ?? 12,
         basemap: basemap === "osm" ? "osm" : "satellite",
+        show_vertex_labels: situationLabels,
       });
       setMessage("Enquadramento registrado para a Planta de Situação.");
     } catch (error) {
@@ -338,6 +341,13 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
     <aside className="pecas-situation-pane">
       <h3>Enquadramento da Planta de Situação</h3>
       <p>Arraste o mapa e ajuste o zoom. A captura será inserida no PDF sem distorção.</p>
+      <label className="pecas-license-check" style={{ margin: "8px 0", display: "flex", gap: 8, alignItems: "center" }}>
+        <input type="checkbox" checked={situationLabels} onChange={(event) => {
+          setSituationLabels(event.target.checked);
+          setMessage("Rótulos atualizados. Registre novamente o enquadramento para aplicar a alteração no PDF.");
+        }} />
+        <span>Mostrar nomes dos vértices na Planta de Situação</span>
+      </label>
       <div className="pecas-situation-map" ref={container} aria-label="Mapa interativo de enquadramento" />
       <div className="pecas-situation-actions">
         <select aria-label="Base cartográfica" value={basemap}
