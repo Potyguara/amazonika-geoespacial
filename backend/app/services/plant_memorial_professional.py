@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import math
 from datetime import date
+import re
 from xml.sax.saxutils import escape
+from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -44,10 +46,11 @@ def _str(pdf,text,x,y,size=8,font="Helvetica",color="#20352D",*,right=False,cent
         pdf.drawString(x,y,str(text))
 
 
-def _para(text,size=8,leading=11,color="#34483D",bold=False):
+def _para(text,size=8,leading=11,color="#34483D",bold=False,justify=False):
     style=ParagraphStyle("memorial_tpl",fontName="Helvetica-Bold" if bold else "Helvetica",
                          fontSize=size,leading=leading,textColor=_col(color),
-                         splitLongWords=0)
+                         splitLongWords=0,
+                         alignment=TA_JUSTIFY if justify else TA_LEFT)
     return Paragraph(text,style)
 
 
@@ -251,7 +254,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
             pdf.showPage()
         page+=1
         header(first)
-        y=H-(125 if first else 88)
+        y=H-125  # Respeitar inclusive o cabeçalho alto do modelo moderno
 
     new_page(True)
     y=_identity(pdf,y,title,owner,owner_rg,owner_cpf,address,parcels,
@@ -267,7 +270,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
 
     def narrative(html,*,keep_min=18,space=7):
         nonlocal y
-        pending=_para(html,size=8.1,leading=11.7,color=c["dark"])
+        pending=_para(html,size=8.1,leading=12.4,color=c["dark"],justify=True)
         while True:
             remaining=y-68
             if remaining<max(keep_min,22):
