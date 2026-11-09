@@ -439,8 +439,6 @@ export function PecasTecnicasWorkspace({
             <div className="pecas-print-grid">
               <label className="pecas-field"><span>Modelo da prancha</span>
                 <select value={data.layoutTemplate} onChange={(event) => onDataChange("layoutTemplate", event.target.value)}>
-                  <option value="lateral">Clássico — identificação na lateral</option>
-                  <option value="inferior">Quadro inferior — coordenadas em largura total</option>
                   <option value="classic_lateral">Profissional A — clássico lateral (A2 retrato)</option>
                   <option value="cartographic_frame">Profissional B — moldura cartográfica (A2 retrato)</option>
                   <option value="modern_lateral">Profissional C — moderno com quadro lateral (A2 retrato)</option>
