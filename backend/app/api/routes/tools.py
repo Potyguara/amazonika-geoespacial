@@ -438,6 +438,7 @@ def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_use
             property_address=payload.property_address,
             professional=profile,
             include_warning=payload.include_croqui_warning,
+            property_metadata=payload.property_metadata,
             edited_memorial=payload.edited_memorial,
         )
     except ValueError as exc:
