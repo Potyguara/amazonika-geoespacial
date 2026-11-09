@@ -220,6 +220,9 @@ def _table(pdf, box, rows, palette, *, columns=1, font_size=6.2):
     capacity = max(0, int((box.h - 24 - row_h - 6) // row_h))
     max_rows = capacity * columns
     shown = rows[:max_rows]
+    # Distribuição equilibrada: blocos não ficam com 20 linhas vazias
+    # quando a quantidade de vértices não é múltipla do número de colunas.
+    balanced_rows = max(1, math.ceil(len(shown) / columns))
     cell_width = box.w / columns
     for col in range(columns):
         x = box.x + col * cell_width
@@ -235,8 +238,8 @@ def _table(pdf, box, rows, palette, *, columns=1, font_size=6.2):
                 raise ValueError("Tabela não cabe na composição escolhida: aumente o papel.")
             _text(pdf, label, xcoords[i] + 2, inner_top - row_h + 3,
                   fit_font, bold, dark)
-        for r in range(capacity):
-            idx = col * capacity + r
+        for r in range(balanced_rows):
+            idx = col * balanced_rows + r
             if idx >= len(shown):
                 break
             row = shown[idx]
@@ -256,6 +259,11 @@ def _table(pdf, box, rows, palette, *, columns=1, font_size=6.2):
                     )
                 _text(pdf, value, xcoords[i] + 2, yy + 3, fit_font, regular, dark)
     return len(shown)
+
+
+def _table_height(rows_count, columns, *, font_size=6.2):
+    """Altura estritamente necessária, sem moldura inferior ociosa."""
+    return 24 + max(12.0, font_size + 5.8) * (1 + math.ceil(rows_count / columns)) + 8
 
 
 def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
@@ -460,7 +468,8 @@ def render_professional_plant(
         summary_y=max(410,t-1125)
         if summary_y+75 < t-1040:
             _summary_card(pdf,Rect(sidebar_x,summary_y,sidebar_w,75),parcels,palette)
-        first=_table(pdf,Rect(33,54,w-66,335),rows,palette,columns=3,font_size=5.7)
+        bottom_h=min(335, _table_height(len(rows),3,font_size=5.7))
+        first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=3,font_size=5.7)
 
     elif layout_template=="cartographic_frame":
         frame=Rect(33,418,w-66,h-536)
@@ -483,7 +492,8 @@ def render_professional_plant(
         _neighbors_card(pdf,cards[2][1],parcels,palette)
         _legend_card(pdf,cards[3][1],palette)
         _signature_card(pdf,cards[4][1],owner_name,professional,palette)
-        first=_table(pdf,Rect(33,54,w-66,340),rows,palette,columns=3,font_size=5.7)
+        bottom_h=min(340, _table_height(len(rows),3,font_size=5.7))
+        first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=3,font_size=5.7)
 
     else:  # modern_lateral
         left=Rect(34,445,w*.57-34,h-563)
@@ -491,7 +501,9 @@ def render_professional_plant(
         right=Rect(xright,445,w-xright-33,h-563)
         map_scale=_map(pdf,left,parcels,transformer,zone,hemi,
                        scale_denominator,palette,elements)
-        first=_table(pdf,right,rows,palette,columns=1,font_size=6.6)
+        right_table_h=min(right.h,_table_height(len(rows),1,font_size=6.6))
+        compact_table=Rect(right.x,right.top-right_table_h,right.w,right_table_h)
+        first=_table(pdf,compact_table,rows,palette,columns=1,font_size=6.6)
         half=(left.w-12)/2
         _details(pdf,Rect(left.x,242,half,188),fields[:6],palette)
         _image_card(pdf,Rect(left.x+half+12,242,half,188),
