@@ -72,7 +72,7 @@ def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordina
     available_width = map_right - map_left
     row_h = 13 if fmt in ("A4", "A3") else 14
     title_h = 23
-    first_rows = min(vertex_count, 12) if layout_template == 'inferior' else vertex_count
+    first_rows = min(vertex_count, 8) if layout_template == 'inferior' else vertex_count
     table_h = title_h + (first_rows + 1) * row_h + 7 if show_coordinates else 0
     # Faixa exclusiva para escala gráfica e escala numérica; fora da grade UTM.
     map_bottom = 42 + table_h + 39
@@ -269,10 +269,11 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size, *, row_star
 
 def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
            address, area, perimeter, zone, hemi, professional, image,
-           image_source, stamp, show_situation=True, show_technical_stamp=True):
+           image_source, stamp, show_situation=True, show_technical_stamp=True, compact=False):
     """Coluna direita: identificação, situação contígua, assinaturas em blocos."""
     pdf.setStrokeColor(RULE)
-    pdf.rect(x, limit, width, top-limit, stroke=1, fill=0)
+    if not compact:
+        pdf.rect(x, limit, width, top-limit, stroke=1, fill=0)
     pdf.setFillColor(GREEN)
     pdf.rect(x, top-29, width, 29, fill=1, stroke=0)
     pdf.setFillColor(colors.white)
@@ -328,7 +329,7 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
     if show_technical_stamp:
         # Assinaturas sem desenhos de assinatura ou validação digital fictícia.
         box_top=y-5
-        box_bottom=limit+23
+        box_bottom=max(limit+23, box_top-175) if compact else limit+23
         if box_top-box_bottom < 110:
             raise ValueError("Espaço insuficiente para o quadro de assinaturas.")
         pdf.setStrokeColor(RULE)
@@ -414,7 +415,7 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
 
     pdf.setFillColor(DARK)
     pdf.setFont("Helvetica",5.6)
-    pdf.drawString(x+7,limit+7,stamp[:55])
+    pdf.drawString(x+7,(box_bottom-9 if show_technical_stamp and compact else limit+7),stamp[:55])
 
 
 def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
@@ -767,7 +768,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.restoreState()
     if enabled('coordinates'):
         _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=='A4' else 7.3,
-                           row_end=12 if layout_template=='inferior' else None)
+                           row_end=8 if layout_template=='inferior' else None)
     # Coluna direita em células separadas com situação cartográfica.
     panel_x=side+7
     _panel(
@@ -781,6 +782,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         image=raster,image_source=raster_source,stamp=stamp,
         show_situation=enabled("situation"),
         show_technical_stamp=enabled("technical_stamp"),
+        compact=layout_template=='inferior',
     )
     if croqui:
         warning=Paragraph(
@@ -793,10 +795,10 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             raise ValueError("A observação de croqui não cabe no rodapé deste formato.")
         warning.drawOn(pdf,38,40-warning_height)
     pdf.showPage()
-    if layout_template == 'inferior' and enabled('coordinates') and count > 12:
+    if layout_template == 'inferior' and enabled('coordinates') and count > 8:
         row_h = 13 if fmt in ('A4', 'A3') else 14
         max_rows = max(1, int((h - 145 - 30) / row_h))
-        for first in range(12, count, max_rows):
+        for first in range(8, count, max_rows):
             last = min(count, first + max_rows)
             subset = last - first
             pdf.setPageSize((w, h))
