@@ -348,7 +348,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
   const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A4");
   const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
-  const [plantLayoutTemplate, setPlantLayoutTemplate] = useState<PecasData["layoutTemplate"]>("lateral");
+  const [plantLayoutTemplate, setPlantLayoutTemplate] = useState<PecasData["layoutTemplate"]>("classic_lateral");
   const [scaleChoice, setScaleChoice] = useState("auto");
   const [customScale, setCustomScale] = useState("1500");
   const [surveyDate, setSurveyDate] = useState("");
@@ -2400,7 +2400,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setCroquiNote(Boolean(data.croqui));
       setPaperFormat((data.format as typeof paperFormat) ?? "A4");
       setPaperOrientation((data.orientation as typeof paperOrientation) ?? "paisagem");
-      setPlantLayoutTemplate(typeof data.layoutTemplate === "string" && ["inferior", "classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) ? data.layoutTemplate as PecasData["layoutTemplate"] : "lateral");
+      setPlantLayoutTemplate(typeof data.layoutTemplate === "string" && ["classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) ? data.layoutTemplate as PecasData["layoutTemplate"] : "classic_lateral");
       setScaleChoice(String(data.scale ?? "auto"));
       setCustomScale(String(data.customScale ?? "1500"));
       if (snapshot.professional) {
