@@ -1005,45 +1005,97 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       });
 
       if (feature.get("wms_no_geometry")) {
-        const parcelCode = String(
-          raw.parcela_codigo ?? raw.codigo_parcela ?? "",
-        );
+        updateProperties("Seleção do perímetro", "Localizando polígono oficial…");
+        const parcelCode = String(raw.parcela_codigo ?? raw.codigo_parcela ?? "");
         const query = new URLSearchParams();
         if (featureId) query.set("feature_id", featureId);
         if (parcelCode) query.set("parcel_code", parcelCode);
-        if (query.size) {
-          void fetch(
-            `${getApiUrl()}/sources/${sourceId}/sigef-selected-geometry?${query}`,
-            { signal: controller.signal, credentials: "include" },
-          ).then(async (response) => {
-            if (!response.ok) throw new Error("WFS SIGEF sem geometria");
-            return response.json();
-          }).then((payload) => {
-            if (controller.signal.aborted || selectedFeatureRef.current !== feature) return;
-            if (!payload?.geometry) return;
-            const full = new GeoJSON().readFeature({
-              type: "Feature", geometry: payload.geometry, properties: {},
-            }, {
-              dataProjection: "EPSG:4326",
-              featureProjection: "EPSG:3857",
-            }) as Feature;
-            const geometry = full.getGeometry();
-            if (!geometry || !["Polygon", "MultiPolygon"].includes(geometry.getType())) return;
-            const highlight = new Feature({ geometry: geometry.clone() });
-            highlight.setStyle(identifyHighlightStyles);
-            highlight.set("isIdentifyHighlight", true);
-            identifySelectionSourceRef.current.clear();
-            identifySelectionSourceRef.current.addFeature(highlight);
-            mapRef.current?.renderSync();
-          }).catch(() => {
-            updateProperties(
-              "Geometria oficial",
-              "O WFS não disponibilizou o perímetro desta parcela para destaque.",
-            );
+        const clicked = feature.getGeometry() instanceof Point
+          ? (feature.getGeometry() as Point).getCoordinates()
+          : null;
+
+        const paintPolygon = (geometry: NonNullable<ReturnType<Feature["getGeometry"]>>) => {
+          if (controller.signal.aborted || selectedFeatureRef.current !== feature) return;
+          if (!["Polygon", "MultiPolygon"].includes(geometry.getType())) return;
+          const highlight = new Feature({ geometry: geometry.clone() });
+          highlight.setStyle(identifyHighlightStyles);
+          highlight.set("isIdentifyHighlight", true);
+          identifySelectionSourceRef.current.clear();
+          identifySelectionSourceRef.current.addFeature(highlight);
+          mapRef.current?.renderSync();
+          updateProperties("Seleção do perímetro", "Parcela oficial destacada no mapa");
+        };
+
+        void (async () => {
+          if (query.size) {
+            try {
+              const response = await fetch(
+                `${getApiUrl()}/sources/${sourceId}/sigef-selected-geometry?${query}`,
+                { signal: controller.signal, credentials: "include" },
+              );
+              if (!response.ok) throw new Error("WFS sem geometria por identificador");
+              const payload = await response.json();
+              const full = new GeoJSON().readFeature({
+                type: "Feature", geometry: payload.geometry, properties: {},
+              }, {
+                dataProjection: "EPSG:4326",
+                featureProjection: "EPSG:3857",
+              }) as Feature;
+              const geom = full.getGeometry();
+              if (geom && ["Polygon", "MultiPolygon"].includes(geom.getType())) {
+                paintPolygon(geom);
+                return;
+              }
+            } catch (error) {
+              if (controller.signal.aborted) return;
+              console.warn("SIGEF: tentativa por identificador sem geometria", error);
+            }
+          }
+
+          // Fallback espacial: usa o WFS já utilizado pela ferramenta SNAP.
+          // Seleciona somente se houver exatamente UM polígono contendo o clique.
+          // Nunca destaca um vizinho por simples proximidade.
+          if (!clicked) throw new Error("Coordenada da parcela não disponível");
+          const [lon, lat] = toLonLat(clicked, "EPSG:3857");
+          const delta = 0.0002;
+          const bbox = [lon - delta, lat - delta, lon + delta, lat + delta].join(",");
+          const params = new URLSearchParams({
+            bbox, uf: incraUfRef.current.toLowerCase(), limit: "50",
           });
-        } else {
-          updateProperties("Geometria oficial", "Identificador da parcela não disponibilizado pelo WMS.");
-        }
+          const response = await fetch(
+            `${getApiUrl()}/sources/${sourceId}/sigef-snap?${params}`,
+            { signal: controller.signal, credentials: "include" },
+          );
+          if (!response.ok) throw new Error("WFS oficial não disponível");
+          const payload = await response.json();
+          if (payload?.truncated || !Array.isArray(payload?.features)) {
+            throw new Error("Consulta espacial inconclusiva");
+          }
+          const format = new GeoJSON();
+          const matches = payload.features.flatMap((item: unknown) => {
+            try {
+              const vector = format.readFeature(item, {
+                dataProjection: "EPSG:4326",
+                featureProjection: "EPSG:3857",
+              }) as Feature;
+              const geom = vector.getGeometry();
+              return geom && geom.intersectsCoordinate(clicked) ? [geom] : [];
+            } catch {
+              return [];
+            }
+          });
+          if (matches.length !== 1) {
+            throw new Error("Não foi possível determinar unicamente a parcela.");
+          }
+          paintPolygon(matches[0]);
+        })().catch((error) => {
+          if (controller.signal.aborted) return;
+          updateProperties(
+            "Seleção do perímetro",
+            "Geometria não disponibilizada pelo WFS oficial nesta consulta",
+          );
+          console.warn("SIGEF: não foi possível destacar o perímetro", error);
+        });
       }
       return;
     }
