@@ -164,13 +164,15 @@ def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point,
                       offsets=[(nx*13,ny*13),(-nx*13,-ny*13),
                                (nx*23,ny*23),(-nx*23,-ny*23),
                                (nx*34,ny*34),(-nx*34,-ny*34)],
-                      desired=7.1,minimum=6.0)
+                      desired=6.5,minimum=5.5,allow_callout=False,
+                      white_background=False)
     if show_confrontants and confrontant.strip():
         manager.place(pdf,[confrontant.strip()],(mx,my),
                       angle=angle,color=GREEN,
                       offsets=[(nx*31,ny*31),(nx*45,ny*45),
                                (-nx*31,-ny*31),(-nx*45,-ny*45)],
-                      desired=7.2,minimum=6.0,white_background=False)
+                      desired=7.2,minimum=6.0,white_background=False,
+                      allow_callout=False)
 
 
 def _grid(pdf, viewport, bounds, xy, zone, hemi):
@@ -615,8 +617,11 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     if layout_template in ("classic_lateral", "cartographic_frame", "modern_lateral"):
         from app.services.plant_template_engine import render_professional_plant
         buffer = io.BytesIO()
-        printer = canvas.Canvas(buffer, pagesize=portrait(PAPERS[(paper_format or "A2").upper()]),
-                                pageCompression=1)
+        printer = canvas.Canvas(
+            buffer, pagesize=(landscape if orientation=="paisagem" else portrait)(
+                PAPERS[(paper_format or "A2").upper()]
+            ), pageCompression=1,
+        )
         printer.setTitle(f"{plant_heading} — {title}")
         _, _, selected_scale = render_professional_plant(
             printer, parcels=parcels, title=title, owner_name=owner_name,
