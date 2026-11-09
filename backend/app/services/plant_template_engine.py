@@ -504,7 +504,7 @@ def render_professional_plant(
         available=top-bottom
         gap_y=7
         factor=(available-4*gap_y)/995
-        parts=[205,190,180,150,270]
+        parts=[180,170,235,150,260]
         heights=[v*factor for v in parts]
         t=top
         regions=[]
@@ -535,15 +535,15 @@ def render_professional_plant(
         map_scale=_map(pdf,map_box,parcels,transformer,zone,hemi,
                        scale_denominator,palette,elements)
         t=map_box.top
-        _details(pdf,Rect(sidebar_x,t-225,sidebar_w,225),fields,palette)
-        _image_card(pdf,Rect(sidebar_x,t-460,sidebar_w,222),
+        _details(pdf,Rect(sidebar_x,t-205,sidebar_w,205),fields,palette)
+        _image_card(pdf,Rect(sidebar_x,t-405,sidebar_w,190),
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        confrontations_card(pdf,Rect(sidebar_x,t-645,sidebar_w,172),parcels,palette)
-        reference_card(pdf,Rect(sidebar_x,t-800,sidebar_w,143),zone,hemi,
+        confrontations_card(pdf,Rect(sidebar_x,t-640,sidebar_w,225),parcels,palette)
+        reference_card(pdf,Rect(sidebar_x,t-793,sidebar_w,143),zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
                        palette=palette)
-        signature_card(pdf,Rect(sidebar_x,t-1040,sidebar_w,227),
+        signature_card(pdf,Rect(sidebar_x,t-1033,sidebar_w,230),
                        owner_name,owner_cpf,professional,palette,date_text=survey_date,owner_rg=owner_rg)
         summary_y=max(410,t-1125)
         if summary_y+75 < t-1040:
@@ -564,11 +564,11 @@ def render_professional_plant(
         # Apenas as regiões são declaradas aqui; a renderização usa os
         # componentes técnicos atuais, evitando referências legadas.
         cards=[
-            Rect(left.x,left.top-220,left.w,220),
-            Rect(left.x,left.top-450,left.w,218),
-            Rect(left.x,left.top-640,left.w,178),
-            Rect(left.x,left.top-787,left.w,135),
-            Rect(left.x,left.top-1022,left.w,223),
+            Rect(left.x,left.top-195,left.w,195),
+            Rect(left.x,left.top-395,left.w,188),
+            Rect(left.x,left.top-640,left.w,233),
+            Rect(left.x,left.top-788,left.w,138),
+            Rect(left.x,left.top-1022,left.w,224),
         ]
         _details(pdf,cards[0],fields,palette)
         _image_card(pdf,cards[1],
@@ -593,12 +593,12 @@ def render_professional_plant(
         compact_table=Rect(right.x,right.top-right_table_h,right.w,right_table_h)
         first=_table(pdf,compact_table,rows,palette,columns=1,font_size=6.6)
         half=(left.w-12)/2
-        _details(pdf,Rect(left.x,242,half,188),fields[:6],palette)
-        _image_card(pdf,Rect(left.x+half+12,242,half,188),
+        _details(pdf,Rect(left.x,280,half,150),fields[:6],palette)
+        _image_card(pdf,Rect(left.x+half+12,280,half,150),
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        confrontations_card(pdf,Rect(left.x,58,half,172),parcels,palette)
-        signature_card(pdf,Rect(left.x+half+12,58,half,172),
+        confrontations_card(pdf,Rect(left.x,58,half,212),parcels,palette)
+        signature_card(pdf,Rect(left.x+half+12,58,half,212),
                        owner_name,owner_cpf,professional,palette,date_text=survey_date,owner_rg=owner_rg)
         _summary_card(pdf,Rect(right.x,290,right.w,135),parcels,palette)
         reference_card(pdf,Rect(right.x,135,right.w,140),zone,hemi,
