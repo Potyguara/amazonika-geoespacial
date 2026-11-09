@@ -2231,6 +2231,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     try {
       const extension = file.name.split(".").pop()?.toLowerCase();
       let features: Feature[] = [];
+      let successNotice = "";
 
       if (extension === "ods") {
         const body = new FormData();
@@ -2253,7 +2254,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           if (metadata.municipality) setPropertyAddress(metadata.municipality);
         }
         const count = Number(payload?.vertex_count ?? 0);
-        setImportNotice(`Planilha SIGEF importada: ${count} vértices originais preservados. Confira os dados na aba Peças Técnicas.`);
+        successNotice = `Planilha SIGEF importada: ${count} vértices originais preservados. Confira os dados na aba Peças Técnicas.`;
       } else if (extension === "kml") {
         const text = await file.text();
         features = new KML({ extractStyles: false }).readFeatures(text, {
@@ -2294,7 +2295,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       if (!features.length) throw new Error("O arquivo não contém feições utilizáveis.");
       if (extension !== "ods") {
         setImportedMetadata(null);
-        setImportNotice("Arquivo vetorial importado. Campos ausentes de vértices e confrontações deverão ser preenchidos manualmente.");
+        successNotice = "Arquivo vetorial importado. Campos ausentes de vértices e confrontações deverão ser preenchidos manualmente.";
       }
 
       // Cada polígono importado permanece como objeto independente.
@@ -2320,7 +2321,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         duration: 500,
       });
       emitGeometry();
+      setImportNotice(successNotice);
     } catch (error) {
+      setImportNotice(null);
       setImportError(error instanceof Error ? error.message : "Falha ao importar arquivo.");
     } finally {
       setImportingVector(false);
