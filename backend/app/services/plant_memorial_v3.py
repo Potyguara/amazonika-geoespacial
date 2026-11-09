@@ -798,7 +798,10 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     if layout_template == 'inferior' and enabled('coordinates') and count > 8:
         row_h = 13 if fmt in ('A4', 'A3') else 14
         max_rows = max(1, int((h - 145 - 30) / row_h))
-        for first in range(8, count, max_rows):
+        remaining = count - 8
+        pages = math.ceil(remaining / max_rows)
+        rows_per_page = math.ceil(remaining / pages)
+        for first in range(8, count, rows_per_page):
             last = min(count, first + max_rows)
             subset = last - first
             pdf.setPageSize((w, h))
