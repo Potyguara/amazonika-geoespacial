@@ -471,7 +471,7 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
                 available=y-91-space
             pieces=pending.split(page_width,available)
             if not pieces:
-                if abs(y-(h-93))<1:
+                if abs(y-(h-105))<1:
                     raise ValueError("Trecho do memorial excede a área imprimível.")
                 next_page()
                 continue
