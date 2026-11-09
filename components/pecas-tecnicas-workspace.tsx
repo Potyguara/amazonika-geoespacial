@@ -446,12 +446,12 @@ export function PecasTecnicasWorkspace({
               </label>
               <label className="pecas-field"><span>Formato da folha</span>
                 <select value={data.format} onChange={(e) => onDataChange("format", e.target.value)}>
-                  {(["A4", "A3", "A2", "A1", "A0"] as const).map((v) => <option key={v}>{v}</option>)}
+                  {(["A2", "A1"] as const).map((v) => <option key={v}>{v}</option>)}
                 </select>
               </label>
               <label className="pecas-field"><span>Orientação</span>
                 <select value={data.orientation} onChange={(e) => onDataChange("orientation", e.target.value)}>
-                  <option value="paisagem">Paisagem</option><option value="retrato">Retrato</option>
+                  <option value="retrato">Retrato</option>
                 </select>
               </label>
               <label className="pecas-field"><span>Escala nominal</span>
