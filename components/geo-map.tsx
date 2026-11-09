@@ -1143,7 +1143,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setIdentifyLoadingMessage("Consultando feições nas camadas ativas…");
 
       const enabledLayers = layersRef.current.filter(
-        (layer) => layer.enabled && layer.id,
+        (layer) =>
+          layer.enabled &&
+          layer.id &&
+          layer.slug !== "incra-sigef-brasil",
       );
 
       const enabledSourceIds = enabledLayers
@@ -1454,8 +1457,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     for (const layer of layers) {
       if (!layer.id || !layer.enabled) continue;
 
-      // O vetor local/PostGIS é sempre a camada operacional do sistema.
-      // O WMS, quando habilitado, é apenas uma referência visual adicional.
+      // SIGEF Brasil utiliza exclusivamente o serviço WMS.
+      if (layer.slug === "incra-sigef-brasil") continue;
+
+      // Demais camadas continuam utilizando vetores locais.
+      // O WMS, quando habilitado, é referência adicional.
 
       // Vetores locais nacionais podem ser consultados em qualquer UF
       // ou no Brasil inteiro. O próprio endpoint MVT aplica o filtro
@@ -1522,11 +1528,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
       // O WMS do INCRA apresenta instabilidade/502 em diversas UFs.
       // Durante a navegação usamos o MVT local para não bloquear o mapa.
-      if (layer.source === "INCRA")
+      if (
+        layer.source === "INCRA" &&
+        layer.slug !== "incra-sigef-brasil"
+      )
         continue;
 
       const requiresSpecificUf =
-        layer.source === "INCRA" ||
+        (layer.source === "INCRA" &&
+          layer.slug !== "incra-sigef-brasil") ||
         layer.source === "SICAR" ||
         Boolean(layer.wmsAvailableUfs?.length);
 
@@ -1562,7 +1572,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             TRANSPARENT: true,
           },
           ratio: 1.2,
-          crossOrigin: "anonymous",
+          crossOrigin: "use-credentials",
         });
         imageSource.on("imageloadstart", () =>
           setOfficialStatus(`Conectando ao WMS oficial…`),

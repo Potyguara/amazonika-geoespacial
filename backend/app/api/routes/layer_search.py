@@ -49,6 +49,12 @@ def _current_version(db: Session, source_id: UUID):
     source = db.get(Source, source_id)
     if not source or not source.is_active:
         raise HTTPException(404, "Camada não encontrada ou inativa.")
+    if source.slug == "incra-sigef-brasil":
+        raise HTTPException(
+            409,
+            "SIGEF Brasil utiliza o GeoNode oficial como referência. "
+            "A pesquisa vetorial local antiga está desativada.",
+        )
     version = db.scalar(
         select(SourceVersion).where(
             SourceVersion.source_id == source.id,

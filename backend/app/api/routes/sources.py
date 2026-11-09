@@ -51,7 +51,7 @@ def _write_large_upload(upload_id:str,meta:dict)->None:
 
 class OfficialOnlyRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
-        allowed={"acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
+        allowed={"geonodeincra.serpro.gov.br","acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
         if (urlsplit(newurl).hostname or "").lower() not in allowed:
             raise HTTPError(newurl,code,"Redirecionamento externo bloqueado",headers,fp)
         return super().redirect_request(req,fp,code,msg,headers,newurl)
@@ -951,6 +951,11 @@ async def identify_local_features(
         if not source or not source.is_active:
             continue
 
+        # SIGEF Brasil usa GeoNode/WMS como referência atual.
+        # Nunca identificar a antiga cópia vetorial local.
+        if source.slug == "incra-sigef-brasil":
+            continue
+
         version = db.scalar(
             select(SourceVersion).where(
                 SourceVersion.source_id == source_id,
@@ -1238,7 +1243,7 @@ def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     incra_url=f"http://acervofundiario.incra.gov.br/i3geo/ogc.php?tema={theme}_{requested_uf}"
     raw_url=str(state_urls.get(requested_uf) or (incra_url if source_institution=="INCRA" and theme and not fixed_layer else metadata.get("wms_url") or ""))
     parsed=urlsplit(raw_url)
-    allowed_hosts={"acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
+    allowed_hosts={"geonodeincra.serpro.gov.br","acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
     if parsed.scheme not in ("http","https") or (parsed.hostname or "").lower() not in allowed_hosts:
         raise HTTPException(400,"O proxy aceita somente os domínios oficiais configurados.")
     incoming=[(key,value) for key,value in request.query_params.multi_items() if key!="uf"]
