@@ -62,6 +62,7 @@ export type PecasData = {
   croqui: boolean;
   format: "A4" | "A3" | "A2" | "A1" | "A0";
   orientation: "paisagem" | "retrato";
+  layoutTemplate: "lateral" | "inferior";
   scale: string;
   customScale: string;
 };
@@ -179,7 +180,7 @@ export function PecasTecnicasWorkspace({
   });
   const pdfKey = JSON.stringify({
     commonKey, format: data.format, orientation: data.orientation,
-    scale: data.scale, customScale: data.customScale, rasterKey, elements, declination, surveyDate, situationKey, situationToken: situationSaved?.token, memorialRevision: memorialSaved ? editableMemorial : null,
+    scale: data.scale, customScale: data.customScale, layoutTemplate: data.layoutTemplate, rasterKey, elements, declination, surveyDate, situationKey, situationToken: situationSaved?.token, memorialRevision: memorialSaved ? editableMemorial : null,
   });
   const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
 
@@ -435,6 +436,12 @@ export function PecasTecnicasWorkspace({
             <h3>4. Planta georreferenciada — pré-visualização real</h3>
             <p>A visualização abaixo apresenta o PDF produzido pelo serviço oficial do sistema, e não uma imagem de exemplo. A planta de situação utiliza a captura do mapa atual.</p>
             <div className="pecas-print-grid">
+              <label className="pecas-field"><span>Modelo da prancha</span>
+                <select value={data.layoutTemplate} onChange={(event) => onDataChange("layoutTemplate", event.target.value)}>
+                  <option value="lateral">Clássico — identificação na lateral</option>
+                  <option value="inferior">Quadro inferior — coordenadas em largura total</option>
+                </select>
+              </label>
               <label className="pecas-field"><span>Formato da folha</span>
                 <select value={data.format} onChange={(e) => onDataChange("format", e.target.value)}>
                   {(["A4", "A3", "A2", "A1", "A0"] as const).map((v) => <option key={v}>{v}</option>)}
@@ -459,6 +466,7 @@ export function PecasTecnicasWorkspace({
                   onChange={(e) => onDataChange("customScale", e.target.value)} />
               </label>}
             </div>
+            {data.layoutTemplate === "inferior" && <p className="pecas-note">No modelo inferior, o quadro utiliza toda a largura da folha; quando houver muitos vértices, os demais seguem em folhas de continuação para manter a leitura.</p>}
             <details className="pecas-advanced">
               <summary>Configurações avançadas dos elementos da planta</summary>
               <p>Marque os elementos que devem aparecer na prancha. As alterações atualizam o PDF de pré-visualização.</p>
