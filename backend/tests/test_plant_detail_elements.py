@@ -31,19 +31,21 @@ def parcel():
 
 
 class DetailElementsTests(unittest.TestCase):
-    def test_confrontacoes_agrupadas_circularmente_sem_perder_perimetro(self):
+    def test_confrontacoes_mantem_trechos_distintos_sem_perder_perimetro(self):
         p=parcel()
         groups=group_confrontations([p])
-        self.assertEqual(len(groups),4)
-        self.assertEqual(groups[0]["start"],"M-0304")
+        self.assertEqual(len(groups),5)
+        self.assertEqual(groups[0]["start"],"V-502")
         self.assertEqual(groups[0]["end"],"M-0305")
-        self.assertAlmostEqual(groups[0]["distance"],1128.57,places=2)
+        self.assertEqual(groups[-1]["start"],"M-0304")
+        self.assertEqual(groups[-1]["end"],"V-502")
+        self.assertAlmostEqual(groups[0]["distance"],908.30,places=2)
         self.assertAlmostEqual(sum(g["distance"] for g in groups),5584.83,places=2)
 
     def test_rotulos_uma_vez_por_cadeia_de_confrontacao(self):
         p=parcel()
         mids=grouped_label_positions(p)
-        self.assertEqual(len(mids),4)
+        self.assertEqual(len(mids),5)
         self.assertTrue(all(0<=index<len(p.segments) for index in mids))
 
     def test_cards_compactos_sao_renderizaveis(self):
