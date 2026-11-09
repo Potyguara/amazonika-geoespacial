@@ -511,6 +511,7 @@ def render_professional_plant(
     transformer=Transformer.from_crs("EPSG:4674",crs,always_xy=True)
     from pyproj import Proj
     convergence=Proj(crs).get_factors(mid_lon,mid_lat).meridian_convergence
+    elements=plant_elements or {}
     if elements.get("magnetic_declination",False):
         from datetime import datetime
         from app.services.plant_geomagnetism import resolve_magnetic_declination
@@ -521,7 +522,6 @@ def render_professional_plant(
     else:
         magnetic_source=None
     rows=_rows(parcels,transformer)
-    elements=plant_elements or {}
     if elements.get("situation", True) and raster is None:
         raise ValueError("A Planta de Situação exige imagem capturada do mapa.")
     _heading(pdf,title,property_address,paper_format,scale_denominator,w,h,palette,layout_template)
@@ -589,9 +589,7 @@ def render_professional_plant(
                        palette=palette)
         signature_card(pdf,Rect(sidebar_x,t-1043,sidebar_w,230),
                        owner_name,owner_cpf,professional,palette,date_text=survey_date,owner_rg=owner_rg)
-        summary_y=max(410,t-1125)
-        if summary_y+75 < t-1040:
-            _summary_card(pdf,Rect(sidebar_x,summary_y,sidebar_w,75),parcels,palette)
+        # O resumo não ocupa a faixa exclusiva da tabela inferior.
         # 61 vértices em A2: tabela ampla, sem reduzir para fonte microscópica.
         # Aumentar o quadro desloca o rodapé do mapa, não sua borda superior.
         first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
