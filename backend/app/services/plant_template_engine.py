@@ -460,7 +460,7 @@ def render_professional_plant(
         summary_y=max(410,t-1125)
         if summary_y+75 < t-1040:
             _summary_card(pdf,Rect(sidebar_x,summary_y,sidebar_w,75),parcels,palette)
-        first=_table(pdf,Rect(33,54,w-66,335),rows,palette,columns=2,font_size=6.4)
+        first=_table(pdf,Rect(33,54,w-66,335),rows,palette,columns=3,font_size=5.7)
 
     elif layout_template=="cartographic_frame":
         frame=Rect(33,418,w-66,h-536)
@@ -483,7 +483,7 @@ def render_professional_plant(
         _neighbors_card(pdf,cards[2][1],parcels,palette)
         _legend_card(pdf,cards[3][1],palette)
         _signature_card(pdf,cards[4][1],owner_name,professional,palette)
-        first=_table(pdf,Rect(33,54,w-66,340),rows,palette,columns=2,font_size=6.4)
+        first=_table(pdf,Rect(33,54,w-66,340),rows,palette,columns=3,font_size=5.7)
 
     else:  # modern_lateral
         left=Rect(34,445,w*.57-34,h-563)
