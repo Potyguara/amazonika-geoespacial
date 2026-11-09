@@ -2223,6 +2223,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           parcels,
+          property_metadata: importedMetadata,
           title: memorialTitle,
           plant_heading: plantHeading,
           memorial_heading: memorialHeading,
@@ -2259,6 +2260,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           parcels,
+          property_metadata: importedMetadata,
           title: memorialTitle,
           memorial_heading: memorialHeading,
           owner_name: memorialOwner || null,
@@ -2308,6 +2310,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         parcels,
+        property_metadata: importedMetadata,
         title: memorialTitle,
         plant_heading: plantHeading,
         memorial_heading: memorialHeading,
