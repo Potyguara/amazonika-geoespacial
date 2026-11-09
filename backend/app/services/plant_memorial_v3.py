@@ -413,7 +413,7 @@ def _panel(pdf, x, top, width, limit, *, title, owner, owner_rg, owner_cpf,
 
 
 def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
-                  address, heading, professional, croqui, stamp, edited_memorial=None):
+                  address, heading, professional, croqui, stamp, edited_memorial=None, property_metadata=None):
     w,h=A4; margin=43
     body=ParagraphStyle(
         "memorial",fontName="Helvetica",fontSize=9.4,leading=14,
@@ -478,6 +478,16 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
         f"ÁREA: {_br_number(sum(p.area_ha for p in parcels),4)} ha    "
         f"PERÍMETRO: {_br_number(sum(p.perimeter for p in parcels),2)} m",
     ]
+    for key, label in (
+        ("legal_status", "SITUAÇÃO JURÍDICA"),
+        ("area_nature", "NATUREZA DA ÁREA"),
+        ("sncr", "SNCR/INCRA"),
+        ("cns", "CNS"),
+        ("registration", "MATRÍCULA"),
+    ):
+        val = (property_metadata or {}).get(key)
+        if val:
+            meta.append(f"{label}: {val[:250]}")
     for line in meta:paragraph(line,bold=line.startswith("IMÓVEL"),space=2)
     y-=10
     prose=build_joint_memorial(
@@ -528,7 +538,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    plant_elements: dict | None = None,
                    magnetic_declination_degrees: float | None = None,
                    edited_memorial: str | None = None,
-                   survey_date: str | None = None) -> tuple[bytes,str,int]:
+                   survey_date: str | None = None,
+                   property_metadata: dict[str, str] | None = None) -> tuple[bytes,str,int]:
     elements = plant_elements or {}
     enabled = lambda key: elements.get(key, True)
     if enabled("situation") and not raster_b64:
@@ -759,6 +770,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     _memorial_pdf(
         pdf,parcels,title,owner_name,owner_rg,owner_cpf,property_address,
         memorial_heading,professional,croqui,stamp,edited_memorial,
+        property_metadata=property_metadata,
     )
     pdf.save()
     return data.getvalue(),fmt,scale
