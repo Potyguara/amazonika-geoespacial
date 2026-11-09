@@ -28,7 +28,7 @@ class Opener:
         self.urls=[]
     def open(self, request, timeout=None):
         self.urls.append(request.full_url)
-        return ResponseStub(self.payloads.pop(0))
+        return ResponseStub(self.payloads.pop(0) if self.payloads else {"datasets": []})
 
 
 class FakeDB:
@@ -91,6 +91,16 @@ class SigefSelectionTests(unittest.TestCase):
             result=sources.sigef_official_base_metadata(uuid4(),db=FakeDB())
         self.assertEqual(result["last_updated"],"2026-11-01T12:30:00Z")
         self.assertEqual(result["status"],"PUBLISHED")
+        self.assertEqual(urlsplit(opener.urls[0]).hostname, "geoportal.incra.gov.br")
+
+    def test_catalogue_resources_response_with_official_modification(self):
+        example={"resources":[{"title":"Sigef - todas parcelas",
+                              "last_updated":"2026-11-09T01:21:00Z"}]}
+        opener=Opener([example])
+        with patch.object(sources,"build_opener",return_value=opener):
+            result=sources.sigef_official_base_metadata(uuid4(),db=FakeDB())
+        self.assertEqual(result["last_updated"],"2026-11-09T01:21:00Z")
+        self.assertEqual(result["resource"],"Sigef - todas parcelas")
 
     def test_missing_official_date_never_becomes_current_date(self):
         opener=Opener([{"datasets":[{"alternate":"geonode:sigef_geo",
