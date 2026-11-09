@@ -162,7 +162,6 @@ export function PecasTecnicasWorkspace({
       urlRef.current = null;
     }
   }, [loadedPieceId, loadedMemorialDraft]);
-  const lastMemorialKey = useRef("");
   const lastPdfKey = useRef("");
   const urlRef = useRef<string | null>(null);
   const memorialCallbackRef = useRef(onGenerateMemorial);
@@ -184,48 +183,28 @@ export function PecasTecnicasWorkspace({
   });
   const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
 
-  useEffect(() => {
-    if (!open || stage !== 2 || !chosen.length || commonKey === lastMemorialKey.current) return;
-    lastMemorialKey.current = commonKey;
-    void memorialCallbackRef.current();
-  }, [open, stage, commonKey, chosen.length]);
-
-  useEffect(() => {
-    if (!open || stage !== 3 || !chosen.length || pdfKey === lastPdfKey.current) return;
-    lastPdfKey.current = pdfKey;
-    let cancelled = false;
-    let finished = false;
+  // Nenhuma mudança de configuração, etapa ou geometria dispara geração.
+  // A referência da revisão é capturada antes da chamada e conferida ao fim.
+  const handleGeneratePlantAndMemorial = async () => {
+    if (!chosen.length || pdfBusy) return;
+    const requestedKey = pdfKey;
     setPdfBusy(true);
     setPdfError("");
-    setPdfBlob(null);
-    setPdfUrl(null);
-    if (urlRef.current) {
-      URL.revokeObjectURL(urlRef.current);
-      urlRef.current = null;
+    try {
+      const blob = await pdfCallbackRef.current();
+      const url = URL.createObjectURL(blob);
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = url;
+      setPdfBlob(blob);
+      setPdfUrl(url);
+      lastPdfKey.current = requestedKey;
+    } catch (error) {
+      setPdfError(error instanceof Error
+        ? error.message : "Falha ao gerar planta e memorial.");
+    } finally {
+      setPdfBusy(false);
     }
-    void (async () => {
-      try {
-        const blob = await pdfCallbackRef.current();
-        if (cancelled) return;
-        finished = true;
-        const url = URL.createObjectURL(blob);
-        urlRef.current = url;
-        setPdfBlob(blob);
-        setPdfUrl(url);
-      } catch (error) {
-        if (!cancelled) {
-          lastPdfKey.current = ""; // Permite nova tentativa ao voltar à etapa.
-          setPdfError(error instanceof Error ? error.message : "Falha na geração da planta.");
-        }
-      } finally {
-        if (!cancelled) setPdfBusy(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (!finished) lastPdfKey.current = ""; // Retentativa ao retornar à etapa.
-    };
-  }, [open, stage, pdfKey, chosen.length]);
+  };
 
   useEffect(() => () => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -473,7 +452,7 @@ export function PecasTecnicasWorkspace({
             {data.layoutTemplate === "inferior" && <p className="pecas-note">No modelo inferior, o quadro utiliza toda a largura da folha; quando houver muitos vértices, os demais seguem em folhas de continuação para manter a leitura.</p>}
             <details className="pecas-advanced">
               <summary>Configurações avançadas dos elementos da planta</summary>
-              <p>Marque os elementos que devem aparecer na prancha. As alterações atualizam o PDF de pré-visualização.</p>
+              <p>Configure os elementos e clique em Gerar Planta + Memorial para atualizar o PDF.</p>
               <div className="pecas-options-grid">
                 {PLANT_OPTIONS.map(([key, label]) => (
                   <label className="pecas-check" key={key}>
@@ -501,9 +480,17 @@ export function PecasTecnicasWorkspace({
                 Restaurar elementos padrão
               </button>
             </details>
-            {pdfBusy && <p className="pecas-busy">Gerando o PDF para conferência…</p>}
-            {pdfError && <p role="alert" className="pecas-warning">{pdfError} <button type="button" onClick={() => { lastPdfKey.current = ""; setStage(2); }}>Voltar para tentar novamente</button></p>}
-            {pdfUrl && !pdfBusy && (
+            <div className="pecas-situation-actions">
+              <button type="button" className="pecas-primary"
+                disabled={pdfBusy || !chosen.length}
+                onClick={() => void handleGeneratePlantAndMemorial()}>
+                {pdfBusy ? "Gerando Planta + Memorial…" : "Gerar Planta + Memorial"}
+              </button>
+            </div>
+            {!pdfReady && !pdfBusy && <p className="pecas-note" role="status">Documento ainda não gerado ou configurações alteradas. Clique em Gerar Planta + Memorial para atualizar a pré-visualização.</p>}
+            {pdfBusy && <p className="pecas-busy">Gerando a planta e o memorial…</p>}
+            {pdfError && <p role="alert" className="pecas-warning">{pdfError}</p>}
+            {pdfReady && pdfUrl && !pdfBusy && (
               <iframe className="pecas-pdf-frame" title="Pré-visualização da planta e memorial"
                 src={pdfUrl} />
             )}
