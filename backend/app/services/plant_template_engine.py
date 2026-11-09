@@ -87,14 +87,18 @@ def _text(pdf, value, x, y, size, font, color, max_width=None):
 
 def _card(pdf, rect, heading, palette):
     dark, pale, accent, paper = palette
+    # Moldura de desenho técnico: cantos discretos, régua de acento
+    # e uma única tipografia de seção, sem estética de dashboard.
     pdf.setFillColor(_color(paper))
-    pdf.setStrokeColor(_color("#C9D4D1"))
-    pdf.roundRect(rect.x, rect.y, rect.w, rect.h, 5, stroke=1, fill=1)
+    pdf.setStrokeColor(_color("#B7C5C0"))
+    pdf.setLineWidth(.65)
+    pdf.roundRect(rect.x, rect.y, rect.w, rect.h, 1.8, stroke=1, fill=1)
     pdf.setFillColor(_color(dark))
-    pdf.roundRect(rect.x, rect.top - 23, rect.w, 23, 5, fill=1, stroke=0)
-    pdf.rect(rect.x, rect.top - 23, rect.w, 12, fill=1, stroke=0)
+    pdf.rect(rect.x, rect.top - 24, rect.w, 24, fill=1, stroke=0)
+    pdf.setFillColor(_color(accent))
+    pdf.rect(rect.x, rect.top - 24, 3, 24, fill=1, stroke=0)
     regular, bold, _ = _fonts()
-    _text(pdf, heading.upper(), rect.x + 9, rect.top - 16, 7.2, bold, "#FFFFFF")
+    _text(pdf, heading.upper(), rect.x + 11, rect.top - 16, 7.5, bold, "#FFFFFF")
 
 
 def _details(pdf, rect, fields, palette, *, heading="IDENTIFICAÇÃO DO IMÓVEL"):
@@ -115,8 +119,15 @@ def _image_card(pdf, rect, image, source, palette):
     _card(pdf, rect, "PLANTA DE SITUAÇÃO", palette)
     box = Rect(rect.x + 7, rect.y + 21, rect.w - 14, rect.h - 52)
     if image is not None:
+        # Preservar proporção original, evitando deformação da captura.
         pdf.drawImage(image, box.x, box.y, box.w, box.h,
                       preserveAspectRatio=True, anchor="c")
+    else:
+        _text(pdf, "Sem imagem de situação vinculada", box.x + 8,
+              box.y + box.h/2, 7.0, _fonts()[0], palette[0])
+    pdf.setStrokeColor(_color("#B7C5C0"))
+    pdf.setLineWidth(.5)
+    pdf.rect(box.x,box.y,box.w,box.h,fill=0,stroke=1)
     _text(pdf, (source or "Base cartográfica")[:64], rect.x + 9, rect.y + 8,
           5.8, _fonts()[0], palette[0])
 
