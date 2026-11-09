@@ -1309,6 +1309,68 @@ def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     except (HTTPError,URLError,TimeoutError) as exc:
         raise HTTPException(502,f"O serviço WMS oficial não respondeu: {exc}") from exc
 
+@router.get("/{source_id}/sigef-base-metadata")
+def sigef_official_base_metadata(
+    source_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """Consultar a data de atualização publicada pelo GeoNode do INCRA.
+
+    Não confundir data de consulta ou de registro de uma parcela com a
+    última atualização da camada nacional. Se ausente, retornar null.
+    """
+    source = db.get(Source, source_id)
+    if not source or not source.is_active or source.slug != "incra-sigef-brasil":
+        raise HTTPException(404, "Fonte SIGEF Brasil não encontrada.")
+    db.close()
+    url = (
+        "https://geonodeincra.serpro.gov.br/api/v2/datasets/"
+        "?filter%7Balternate%7D=sigef_geo&page_size=50"
+    )
+    req = UrlRequest(url, headers={
+        "User-Agent": "Amazonika-Geoespacial/1.0",
+        "Accept": "application/json",
+    })
+    result = {
+        "last_updated": None,
+        "provider": "INCRA / GeoNode",
+        "status": "NOT_PUBLISHED",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        opener = build_opener(
+            OfficialOnlyRedirectHandler(),
+            HTTPSHandler(context=ssl.create_default_context()),
+        )
+        with opener.open(req, timeout=12) as response:
+            raw = response.read(512 * 1024 + 1)
+        if len(raw) > 512 * 1024:
+            return result
+        payload = json.loads(raw)
+        datasets = payload.get("datasets") or payload.get("results") or []
+        if isinstance(datasets, dict):
+            datasets = datasets.get("datasets") or datasets.get("results") or []
+        if not isinstance(datasets, list):
+            return result
+        for entry in datasets:
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("alternate") or entry.get("alternate_name") or "").split(":")[-1] != "sigef_geo":
+                continue
+            modified = entry.get("last_updated") or entry.get("last_modified")
+            if isinstance(modified, str) and len(modified) >= 10:
+                try:
+                    datetime.fromisoformat(modified.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                result["last_updated"] = modified
+                result["status"] = "PUBLISHED"
+                break
+    except (HTTPError, URLError, TimeoutError, ValueError, UnicodeDecodeError, TypeError):
+        result["status"] = "UNAVAILABLE"
+    return result
+
+
 @router.get("/{source_id}/sigef-selected-geometry")
 def sigef_selected_geometry(
     source_id: UUID,
