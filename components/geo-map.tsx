@@ -2399,7 +2399,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setPropertyAddress(String(data.address ?? ""));
       setCroquiNote(Boolean(data.croqui));
       setPaperFormat(data.format === "A1" ? "A1" : "A2");
-      setPaperOrientation("retrato");
+      setPaperOrientation(data.orientation === "paisagem" ? "paisagem" : "retrato");
       setPlantLayoutTemplate(typeof data.layoutTemplate === "string" && ["classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) ? data.layoutTemplate as PecasData["layoutTemplate"] : "classic_lateral");
       setScaleChoice(String(data.scale ?? "auto"));
       setCustomScale(String(data.customScale ?? "1500"));
@@ -2439,13 +2439,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       case "address": setPropertyAddress(String(value)); break;
       case "croqui": setCroquiNote(Boolean(value)); break;
       case "format": setPaperFormat(value === "A1" ? "A1" : "A2"); break;
-      case "orientation": setPaperOrientation("retrato"); break;
+      case "orientation": setPaperOrientation(value === "paisagem" ? "paisagem" : "retrato"); break;
       case "layoutTemplate": {
         const chosen = value as PecasData["layoutTemplate"];
         setPlantLayoutTemplate(chosen);
         if (["classic_lateral", "cartographic_frame", "modern_lateral"].includes(chosen)) {
           setPaperFormat("A2");
-          setPaperOrientation("retrato");
           setPlantElements(prev => ({...prev, coordinates: true}));
         }
         break;
