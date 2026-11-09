@@ -57,7 +57,7 @@ def _columns(width):
     return list(zip(starts, widths))
 
 
-def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordinates=True):
+def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordinates=True, layout_template='lateral'):
     fmt = (paper or "A4").upper()
     if fmt not in PAPERS:
         raise ValueError("Formato inválido. Escolha A4, A3, A2, A1 ou A0.")
@@ -65,12 +65,15 @@ def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordina
         raise ValueError("Orientação inválida. Escolha paisagem ou retrato.")
     w, h = (landscape if orientation == "paisagem" else portrait)(PAPERS[fmt])
     frame = (23, 23, w-46, h-46)
+    if layout_template not in ('lateral', 'inferior'):
+        raise ValueError('Modelo de planta inválido.')
     side_x = w * (.73 if orientation == "paisagem" else .68)
     map_left, map_right = 38, side_x - 15
     available_width = map_right - map_left
     row_h = 13 if fmt in ("A4", "A3") else 14
     title_h = 23
-    table_h = title_h + (vertex_count + 1) * row_h + 7 if show_coordinates else 0
+    first_rows = min(vertex_count, 12) if layout_template == 'inferior' else vertex_count
+    table_h = title_h + (first_rows + 1) * row_h + 7 if show_coordinates else 0
     # Faixa exclusiva para escala gráfica e escala numérica; fora da grade UTM.
     map_bottom = 42 + table_h + 39
     # Faixa acima da grade reservada a rosa dos ventos e quadro magnético.
@@ -102,8 +105,9 @@ def _layout(projected, *, vertex_count, paper, orientation, scale, show_coordina
             f"Escala 1:{chosen:,} não cabe no formato {fmt} ({orientation}). "
             f"Utilize 1:{suggested:,} ou uma escala menor no desenho."
         )
+    table_width = w - 76 if layout_template == 'inferior' else map_w
     return (fmt, w, h, side_x, bounds,
-            (map_left, map_bottom, map_w, map_h), (38, 42, map_w, table_h), chosen)
+            (map_left, map_bottom, map_w, map_h), (38, 42, table_width, table_h), chosen)
 
 
 def _fit_text(pdf, text, max_width, font="Helvetica", max_size=8.0, min_size=5.8):
@@ -209,7 +213,7 @@ def _grid(pdf, viewport, bounds, xy, zone, hemi):
                    f"GRADE UTM  |  SIRGAS 2000  |  FUSO {zone}{hemi}")
 
 
-def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
+def _coordinates_table(pdf, bounds, parcels, transformer, font_size, *, row_start=0, row_end=None):
     left,bottom,width,height=bounds
     rows=[
         (p.names[i],_dms(lon,"lon"),_dms(lat,"lat"),
@@ -221,6 +225,7 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size):
         for p in parcels
         for i,((lon,lat),seg) in enumerate(zip(p.points,p.segments))
     ]
+    rows = rows[row_start:row_end]
     cols=_columns(width)
     pdf.saveState()
     pdf.setStrokeColor(RULE)
@@ -539,7 +544,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    magnetic_declination_degrees: float | None = None,
                    edited_memorial: str | None = None,
                    survey_date: str | None = None,
-                   property_metadata: dict[str, str] | None = None) -> tuple[bytes,str,int]:
+                   property_metadata: dict[str, str] | None = None,
+                   layout_template: str = 'lateral') -> tuple[bytes,str,int]:
     elements = plant_elements or {}
     enabled = lambda key: elements.get(key, True)
     if enabled("situation") and not raster_b64:
@@ -574,6 +580,7 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         projected,vertex_count=count,paper=paper_format,
         orientation=orientation,scale=scale_denominator,
         show_coordinates=enabled("coordinates"),
+        layout_template=layout_template,
     )
     x0,y0,x1,y1=bounds
     vx,vy,vw,vh=viewport
@@ -741,12 +748,14 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
         pdf.drawString(magnetic_box.x+34,magnetic_box.y+6,
                        source_short+" "+reference_dt.strftime("%d/%m/%y"))
         pdf.restoreState()
-    if enabled("coordinates"):
-        _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=="A4" else 7.3)
+    if enabled('coordinates'):
+        _coordinates_table(pdf,table_rect,parcels,transformer,6.8 if fmt=='A4' else 7.3,
+                           row_end=12 if layout_template=='inferior' else None)
     # Coluna direita em células separadas com situação cartográfica.
     panel_x=side+7
     _panel(
-        pdf,panel_x,h-28,w-panel_x-28,28,
+        pdf,panel_x,h-28,w-panel_x-28,
+        (42+table_rect[3]+10) if layout_template=='inferior' and enabled('coordinates') else 28,
         title=title,owner=owner_name,owner_rg=owner_rg,owner_cpf=owner_cpf,
         address=property_address,
         area=sum(p.area_ha for p in parcels),
