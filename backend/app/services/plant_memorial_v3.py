@@ -626,6 +626,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
             scale_denominator=scale_denominator, plant_elements=elements,
             stamp=stamp, croqui=croqui, disclaimer=DISCLAIMER,
             layout_template=layout_template, property_metadata=property_metadata,
+            survey_date=reference_dt.strftime("%d/%m/%Y"),
+            magnetic_declination_degrees=magnetic_declination_degrees,
         )
         printer.showPage()
         _memorial_pdf(
