@@ -348,6 +348,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
   const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A4");
   const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
+  const [plantLayoutTemplate, setPlantLayoutTemplate] = useState<"lateral" | "inferior">("lateral");
   const [scaleChoice, setScaleChoice] = useState("auto");
   const [customScale, setCustomScale] = useState("1500");
   const [surveyDate, setSurveyDate] = useState("");
@@ -683,7 +684,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         owner: memorialOwner, rg: ownerRg, cpf: ownerCpf,
         address: propertyAddress, croqui: croquiNote,
         format: paperFormat, orientation: paperOrientation,
-        scale: scaleChoice, customScale,
+        layoutTemplate: plantLayoutTemplate, scale: scaleChoice, customScale,
       },
       professional: documentProfessional,
       elements: plantElements,
@@ -2325,6 +2326,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         raster_source,
         paper_format: paperFormat,
         orientation: paperOrientation,
+        layout_template: plantLayoutTemplate,
         plant_elements: plantElements,
         magnetic_declination_degrees: plantElements.magnetic_declination && magneticDeclination.trim()
           ? Number(magneticDeclination) : null,
@@ -2398,6 +2400,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setCroquiNote(Boolean(data.croqui));
       setPaperFormat((data.format as typeof paperFormat) ?? "A4");
       setPaperOrientation((data.orientation as typeof paperOrientation) ?? "paisagem");
+      setPlantLayoutTemplate(data.layoutTemplate === "inferior" ? "inferior" : "lateral");
       setScaleChoice(String(data.scale ?? "auto"));
       setCustomScale(String(data.customScale ?? "1500"));
       if (snapshot.professional) {
@@ -2437,6 +2440,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       case "croqui": setCroquiNote(Boolean(value)); break;
       case "format": setPaperFormat(value as typeof paperFormat); break;
       case "orientation": setPaperOrientation(value as typeof paperOrientation); break;
+      case "layoutTemplate": setPlantLayoutTemplate(value as "lateral" | "inferior"); break;
       case "scale": setScaleChoice(String(value)); break;
       case "customScale": setCustomScale(String(value)); break;
     }
@@ -2769,7 +2773,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           title: memorialTitle, plantHeading, memorialHeading, owner: memorialOwner,
           rg: ownerRg, cpf: ownerCpf, address: propertyAddress, croqui: croquiNote,
           format: paperFormat, orientation: paperOrientation,
-          scale: scaleChoice, customScale,
+          layoutTemplate: plantLayoutTemplate, scale: scaleChoice, customScale,
         }}
         onDataChange={changePecasData}
         polygons={polygons}
