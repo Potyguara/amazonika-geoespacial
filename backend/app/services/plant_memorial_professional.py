@@ -182,9 +182,9 @@ def _confrontation_and_sketch(pdf,y,parcels,c):
         pdf.setStrokeColor(_col("#E2E9E5"))
         pdf.line(x+10,yy+2,x+lw-9,yy+2)
     footer=lefty+14
-    if yy<footer+14 and len(groups)>6:
-        _str(pdf,"Confrontações adicionais na descrição",x+10,footer+16,
-             5.9,color="#78521D")
+    if len(groups)>6:
+        _str(pdf,"Demais confrontantes descritos nas próximas seções",
+             x+10,footer+16,5.6,color="#78521D")
     _str(pdf,"PERÍMETRO TOTAL",x+10,footer,6.1,"Helvetica-Bold",c["gold"])
     _str(pdf,f"{_br_number(sum(p.perimeter for p in parcels),2)} m",
          x+lw-11,footer-1,8.3,"Helvetica-Bold",c["primary"],right=True)
@@ -287,7 +287,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
             new_page()
             pending=blocks[1]
 
-    if edited_memorial is not None:
+    if edited_memorial is not None and edited_memorial.strip():
         # Aplicar o mesmo template A/B/C ao texto aprovado pelo usuário.
         # Conteúdo textual preservado, sem gerar novo texto automaticamente.
         for line in edited_memorial.splitlines():
@@ -318,7 +318,11 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                 pdf.rect(margin,y-bar_h,4,bar_h,fill=1,stroke=0)
                 _str(pdf,str(idx+1),margin+15,y-15,8,"Helvetica-Bold","#FFFFFF")
                 group_title=f"Confrontante: {group['name']}"
-                _str(pdf,group_title[:64],margin+32,y-15,7.2,"Helvetica-Bold","#FFFFFF")
+                limit=W-2*margin-185
+                while len(group_title)>6 and pdfmetrics.stringWidth(
+                        group_title,"Helvetica-Bold",7.2)>limit:
+                    group_title=group_title[:-2].rstrip()+"…"
+                _str(pdf,group_title,margin+32,y-15,7.2,"Helvetica-Bold","#FFFFFF")
                 _str(pdf,f"{_short(group['start'])} → {_short(group['end'])} · "
                      f"{_br_number(group['distance'],2)} m",
                      W-margin-8,y-15,6.6,"Helvetica-Bold","#FFFFFF",right=True)
@@ -345,7 +349,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                   "geodésicos calculados sobre o elipsóide GRS80. A precisão depende "
                   "da fonte da geometria; esta emissão não constitui certificação fundiária.",
                   space=13)
-    if y<225:
+    if y<195:
         new_page()
     _str(pdf,f"{address or 'Local não informado'}, "
          f"{survey_date.strftime('%d/%m/%Y')}.",margin,y,7.2,color=c["dark"])
