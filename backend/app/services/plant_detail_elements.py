@@ -297,7 +297,7 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=Non
                       size=6.0,color="#687C71")
 
 
-def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01/01",dark_text=False):
+def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01",dark_text=False):
     dark,pale,accent,_=palette
     _,bold,_=_font_names()
     lines=[
