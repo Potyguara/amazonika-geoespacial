@@ -352,7 +352,7 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
         # Escala gráfica com segmento em distância real (m), sem sobrepor
         # as marcas da grade; comprimento e rótulos coerentes com a escala.
         px_per_m = _pt_meter(scale)
-        target_m = 100 * 72 / (.0254 * scale)
+        target_m = 100 / px_per_m
         magnitude = 10 ** math.floor(math.log10(max(target_m, 1)))
         choices = (1, 2, 2.5, 5, 10)
         meters = next((v*magnitude for v in choices if v*magnitude >= target_m), 10*magnitude)
