@@ -418,14 +418,14 @@ export function PecasTecnicasWorkspace({
             <div className="pecas-print-grid">
               <label className="pecas-field"><span>Modelo da prancha</span>
                 <select value={data.layoutTemplate} onChange={(event) => onDataChange("layoutTemplate", event.target.value)}>
-                  <option value="classic_lateral">Profissional A — clássico lateral (A2/A1)</option>
-                  <option value="cartographic_frame">Profissional B — moldura cartográfica (A2/A1)</option>
-                  <option value="modern_lateral">Profissional C — moderno com quadro lateral (A2/A1)</option>
+                  <option value="classic_lateral">Profissional A — clássico lateral (A0–A4)</option>
+                  <option value="cartographic_frame">Profissional B — moldura cartográfica (A0–A4)</option>
+                  <option value="modern_lateral">Profissional C — moderno com quadro lateral (A0–A4)</option>
                 </select>
               </label>
               <label className="pecas-field"><span>Formato da folha</span>
                 <select value={data.format} onChange={(e) => onDataChange("format", e.target.value)}>
-                  {(["A2", "A1"] as const).map((v) => <option key={v}>{v}</option>)}
+                  {(["A4", "A3", "A2", "A1", "A0"] as const).map((v) => <option key={v}>{v}</option>)}
                 </select>
               </label>
               <label className="pecas-field"><span>Orientação</span>
@@ -448,7 +448,7 @@ export function PecasTecnicasWorkspace({
                   onChange={(e) => onDataChange("customScale", e.target.value)} />
               </label>}
             </div>
-            {["classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) && <p className="pecas-note">Modelos profissionais: folha A2 ou A1, orientação retrato ou paisagem. Fonte e quadro técnico ajustados para composição de engenharia.</p>}
+            {["classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) && <p className="pecas-note">Modelos profissionais: folhas A0, A1, A2, A3 e A4; retrato ou paisagem. Fonte e quadro técnico ajustados para composição de engenharia.</p>}
             {data.layoutTemplate === "inferior" && <p className="pecas-note">No modelo inferior, o quadro utiliza toda a largura da folha; quando houver muitos vértices, os demais seguem em folhas de continuação para manter a leitura.</p>}
             <details className="pecas-advanced">
               <summary>Configurações avançadas dos elementos da planta</summary>
