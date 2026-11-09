@@ -29,7 +29,7 @@ export const PLANT_OPTIONS = [
   ["coordinates", "Quadro de coordenadas"],
   ["situation", "Planta de situação"],
   ["technical_stamp", "Carimbo do responsável técnico"],
-  ["magnetic_declination", "Declinação magnética informada"],
+  ["magnetic_declination", "Declinação magnética (WMM2025 automática ou manual)"],
 ] as const;
 export type PlantElementKey = (typeof PLANT_OPTIONS)[number][0];
 export type PlantElementFlags = Record<PlantElementKey, boolean>;
@@ -37,7 +37,7 @@ export const DEFAULT_PLANT_ELEMENTS: PlantElementFlags = {
   title: true, grid: true, north: true, scale_text: true,
   scale_bar: false, vertex_labels: true, azimuths: true,
   distances: true, confrontants: true, coordinates: true,
-  situation: true, technical_stamp: true, magnetic_declination: false,
+  situation: true, technical_stamp: true, magnetic_declination: true,
 };
 
 export type PecasPolygon = {
