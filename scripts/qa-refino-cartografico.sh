@@ -13,6 +13,7 @@ echo "===== SINTAXE BACKEND ====="
 python3 -m py_compile \
   backend/app/services/plant_template_engine.py \
   backend/app/services/plant_detail_elements.py \
+  backend/app/services/plant_croqui_warning.py \
   backend/app/services/plant_memorial_professional.py \
   backend/app/services/plant_geomagnetism.py \
   backend/app/services/plant_memorial_v3.py \
@@ -24,6 +25,7 @@ docker build -f backend/Dockerfile.production \
 
 echo "===== TESTES DO MOTOR ====="
 for testfile in \
+  test_croqui_warning_optional.py \
   test_final_paper_formats.py \
   test_memorial_manual_highlights.py \
   test_plant_landscape_memorial_wmm.py \
