@@ -299,7 +299,7 @@ def _table_height(rows_count, columns, *, font_size=6.2):
 def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
          elements, *, inset_left=0):
     from app.services.plant_memorial_v3 import _grid, _azimuth_and_distance
-    from app.services.plant_label_layout import LabelLayout
+    from app.services.plant_label_layout import LabelLayout, Box
     points = [transformer.transform(*pos) for parcel in parcels for pos in parcel.points]
     xmin = min(p[0] for p in points); xmax = max(p[0] for p in points)
     ymin = min(p[1] for p in points); ymax = max(p[1] for p in points)
@@ -333,7 +333,18 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
     if elements.get("grid", True):
         _grid(pdf, (actual.x, actual.y, actual.w, actual.h), (xmin,ymin,xmax,ymax),
               xy, zone, hemi)
-    label_layout = LabelLayout((actual.x, actual.y, actual.w, actual.h))
+    # Isolar margens de graduação UTM e reservar móveis cartográficos
+    # antes de posicionar os rótulos.
+    label_layout = LabelLayout((actual.x+21, actual.y+24,
+                                actual.w-42, actual.h-48))
+    rose_x,rose_y=actual.x+67,actual.y+104
+    rose_rect=Box(rose_x-52,rose_y-52,104,104)
+    scale_rect=Rect(actual.x+actual.w-220,actual.top-150,208,138)
+    if elements.get("north",True):
+        label_layout.reserved.append(rose_rect)
+    if elements.get("scale_text",True) or elements.get("scale_bar",True):
+        label_layout.reserved.append(Box(scale_rect.x-4,scale_rect.y-4,
+                                         scale_rect.w+8,scale_rect.h+8))
     center = tuple(sum(p[i] for p in points)/len(points) for i in (0,1))
     center_xy = xy(*center)
     for p in parcels:
@@ -370,11 +381,10 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
                 )
     regular, bold, _ = _fonts()
     if elements.get("north", True):
-        compass_rose(pdf,actual.x+67,actual.y+105,36,palette)
+        compass_rose(pdf,rose_x,rose_y,36,palette)
     # Escala numérica e gráfica reunidas no mesmo quadro técnico.
     if elements.get("scale_text", True) or elements.get("scale_bar", True):
-        scale_card(pdf,Rect(actual.x+actual.w-220,actual.top-150,208,138),
-                   scale,palette)
+        scale_card(pdf,scale_rect,scale,palette)
     return scale
 
 
@@ -439,11 +449,9 @@ def render_professional_plant(
 
     A camada superior de exportação chama showPage() antes do memorial.
     """
-    if paper_format not in PAPER or orientation != "retrato":
-        raise ValueError(
-            "Os modelos profissionais estão disponíveis em A2 ou A1, orientação retrato."
-        )
-    w,h=portrait(PAPER[paper_format])
+    if paper_format not in PAPER or orientation not in ("retrato","paisagem"):
+        raise ValueError("Modelos profissionais: A2/A1, retrato ou paisagem.")
+    w,h=(portrait if orientation=="retrato" else landscape)(PAPER[paper_format])
     palette=PALETTES[layout_template]
     fields=[
         ("Imóvel", title),
@@ -465,11 +473,58 @@ def render_professional_plant(
     transformer=Transformer.from_crs("EPSG:4674",crs,always_xy=True)
     from pyproj import Proj
     convergence=Proj(crs).get_factors(mid_lon,mid_lat).meridian_convergence
+    if elements.get("magnetic_declination",False):
+        from datetime import datetime
+        from app.services.plant_geomagnetism import resolve_magnetic_declination
+        ref_date=datetime.strptime(survey_date,"%d/%m/%Y").date() if survey_date else datetime.now().date()
+        magnetic_declination_degrees,magnetic_source=resolve_magnetic_declination(
+            parcels,ref_date,enabled=True,manual_degrees=magnetic_declination_degrees,
+        )
+    else:
+        magnetic_source=None
     rows=_rows(parcels,transformer)
     elements=plant_elements or {}
     if elements.get("situation", True) and raster is None:
         raise ValueError("A Planta de Situação exige imagem capturada do mapa.")
     _heading(pdf,title,property_address,paper_format,scale_denominator,w,h,palette,layout_template)
+
+    if orientation=="paisagem":
+        # A2/A1 horizontal: prioridade ao mapa e aos cinco quadros.
+        # A tabela de vértices segue em folha complementar sem perda de dados.
+        top=h-118
+        bottom=65
+        side_w=max(325,min(505,w*.30))
+        gap=14
+        map_w=w-66-side_w-gap
+        sidebar_x=33+map_w+gap
+        main_rect=Rect(33,bottom,map_w,top-bottom)
+        map_scale=_map(pdf,main_rect,parcels,transformer,zone,hemi,
+                       scale_denominator,palette,elements)
+        card_w=side_w
+        available=top-bottom
+        gap_y=7
+        factor=(available-4*gap_y)/995
+        parts=[205,190,180,150,270]
+        heights=[v*factor for v in parts]
+        t=top
+        regions=[]
+        for height in heights:
+            regions.append(Rect(sidebar_x,t-height,card_w,height))
+            t-=height+gap_y
+        _details(pdf,regions[0],fields,palette)
+        _image_card(pdf,regions[1],raster if elements.get("situation",True) else None,
+                    raster_source,palette)
+        confrontations_card(pdf,regions[2],parcels,palette)
+        reference_card(pdf,regions[3],zone,hemi,
+                       convergence=convergence,declination=magnetic_declination_degrees,
+                       palette=palette)
+        signature_card(pdf,regions[4],owner_name,owner_cpf,professional,palette,
+                       date_text=survey_date,owner_rg=owner_rg)
+        header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette,
+                         dark_text=(layout_template=="modern_lateral"))
+        _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
+        _continuation(pdf,rows,0,w,h,title,stamp,palette)
+        return w,h,map_scale
 
     if layout_template=="classic_lateral":
         bottom_h=min(475, _table_height(len(rows),2,font_size=7.0))
