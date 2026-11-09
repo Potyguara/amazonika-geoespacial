@@ -283,6 +283,7 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,
             ("Especialidade",professional.get("specialization") or professional.get("specialty")),
             ("CREA/CAU",professional.get("crea") or professional.get("cau") or professional.get("registration_number")),
             ("Visto",professional.get("visto")),
+            ("INCRA",professional.get("incra_code")),
             ("ART",professional.get("art")),
         ]),
     ]
