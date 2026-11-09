@@ -67,6 +67,24 @@ def _remove_redundant_auto_header(value):
     return value.strip()
 
 
+def _without_legacy_signature(value,professional):
+    """Evita duplicar um rodapé automático antigo, sem remover prosa técnica.
+
+    Só atua quando existe um separador longo de assinatura seguido do
+    mesmo profissional cadastrado; títulos e corpo permanecem intocados.
+    """
+    text=value.strip()
+    found=list(re.finditer(r"_{20,}",text))
+    name=str(professional.get("full_name") or "").strip()
+    if not found or not name:
+        return text
+    pos=found[-1].start()
+    remainder=text[pos:]
+    if name.casefold() in remainder.casefold() and len(remainder)<1200:
+        return text[:pos].rstrip()
+    return text
+
+
 def _highlight_memorial_text(value,confrontants):
     """Confrontantes e vértices com destaque, sem aceitar HTML bruto."""
     source=escape(value)
@@ -309,7 +327,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                         size=8.4,leading=10.7,color="#FFFFFF",bold=True)
         _,name_h=name_para.wrap(W-2*margin-79,300)
         bar_h=max(43,name_h+29)
-        if y<bar_h+115:
+        if y<bar_h+180:
             new_page()
         pdf.setFillColor(_col(c["primary"]))
         pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,5,stroke=0,fill=1)
@@ -349,7 +367,9 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
 
     if edited_memorial is not None and edited_memorial.strip():
         # Manter revisão do usuário, eliminando somente prólogo padrão duplicado.
-        source=_remove_redundant_auto_header(edited_memorial)
+        source=_without_legacy_signature(
+            _remove_redundant_auto_header(edited_memorial),professional
+        )
         confrontants=[name for p in parcels for name in p.confrontants]
         # A descrição editada mantém seu conteúdo, mas cada transição
         # explícita de confrontante recebe a mesma faixa dos textos gerados.
