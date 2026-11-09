@@ -125,22 +125,22 @@ def confrontations_card(pdf, rect, parcels, palette):
     _text(pdf,"CONFRONTANTE",x+4,top-15,size=6.7,bold=True,color=dark)
     _text(pdf,"TRECHO",x+name_w+4,top-15,size=6.7,bold=True,color=dark)
     _text(pdf,"EXT. (m)",x+name_w+segment_w+3,top-15,size=6.7,bold=True,color=dark)
-    row_top=top-24
-    footer_y=rect.y+12
-    available_h=row_top-footer_y-31
-    if len(groups)>0 and available_h/max(len(groups),1)<18:
+    row_top=top-22
+    footer_y=rect.y+8
+    available_h=row_top-(footer_y+29)
+    if len(groups)>0 and available_h/max(len(groups),1)<15:
         # Nunca descartar confrontantes nem falsificar o perímetro; sinalizar
         # explicitamente excesso e remeter ao memorial completo.
-        count=max(0,int(available_h//19)-1)
+        count=max(0,int(available_h//16)-1)
         shown=groups[:count]
         overflow=len(groups)-len(shown)
     else:
         shown=groups
         overflow=0
-    row_h=min(28,max(19,available_h/max(1,len(shown))))
+    row_h=min(28,max(15,available_h/max(1,len(shown))))
     for i,group in enumerate(shown):
         yy=row_top-(i+1)*row_h
-        if yy<=footer_y+20:
+        if yy<=footer_y+23:
             overflow=len(groups)-i
             break
         _text(pdf,group["name"],x+4,yy+7,size=7,bold=True,
@@ -183,7 +183,7 @@ def reference_card(pdf,rect,zone,hemi,*,convergence=None,declination=None,
     x=rect.x+11
     width=rect.w-22
     step=(rect.h-35)/len(data)
-    if step<17:
+    if step<15:
         raise ValueError("Área insuficiente para o sistema de referência.")
     for i,(k,v) in enumerate(data):
         y=rect.top-39-i*step
@@ -271,7 +271,7 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=Non
     width=rect.w-26
     compact=rect.h<245
     first=rect.top-42
-    second=rect.top-(105 if compact else 123)
+    second=rect.top-(95 if compact else 112)
     def section(title,name,subtitle,y):
         _text(pdf,title,x,y,size=6.2,bold=True,color=accent)
         line_y=y-(25 if compact else 35)
@@ -295,8 +295,8 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=Non
             prof_label or "Registro e ART não informados",second)
     if not compact:
         box_y=rect.y+12
-        box_h=min(55,max(32,rect.h-213))
-        if box_y+box_h < second-64:
+        box_h=min(55,max(32,rect.h-195))
+        if box_y+box_h < second-52:
             pdf.setDash(4,3)
             pdf.setStrokeColor(colors.HexColor("#308467"))
             pdf.roundRect(x,box_y,width,box_h,6,stroke=1,fill=0)
@@ -309,7 +309,7 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=Non
                       size=6.0,color="#687C71")
 
 
-def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01/01"):
+def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01/01",dark_text=False):
     dark,pale,accent,_=palette
     _,bold,_=_font_names()
     lines=[
@@ -317,7 +317,7 @@ def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01/01"):
         f"Escala 1:{scale:,}".replace(",",".")+" · Folha "+sheet,
         "Data: "+(date_text or datetime.now().strftime("%d/%m/%Y")),
     ]
-    pdf.setFillColor(colors.HexColor("#FFFFFF"))
+    pdf.setFillColor(colors.HexColor(dark if dark_text else "#FFFFFF"))
     for i,line in enumerate(lines):
         pdf.setFont(bold if i==0 else _font_names()[0],7 if i==0 else 6.4)
         pdf.drawRightString(w-43,h-58-i*15,line)
