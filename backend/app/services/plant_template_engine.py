@@ -133,23 +133,33 @@ def _image_card(pdf, rect, image, source, palette):
 
 
 def _signature_card(pdf, rect, owner, professional, palette):
-    _card(pdf, rect, "ASSINATURAS", palette)
+    """Duas áreas de assinatura proporcionais, sem vácuo entre os campos."""
+    _card(pdf, rect, "RESPONSABILIDADE E ASSINATURAS", palette)
     regular, bold, _ = _fonts()
-    x, w = rect.x + 12, rect.w - 24
-    upper = rect.top - 49
-    pdf.setStrokeColor(_color(palette[0]))
-    pdf.line(x, upper, x + w, upper)
-    _text(pdf, "DETENTOR / PROPRIETÁRIO", x, upper + 8, 6.3, bold, palette[0])
-    _text(pdf, owner or "Não informado", x + 3, upper - 13, 7.2, regular,
-          palette[0], w - 6)
-    second = rect.y + 52
-    pdf.line(x, second, x + w, second)
-    _text(pdf, "RESPONSÁVEL TÉCNICO", x, second + 8, 6.3, bold, palette[0])
-    _text(pdf, professional.get("full_name") or "Não informado", x + 3,
-          second - 13, 7.2, regular, palette[0], w - 6)
+    x, usable_w = rect.x + 12, rect.w - 24
+    top_line = rect.top - 53
+    second_line = max(rect.y + 52, top_line - 79)
+    pdf.setStrokeColor(_color("#82938F"))
+    pdf.setLineWidth(.7)
+    pdf.line(x, top_line, x + usable_w, top_line)
+    _text(pdf, "DETENTOR / PROPRIETÁRIO", x, top_line + 11, 6.7, bold, palette[0])
+    _text(pdf, owner or "Não informado", x + 2, top_line - 15,
+          7.3, regular, palette[0], usable_w - 4)
+    pdf.line(x, second_line, x + usable_w, second_line)
+    _text(pdf, "RESPONSÁVEL TÉCNICO", x, second_line + 11, 6.7, bold, palette[0])
+    _text(pdf, professional.get("full_name") or "Não informado",
+          x + 2, second_line - 15, 7.3, regular, palette[0], usable_w - 4)
+    details = [
+        str(professional.get(key) or "").strip()
+        for key in ("profession", "crea", "visto")
+    ]
+    details = [value for value in details if value]
+    if details and second_line - 30 > rect.y + 13:
+        _text(pdf, " | ".join(details), x + 2, second_line - 28,
+              6.3, regular, palette[0], usable_w - 4)
     if professional.get("art"):
-        _text(pdf, "ART: " + str(professional["art"]), x + 3, rect.y + 9,
-              6.3, regular, palette[0], w - 6)
+        _text(pdf, "ART: " + str(professional["art"]), x + 2, rect.y + 9,
+              6.3, bold, palette[0], usable_w - 4)
 
 
 def _legend_card(pdf, rect, palette):
