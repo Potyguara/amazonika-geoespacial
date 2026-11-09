@@ -346,8 +346,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
   const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
-  const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A4");
-  const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("paisagem");
+  const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A2");
+  const [paperOrientation, setPaperOrientation] = useState<"paisagem" | "retrato">("retrato");
   const [plantLayoutTemplate, setPlantLayoutTemplate] = useState<PecasData["layoutTemplate"]>("classic_lateral");
   const [scaleChoice, setScaleChoice] = useState("auto");
   const [customScale, setCustomScale] = useState("1500");
@@ -2398,8 +2398,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setOwnerCpf(String(data.cpf ?? ""));
       setPropertyAddress(String(data.address ?? ""));
       setCroquiNote(Boolean(data.croqui));
-      setPaperFormat((data.format as typeof paperFormat) ?? "A4");
-      setPaperOrientation((data.orientation as typeof paperOrientation) ?? "paisagem");
+      setPaperFormat(data.format === "A1" ? "A1" : "A2");
+      setPaperOrientation("retrato");
       setPlantLayoutTemplate(typeof data.layoutTemplate === "string" && ["classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) ? data.layoutTemplate as PecasData["layoutTemplate"] : "classic_lateral");
       setScaleChoice(String(data.scale ?? "auto"));
       setCustomScale(String(data.customScale ?? "1500"));
@@ -2438,8 +2438,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       case "cpf": setOwnerCpf(String(value)); break;
       case "address": setPropertyAddress(String(value)); break;
       case "croqui": setCroquiNote(Boolean(value)); break;
-      case "format": setPaperFormat(value as typeof paperFormat); break;
-      case "orientation": setPaperOrientation(value as typeof paperOrientation); break;
+      case "format": setPaperFormat(value === "A1" ? "A1" : "A2"); break;
+      case "orientation": setPaperOrientation("retrato"); break;
       case "layoutTemplate": {
         const chosen = value as PecasData["layoutTemplate"];
         setPlantLayoutTemplate(chosen);
