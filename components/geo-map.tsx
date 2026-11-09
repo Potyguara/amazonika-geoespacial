@@ -951,7 +951,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const featureId = String(raw.feature_id ?? feature.getId() ?? "");
     const fallbackAttributes = Object.entries(raw).filter(
       ([key]) =>
-        !["geometry", "displayColor", "isSelected", "catalogName", "wms_identified", "wms_no_geometry", "identifyOverlay"].includes(
+        !["geometry", "displayColor", "isSelected", "catalogName", "wms_identified", "wms_no_geometry", "identifyOverlay", "identify_click_coordinate"].includes(
           key,
         ),
     );
@@ -1007,15 +1007,17 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         );
       });
 
-      if (feature.get("wms_no_geometry")) {
+      // Sempre recuperar o perímetro integral via WFS/FEATUREID, inclusive
+      // se o GetFeatureInfo devolver alguma geometria simplificada.
+      if (sourceId) {
         updateProperties("Seleção do perímetro", "Localizando polígono oficial…");
         const parcelCode = String(raw.parcela_codigo ?? raw.codigo_parcela ?? "");
         const query = new URLSearchParams();
         if (featureId) query.set("feature_id", featureId);
         if (parcelCode) query.set("parcel_code", parcelCode);
-        const clicked = feature.getGeometry() instanceof Point
-          ? (feature.getGeometry() as Point).getCoordinates()
-          : null;
+        const clicked = (feature.get("identify_click_coordinate") as number[] | undefined)
+          ?? (feature.getGeometry() instanceof Point
+            ? (feature.getGeometry() as Point).getCoordinates() : null);
 
         const paintPolygon = (geometry: NonNullable<ReturnType<Feature["getGeometry"]>>) => {
           if (controller.signal.aborted || selectedFeatureRef.current !== feature) return;
@@ -1616,6 +1618,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 feature.set("displayColor", sigef.color);
                 feature.set("wms_identified", true);
                 feature.set("wms_no_geometry", !item.geometry);
+                feature.set("identify_click_coordinate", event.coordinate.slice());
                 const identity = featureIdentity(feature);
                 candidates.push({
                   feature,
