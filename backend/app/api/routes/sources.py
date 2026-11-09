@@ -1347,6 +1347,8 @@ def sigef_official_base_metadata(
         if len(raw) > 512 * 1024:
             return result
         payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            return result
         datasets = payload.get("datasets") or payload.get("results") or []
         if isinstance(datasets, dict):
             datasets = datasets.get("datasets") or datasets.get("results") or []
