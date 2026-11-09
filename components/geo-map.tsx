@@ -293,6 +293,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [extentMessage, setExtentMessage] = useState<string | null>(null);
   const [importingVector, setImportingVector] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importedMetadata, setImportedMetadata] = useState<Record<string, string> | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   const [geometryMetrics, setGeometryMetrics] = useState<{
     areaHectares: number | null;
     perimeterMeters: number | null;
@@ -481,6 +483,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         name: String(feature.get("workPolygonName") ?? id),
         vertices: names,
         confrontants, altitudes,
+        vertexDetails: (feature.get("sigef_vertex_details") as Array<Record<string, unknown>> | undefined) ?? [],
         areaHa: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
         perimeterM: getLength(new LineString(geometry.getCoordinates()[0] ?? []), {
           projection: "EPSG:3857",
@@ -674,6 +677,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const snapshot = {
       features,
       selected_ids: selectedPolygonIds,
+      imported_sigef_metadata: importedMetadata,
       data: {
         title: memorialTitle, plantHeading, memorialHeading,
         owner: memorialOwner, rg: ownerRg, cpf: ownerCpf,
@@ -1952,12 +1956,35 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   const importFile = async (file: File) => {
     setImportError(null);
+    setImportNotice(null);
     setImportingVector(true);
     try {
       const extension = file.name.split(".").pop()?.toLowerCase();
       let features: Feature[] = [];
 
-      if (extension === "kml") {
+      if (extension === "ods") {
+        const body = new FormData();
+        body.append("file", file);
+        const response = await fetch(`${getApiUrl()}/technical-pieces/import-sigef-ods`, {
+          method: "POST", credentials: "include", body,
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(typeof payload?.detail === "string"
+          ? payload.detail : "Não foi possível importar a planilha SIGEF.");
+        features = new GeoJSON().readFeatures(payload, {
+          dataProjection: "EPSG:4326", featureProjection: "EPSG:3857",
+        });
+        const metadata = payload?.metadata as Record<string, string> | undefined;
+        if (metadata) {
+          setImportedMetadata(metadata);
+          if (metadata.name) setMemorialTitle(metadata.name);
+          if (metadata.owner) setMemorialOwner(metadata.owner);
+          if (metadata.cpf_cnpj) setOwnerCpf(metadata.cpf_cnpj);
+          if (metadata.municipality) setPropertyAddress(metadata.municipality);
+        }
+        const count = Number(payload?.vertex_count ?? 0);
+        setImportNotice(`Planilha SIGEF importada: ${count} vértices originais preservados. Confira os dados na aba Peças Técnicas.`);
+      } else if (extension === "kml") {
         const text = await file.text();
         features = new KML({ extractStyles: false }).readFeatures(text, {
           dataProjection: "EPSG:4326",
@@ -1995,6 +2022,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       }
 
       if (!features.length) throw new Error("O arquivo não contém feições utilizáveis.");
+      if (extension !== "ods") {
+        setImportedMetadata(null);
+        setImportNotice("Arquivo vetorial importado. Campos ausentes de vértices e confrontações deverão ser preenchidos manualmente.");
+      }
 
       // Cada polígono importado permanece como objeto independente.
       const separate: Feature[] = [];
@@ -2353,6 +2384,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         }),
       );
       setSelectedPolygonIds(Array.isArray(snapshot.selected_ids) ? snapshot.selected_ids : []);
+      setImportedMetadata((snapshot.imported_sigef_metadata ?? null) as Record<string, string> | null);
       setMemorialTitle(String(data.title ?? "Área analisada"));
       setPlantHeading(String(data.plantHeading ?? "PLANTA GEORREFERENCIADA"));
       setMemorialHeading(String(data.memorialHeading ?? "MEMORIAL DESCRITIVO"));
@@ -2521,12 +2553,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <Pencil size={16} />
           <span>Editar</span>
         </button>
-        <label title="Importar KML, GeoJSON, Shapefile ZIP ou GeoPackage">
+        <label title="Importar planilha SIGEF ODS, KML, SHP.ZIP, GeoJSON ou GeoPackage">
           <FileUp size={17} />
           <span>Importar</span>
           <input
             type="file"
-            accept=".kml,.geojson,.json,.zip,.gpkg,application/geo+json,application/zip"
+            accept=".ods,.kml,.geojson,.json,.zip,.gpkg,application/vnd.oasis.opendocument.spreadsheet,application/geo+json,application/zip"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void importFile(file);
@@ -2738,6 +2770,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         }}
         onDataChange={changePecasData}
         polygons={polygons}
+        importedMetadata={importedMetadata}
         selectedIds={selectedPolygonIds}
         rtProfile={documentProfessional}
         rtLoading={documentProfessionalLoading}
@@ -2793,6 +2826,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       {extentMessage && <div className="map-operation-feedback error" role="alert" onClick={() => setExtentMessage(null)}>{extentMessage}</div>}
       {importingVector && <div className="map-operation-feedback">Importando e convertendo arquivo vetorial…</div>}
       {importError && <div className="map-operation-feedback error">{importError}</div>}
+      {importNotice && <div className="map-operation-feedback" role="status">{importNotice}</div>}
 
       <div
         className={`official-layer-status ${loadingOfficial ? "loading" : ""}`}
