@@ -392,23 +392,50 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
         for cx, cy in coords:
             pdf.setFillColor(colors.white)
             pdf.circle(cx, cy, 2.4, fill=1, stroke=1)
+        # Confrontações são prioritárias: uma identificação por cadeia.
+        # A âncora fica no maior segmento contínuo da cadeia, evitando
+        # que o texto desapareça após a reserva dos 61 nomes de vértices.
+        if elements.get("confrontants"):
+            from app.services.plant_detail_elements import grouped_label_positions
+            chain_indices=grouped_label_positions(p)
+            for idx in sorted(chain_indices):
+                if not p.confrontants[idx].strip():
+                    continue
+                a,b=coords[idx],coords[(idx+1)%len(coords)]
+                dx,dy=b[0]-a[0],b[1]-a[1]
+                angle=math.degrees(math.atan2(dy,dx))
+                if angle>90:angle-=180
+                if angle< -90:angle+=180
+                px,py=(a[0]+b[0])/2,(a[1]+b[1])/2
+                norm=math.hypot(dx,dy) or 1
+                nx,ny=-dy/norm,dx/norm
+                from app.services.plant_label_layout import Box
+                placed=label_layout.place(
+                    pdf,[p.confrontants[idx]],(px,py),angle=angle,
+                    color=_color("#245B44"),desired=8.0,minimum=6.1,
+                    offsets=[(nx*31,ny*31),(-nx*31,-ny*31),
+                             (nx*48,ny*48),(-nx*48,-ny*48),
+                             (nx*68,ny*68),(-nx*68,-ny*68)],
+                    allow_callout=True,white_background=False,
+                )
+                if not placed:
+                    raise ValueError("Confrontante não pôde ser posicionado.")
         if elements.get("vertex_labels", True):
             for i, point in enumerate(coords):
-                label_layout.place(pdf, [p.names[i]], point,
-                                   desired=6.5, minimum=5.0,
+                label_layout.place(pdf,[p.names[i]],point,
+                                   desired=6.5,minimum=5.0,
                                    offsets=[(8,7),(-8,7),(8,-7),(-8,-7)],
-                                   allow_callout=False, white_background=False)
-        if elements.get("azimuths") or elements.get("distances") or elements.get("confrontants"):
-            confrontant_labels = grouped_label_positions(p)
+                                   allow_callout=False,white_background=False)
+        if elements.get("azimuths") or elements.get("distances"):
             for i, point in enumerate(coords):
                 _azimuth_and_distance(
-                    pdf, point, coords[(i+1) % len(coords)],
-                    p.segments[i], p.confrontants[i], center_xy,
-                    (actual.x, actual.y, actual.w, actual.h),
+                    pdf, point,coords[(i+1)%len(coords)],
+                    p.segments[i],p.confrontants[i],center_xy,
+                    (actual.x,actual.y,actual.w,actual.h),
                     layout=label_layout,
                     show_azimuth=bool(elements.get("azimuths")),
                     show_distance=bool(elements.get("distances")),
-                    show_confrontants=bool(elements.get("confrontants")) and i in confrontant_labels,
+                    show_confrontants=False,
                 )
     regular, bold, _ = _fonts()
     if elements.get("north", True):
