@@ -1330,7 +1330,7 @@ def sigef_selected_geometry(
 
     fid = feature_id.strip()
     parcel = parcel_code.strip()
-    if fid and not re.fullmatch(r"(?:geonode:)?sigef_geo\\.[A-Za-z0-9_-]{1,72}", fid):
+    if fid and not re.fullmatch(r"(?:geonode:)?sigef_geo\.[A-Za-z0-9_-]{1,72}", fid):
         raise HTTPException(422, "Identificador WFS SIGEF inválido.")
     if not fid and not re.fullmatch(
         r"[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}",
