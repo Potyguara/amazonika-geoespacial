@@ -1216,6 +1216,22 @@ def update_source(source_id:UUID,payload:SourceUpdate,db:Session=Depends(get_db)
     source.metadata_json=metadata
     db.commit(); db.refresh(source); return source
 
+
+SIGEF_UF_IBGE = {
+    "ro": 11, "ac": 12, "am": 13, "rr": 14,
+    "pa": 15, "ap": 16, "to": 17,
+    "ma": 21, "pi": 22, "ce": 23, "rn": 24,
+    "pb": 25, "pe": 26, "al": 27, "se": 28,
+    "ba": 29, "mg": 31, "es": 32, "rj": 33,
+    "sp": 35, "pr": 41, "sc": 42, "rs": 43,
+    "ms": 50, "mt": 51, "go": 52, "df": 53,
+}
+
+SIGEF_GEONODE_WFS = (
+    "https://geonodeincra.serpro.gov.br/"
+    "geoserver/geonode/sigef_geo/ows"
+)
+
 @router.get("/{source_id}/wms")
 def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     source=db.get(Source,source_id)
@@ -1228,26 +1244,56 @@ def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     metadata=dict(source.metadata_json or {})
     source_name=source.name
     source_institution=source.institution
+    source_slug=source.slug
     db.close()
 
     if not metadata.get("wms_enabled"):
         raise HTTPException(404,"O WMS não está habilitado para esta fonte.")
     requested_uf=str(request.query_params.get("uf") or metadata.get("wms_state") or "ap").lower()
-    if requested_uf not in INCRA_UFS: raise HTTPException(422,"UF inválida para o serviço WMS.")
+    if source_slug == "incra-sigef-brasil":
+        if requested_uf != "all" and requested_uf not in SIGEF_UF_IBGE:
+            raise HTTPException(422, "UF inválida para SIGEF Brasil.")
+    elif requested_uf not in INCRA_UFS:
+        raise HTTPException(422, "UF inválida para o serviço WMS.")
     theme=str(metadata.get("wms_theme") or "").strip()
     fixed_layer=str(metadata.get("wms_fixed_layer") or "").strip()
     state_urls=dict(metadata.get("wms_urls") or {})
     available_ufs=set(metadata.get("wms_available_ufs") or state_urls.keys())
-    if available_ufs and requested_uf not in available_ufs:
-        raise HTTPException(404,f"A camada {source_name} não está publicada pelo INCRA para {requested_uf.upper()}.")
+    if (
+        source_slug != "incra-sigef-brasil"
+        and available_ufs
+        and requested_uf not in available_ufs
+    ):
+        raise HTTPException(
+            404,
+            f"A camada {source_name} não está publicada pelo INCRA para {requested_uf.upper()}.",
+        )
     incra_url=f"http://acervofundiario.incra.gov.br/i3geo/ogc.php?tema={theme}_{requested_uf}"
     raw_url=str(state_urls.get(requested_uf) or (incra_url if source_institution=="INCRA" and theme and not fixed_layer else metadata.get("wms_url") or ""))
     parsed=urlsplit(raw_url)
     allowed_hosts={"geonodeincra.serpro.gov.br","acervofundiario.incra.gov.br","geoportal-spunet.gestao.gov.br","geoservicos.inde.gov.br","geoserver.car.gov.br","geo.anm.gov.br"}
     if parsed.scheme not in ("http","https") or (parsed.hostname or "").lower() not in allowed_hosts:
         raise HTTPException(400,"O proxy aceita somente os domínios oficiais configurados.")
-    incoming=[(key,value) for key,value in request.query_params.multi_items() if key!="uf"]
-    query=urlencode([*parse_qsl(parsed.query,keep_blank_values=True),*incoming],doseq=True)
+    incoming=[
+        (key,value)
+        for key,value in request.query_params.multi_items()
+        if key.lower() != "uf"
+    ]
+    if source_slug == "incra-sigef-brasil":
+        # O filtro estadual é gerado internamente, nunca aceito do cliente.
+        incoming=[
+            (key,value) for key,value in incoming
+            if key.lower() != "cql_filter"
+        ]
+        if requested_uf != "all":
+            incoming.append((
+                "CQL_FILTER",
+                f"uf_id={SIGEF_UF_IBGE[requested_uf]}",
+            ))
+    query=urlencode(
+        [*parse_qsl(parsed.query,keep_blank_values=True),*incoming],
+        doseq=True,
+    )
     destination=urlunsplit((parsed.scheme,parsed.netloc,parsed.path,query,""))
     context=ssl._create_unverified_context() if metadata.get("allow_insecure_tls") else ssl.create_default_context()
     if metadata.get("allow_legacy_tls"):
@@ -1262,6 +1308,146 @@ def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     except HTTPException: raise
     except (HTTPError,URLError,TimeoutError) as exc:
         raise HTTPException(502,f"O serviço WMS oficial não respondeu: {exc}") from exc
+
+@router.get("/{source_id}/sigef-snap")
+def sigef_geonode_snap(
+    source_id: UUID,
+    bbox: str = Query(min_length=7, max_length=120),
+    uf: str = "all",
+    limit: int = Query(default=60, ge=1, le=80),
+    db: Session = Depends(get_db),
+):
+    """Geometrias oficiais GeoNode, limitadas para SNAP no OpenLayers."""
+    import math
+
+    source = db.get(Source, source_id)
+    if not source or not source.is_active:
+        raise HTTPException(404, "Fonte SIGEF não encontrada.")
+    if source.slug != "incra-sigef-brasil":
+        raise HTTPException(404, "Consulta exclusiva do SIGEF Brasil.")
+
+    uf = uf.strip().lower()
+    if uf != "all" and uf not in SIGEF_UF_IBGE:
+        raise HTTPException(422, "UF inválida.")
+
+    try:
+        coords = [float(v.strip()) for v in bbox.split(",")]
+    except ValueError as exc:
+        raise HTTPException(422, "BBOX inválida.") from exc
+
+    if len(coords) != 4 or not all(math.isfinite(v) for v in coords):
+        raise HTTPException(422, "BBOX inválida.")
+
+    west, south, east, north = coords
+
+    if not (
+        -75 <= west < east <= -30
+        and -35 <= south < north <= 7
+        and east - west <= 0.10
+        and north - south <= 0.10
+    ):
+        raise HTTPException(
+            422,
+            "Aproxime o mapa para carregar o SNAP oficial SIGEF.",
+        )
+
+    params = {
+        "SERVICE": "WFS",
+        "VERSION": "1.1.0",
+        "REQUEST": "GetFeature",
+        "TYPENAME": "geonode:sigef_geo",
+        "OUTPUTFORMAT": "application/json",
+        "SRSNAME": "EPSG:4326",
+        "BBOX": f"{west},{south},{east},{north},EPSG:4326",
+        "MAXFEATURES": str(limit),
+    }
+    # GeoServer não aceita BBOX e CQL_FILTER simultaneamente.
+    # Utilizamos ECQL com CRS explícito para preservar as coordenadas.
+    params.pop("BBOX", None)
+
+    spatial_filter = (
+        f"BBOX(geometry,{west},{south},{east},{north},'EPSG:4326')"
+    )
+
+    if uf != "all":
+        params["CQL_FILTER"] = (
+            f"{spatial_filter} AND uf_id={SIGEF_UF_IBGE[uf]}"
+        )
+    else:
+        params["CQL_FILTER"] = spatial_filter
+
+    # Não manter uma conexão PostgreSQL ocupada durante a chamada remota.
+    db.close()
+
+    destination = SIGEF_GEONODE_WFS + "?" + urlencode(params)
+
+    upstream = UrlRequest(
+        destination,
+        headers={
+            "User-Agent": "Amazonika-Geoespacial/1.0",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        opener = build_opener(
+            OfficialOnlyRedirectHandler(),
+            HTTPSHandler(context=ssl.create_default_context()),
+        )
+        with opener.open(upstream, timeout=20) as response:
+            raw = response.read(4 * 1024 * 1024 + 1)
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise HTTPException(
+            502,
+            "O WFS GeoNode não concluiu a consulta.",
+        ) from exc
+
+    if len(raw) > 4 * 1024 * 1024:
+        raise HTTPException(
+            413,
+            "Geometrias excessivas para o SNAP nesta região.",
+        )
+
+    try:
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            502,
+            "O GeoNode não retornou GeoJSON válido.",
+        ) from exc
+
+    if payload.get("type") != "FeatureCollection":
+        raise HTTPException(
+            502,
+            "Resposta WFS incompatível com GeoJSON.",
+        )
+
+    features = payload.get("features")
+    if not isinstance(features, list):
+        raise HTTPException(502, "Resposta GeoNode inválida.")
+
+    # Devolver apenas dados geométricos necessários ao SNAP.
+    safe_features = []
+    for feature in features[:limit]:
+        geometry = feature.get("geometry")
+        if not isinstance(geometry, dict):
+            continue
+        if geometry.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        safe_features.append({
+            "type": "Feature",
+            "geometry": geometry,
+            "properties": {},
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "features": safe_features,
+        "truncated": len(features) >= limit,
+        "source": "GEONODE_SIGEF",
+    }
+
+
 @router.post("/{source_id}/uploads/start",dependencies=[Depends(require_permission("sources.import"))])
 async def start_large_upload(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     source=db.get(Source,source_id)

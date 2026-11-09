@@ -1549,7 +1549,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       )
         continue;
       desired.add(layer.id);
-      const effectiveUf = incraUf === "ALL" ? "AP" : incraUf;
+      const effectiveUf =
+        layer.slug === "incra-sigef-brasil" && incraUf === "ALL"
+          ? "all"
+          : incraUf === "ALL" ? "AP" : incraUf;
       const ufSuffix =
         layer.wmsTheme.startsWith("sicar:") && effectiveUf === "DF"
           ? "DF"
@@ -1669,6 +1672,18 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const map = mapRef.current;
     if (!map) return;
 
+    const sigefLayer = layers.find(
+      (layer) =>
+        layer.slug === "incra-sigef-brasil" &&
+        layer.enabled &&
+        Boolean(layer.id),
+    );
+
+    let geoNodeFeatures: Feature[] = [];
+    let wfsController: AbortController | null = null;
+    let requestTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+
     const refreshLayerSnapSource = () => {
       snapLayerSourceRef.current.clear();
       if (!snapLayersEnabled) return;
@@ -1677,36 +1692,139 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       let imported = 0;
       const MAX_VISIBLE_SNAP_FEATURES = 25000;
 
-      for (const feature of officialSourceRef.current.getFeaturesInExtent(extent)) {
-        if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+      const addGeometry = (feature: Feature) => {
+        if (imported >= MAX_VISIBLE_SNAP_FEATURES) return;
         const geometry = feature.getGeometry();
-        if (!geometry) continue;
+        if (!geometry) return;
+
         snapLayerSourceRef.current.addFeature(
           new Feature({ geometry: geometry.clone() }),
         );
         imported += 1;
+      };
+
+      // SNAP das camadas locais: comportamento anterior preservado.
+      for (const feature of officialSourceRef.current.getFeaturesInExtent(extent)) {
+        if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+        addGeometry(feature);
       }
 
       for (const vectorTileLayer of vectorTileLayersRef.current.values()) {
         if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
         const visibleFeatures = vectorTileLayer.getFeaturesInExtent(extent);
+
         for (const candidate of visibleFeatures) {
           if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
-          const feature = candidate as unknown as Feature;
-          const geometry = feature.getGeometry?.();
-          if (!geometry) continue;
-          snapLayerSourceRef.current.addFeature(
-            new Feature({ geometry: geometry.clone() }),
-          );
-          imported += 1;
+          addGeometry(candidate as unknown as Feature);
         }
       }
+
+      // SNAP GeoNode: geometrias WFS da área de trabalho.
+      for (const feature of geoNodeFeatures) {
+        if (imported >= MAX_VISIBLE_SNAP_FEATURES) break;
+        addGeometry(feature);
+      }
+    };
+
+    const loadGeoNodeSnap = async (signal: AbortSignal) => {
+      if (!snapLayersEnabled || !sigefLayer?.id) return;
+
+      const extent = map.getView().calculateExtent(map.getSize());
+      const [west, south] = toLonLat([extent[0], extent[1]]);
+      const [east, north] = toLonLat([extent[2], extent[3]]);
+
+      // Não consultar uma base nacional em zoom muito afastado.
+      if (
+        ![west, south, east, north].every(Number.isFinite) ||
+        east <= west ||
+        north <= south ||
+        east - west > 0.10 ||
+        north - south > 0.10
+      ) {
+        return;
+      }
+
+      const params = new URLSearchParams({
+        bbox: [west, south, east, north].join(","),
+        uf: incraUf === "ALL" ? "all" : incraUf.toLowerCase(),
+        limit: "60",
+      });
+
+      try {
+        const response = await fetch(
+          `${getApiUrl()}/sources/${sigefLayer.id}/sigef-snap?${params}`,
+          {
+            credentials: "include",
+            signal,
+          },
+        );
+
+        if (!response.ok) {
+          if (response.status !== 422) {
+            console.warn("SNAP GeoNode indisponível:", response.status);
+          }
+          return;
+        }
+
+        const payload = await response.json();
+
+        if (signal.aborted || disposed) return;
+
+        if (!Array.isArray(payload.features)) return;
+
+        // Uma resposta truncada não deve ser tomada como cobertura completa.
+        if (payload.truncated) {
+          console.warn(
+            "SNAP GeoNode: limite de parcelas atingido. " +
+            "Aproxime o mapa para reduzir a área de trabalho.",
+          );
+          return;
+        }
+
+        const format = new GeoJSON();
+        geoNodeFeatures = format.readFeatures(payload, {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        }) as Feature[];
+
+        refreshLayerSnapSource();
+      } catch (error) {
+        if (!signal.aborted) {
+          console.warn("Falha ao carregar geometrias SNAP GeoNode:", error);
+        }
+      }
+    };
+
+    const scheduleGeoNodeSnap = () => {
+      if (requestTimer !== null) {
+        clearTimeout(requestTimer);
+        requestTimer = null;
+      }
+
+      wfsController?.abort();
+      wfsController = null;
+      geoNodeFeatures = [];
+
+      refreshLayerSnapSource();
+
+      if (!snapLayersEnabled || !sigefLayer?.id) return;
+
+      // Evitar solicitações sucessivas enquanto o mapa é movimentado.
+      requestTimer = setTimeout(() => {
+        requestTimer = null;
+        if (disposed) return;
+
+        const controller = new AbortController();
+        wfsController = controller;
+        void loadGeoNodeSnap(controller.signal);
+      }, 300);
     };
 
     if (snapSubjectRef.current) {
       map.removeInteraction(snapSubjectRef.current);
       snapSubjectRef.current = null;
     }
+
     if (snapLayersRef.current) {
       map.removeInteraction(snapLayersRef.current);
       snapLayersRef.current = null;
@@ -1738,25 +1856,49 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       map.addInteraction(subjectSnap);
       snapSubjectRef.current = subjectSnap;
     }
+
     if (layerSnap) {
       map.addInteraction(layerSnap);
       snapLayersRef.current = layerSnap;
     }
 
+    const handleMoveEnd = () => {
+      scheduleGeoNodeSnap();
+    };
+
+    const handleRenderComplete = () => {
+      // Atualiza os vetores locais sem repetir requisições WFS.
+      refreshLayerSnapSource();
+    };
+
     if (snapLayersEnabled) {
-      map.on("moveend", refreshLayerSnapSource);
-      map.on("rendercomplete", refreshLayerSnapSource);
+      map.on("moveend", handleMoveEnd);
+      map.on("rendercomplete", handleRenderComplete);
+      scheduleGeoNodeSnap();
     }
 
     return () => {
+      disposed = true;
+
+      if (requestTimer !== null) clearTimeout(requestTimer);
+      wfsController?.abort();
+
       if (snapLayersEnabled) {
-        map.un("moveend", refreshLayerSnapSource);
-        map.un("rendercomplete", refreshLayerSnapSource);
+        map.un("moveend", handleMoveEnd);
+        map.un("rendercomplete", handleRenderComplete);
       }
+
       if (subjectSnap) map.removeInteraction(subjectSnap);
       if (layerSnap) map.removeInteraction(layerSnap);
-      if (snapSubjectRef.current === subjectSnap) snapSubjectRef.current = null;
-      if (snapLayersRef.current === layerSnap) snapLayersRef.current = null;
+
+      if (snapSubjectRef.current === subjectSnap) {
+        snapSubjectRef.current = null;
+      }
+
+      if (snapLayersRef.current === layerSnap) {
+        snapLayersRef.current = null;
+      }
+
       snapLayerSourceRef.current.clear();
     };
   }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive, layers, incraUf]);
