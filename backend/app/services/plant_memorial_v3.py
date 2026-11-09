@@ -170,7 +170,7 @@ def _azimuth_and_distance(pdf, p0, p1, row, confrontant, inner_point,
                       angle=angle,color=GREEN,
                       offsets=[(nx*31,ny*31),(nx*45,ny*45),
                                (-nx*31,-ny*31),(-nx*45,-ny*45)],
-                      desired=7.2,minimum=6.0)
+                      desired=7.2,minimum=6.0,white_background=False)
 
 
 def _grid(pdf, viewport, bounds, xy, zone, hemi):
