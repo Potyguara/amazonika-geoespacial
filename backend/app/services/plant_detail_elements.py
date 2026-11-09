@@ -119,7 +119,10 @@ def confrontations_card(pdf, rect, parcels, palette):
         result=[]
         for group in groups:
             name=str(group["name"])
-            segment=f'{group["start"]} – {group["end"]}'
+            import re
+            def brief(vertex):
+                return re.sub(r"^.*?-(?=[MV]-)", "", str(vertex))
+            segment=f'{brief(group["start"])} – {brief(group["end"])}'
             name_style=ParagraphStyle("name",fontName=bold,fontSize=font_size,
                                       leading=font_size+2.1,textColor=colors.HexColor("#243A30"))
             segment_style=ParagraphStyle("seg",fontName=regular,fontSize=font_size-.25,
@@ -166,7 +169,7 @@ def confrontations_card(pdf, rect, parcels, palette):
 
 
 def reference_card(pdf,rect,zone,hemi,*,convergence=None,declination=None,
-                   grid=None,palette):
+                   grid=None,palette,magnetic_source=None):
     _box(pdf,rect,"SISTEMA DE REFERÊNCIA",palette)
     dark,pale,accent,_=palette
     meridian=zone*6-183
@@ -175,7 +178,7 @@ def reference_card(pdf,rect,zone,hemi,*,convergence=None,declination=None,
         ("Projeção",f"UTM · fuso {zone}{hemi}"),
         ("Meridiano central",f"{abs(meridian)}° {'W' if meridian<0 else 'E'}"),
         ("Convergência (c)",f"{convergence:+.4f}°" if convergence is not None else "não informada"),
-        ("Declinação (d)",f"{declination:+.4f}°" if declination is not None else "não informada"),
+        ("Declinação (d)",(f"{declination:+.3f}° · " + ("WMM2025" if magnetic_source and "WMM2025" in magnetic_source else "RT")) if declination is not None else "não informada"),
         ("Grade",f"{_br_number(grid,0)} m" if grid is not None else "UTM"),
     ]
     x=rect.x+11
