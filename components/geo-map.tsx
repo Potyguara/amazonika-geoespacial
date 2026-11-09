@@ -2444,7 +2444,6 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         const chosen = value as PecasData["layoutTemplate"];
         setPlantLayoutTemplate(chosen);
         if (["classic_lateral", "cartographic_frame", "modern_lateral"].includes(chosen)) {
-          setPaperFormat("A2");
           setPlantElements(prev => ({...prev, coordinates: true}));
         }
         break;
