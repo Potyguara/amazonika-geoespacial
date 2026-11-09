@@ -427,6 +427,7 @@ def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_use
     if not raw:
         raise HTTPException(422, "Selecione pelo menos uma área para o memorial.")
     try:
+        from app.services.plant_croqui_warning import remove_optional_warnings
         parcels = prepare_parcels(raw)
         profile = _document_professional(user, payload)
         contents = build_memorial_docx(
@@ -440,9 +441,7 @@ def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_use
             professional=profile,
             include_warning=payload.include_croqui_warning,
             property_metadata=payload.property_metadata,
-            edited_memorial=__import__(
-                "app.services.plant_croqui_warning", fromlist=["remove_optional_warnings"]
-            ).remove_optional_warnings(
+            edited_memorial=remove_optional_warnings(
                 payload.edited_memorial, payload.include_croqui_warning
             ),
         )
