@@ -158,7 +158,7 @@ def _confrontation_and_sketch(pdf,y,parcels,c):
     gap=10
     lw=298
     rw=W-84-lw-gap
-    height=189
+    height=205
     lefty=y-height
     _panel(pdf,x,lefty,lw,height,"CONFRONTAÇÕES",c)
     _panel(pdf,x+lw+gap,lefty,rw,height,"CROQUI ESQUEMÁTICO",c)
@@ -301,7 +301,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
         narrative(intro,space=13)
         groups=group_confrontations([parcel])
         for idx,group in enumerate(groups):
-            if y<115:new_page()
+            if y<160:new_page()
             bar_h=23
             pdf.setFillColor(_col(c["primary"]))
             pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,3,stroke=0,fill=1)
@@ -336,7 +336,7 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
               "geodésicos calculados sobre o elipsóide GRS80. A precisão depende "
               "da fonte da geometria; esta emissão não constitui certificação fundiária.",
               space=13)
-    if y<185:
+    if y<225:
         new_page()
     _str(pdf,f"{address or 'Local não informado'}, "
          f"{survey_date.strftime('%d/%m/%Y')}.",margin,y,7.2,color=c["dark"])
@@ -346,8 +346,13 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
         ("PROPRIETÁRIO / DETENTOR",owner or "Não informado",
          f"CPF: {owner_cpf or '—'}"),
         ("RESPONSÁVEL TÉCNICO",professional.get("full_name") or "Não informado",
-         " · ".join(str(professional.get(k) or "") for k in
-                    ("crea","art") if professional.get(k)) or "Registro/ART não informado"),
+         " · ".join(
+             f"{label}: {professional[key]}" for key,label in (
+                 ("profession","Profissão"),("specialization","Especialização"),
+                 ("crea","CREA/CAU"),("visto","Visto"),("incra_code","INCRA"),
+                 ("art","ART"),
+             ) if professional.get(key)
+         ) or "Registro/ART não informado"),
         ("CARIMBO DO RESPONSÁVEL TÉCNICO","",""),
     ]
     for i,(label,name,doc) in enumerate(names):
