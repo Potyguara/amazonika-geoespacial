@@ -115,11 +115,11 @@ const identifyHighlightStyles = [
   }),
   // corpo laranja: seleção propriamente dita
   new Style({
-    fill: new Fill({ color: "rgba(255, 103, 0, 0.60)" }),
-    stroke: new Stroke({ color: "#ff5d00", width: 5 }),
+    fill: new Fill({ color: "rgba(255, 225, 0, 0.72)" }),
+    stroke: new Stroke({ color: "#e0a500", width: 5 }),
     image: new CircleStyle({
       radius: 8,
-      fill: new Fill({ color: "#ff5d00" }),
+      fill: new Fill({ color: "#ffe100" }),
       stroke: new Stroke({ color: "#ffffff", width: 2 }),
     }),
   }),
@@ -970,7 +970,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         title,
         layer,
         attributes: [...fallbackAttributes,
-          ["Última atualização da base oficial", "Consultando o INCRA…"]],
+          ["Última modificação da base oficial", "Consultando o INCRA…"]],
       });
       const updateProperties = (label: string, value: string) => {
         if (controller.signal.aborted || selectedFeatureRef.current !== feature) return;
@@ -999,10 +999,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 timeZone: "America/Belem",
               }).format(parsed)
             : "Não informada pelo provedor oficial";
-        updateProperties("Última atualização da base oficial", value);
+        updateProperties("Última modificação da base oficial", value);
       }).catch(() => {
         updateProperties(
-          "Última atualização da base oficial",
+          "Última modificação da base oficial",
           "Não foi possível verificar no INCRA",
         );
       });
