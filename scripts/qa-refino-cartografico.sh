@@ -11,6 +11,7 @@ git log -1 --oneline
 
 echo "===== SINTAXE BACKEND ====="
 python3 -m py_compile \
+  backend/app/api/routes/sources.py \
   backend/app/services/plant_template_engine.py \
   backend/app/services/plant_detail_elements.py \
   backend/app/services/plant_croqui_warning.py \
@@ -25,6 +26,7 @@ docker build -f backend/Dockerfile.production \
 
 echo "===== TESTES DO MOTOR ====="
 for testfile in \
+  test_sigef_selected_geometry_metadata.py \
   test_sigef_wms_feature_info.py \
   test_croqui_warning_optional.py \
   test_final_paper_formats.py \
