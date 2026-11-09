@@ -115,11 +115,11 @@ const identifyHighlightStyles = [
   }),
   // corpo laranja: seleção propriamente dita
   new Style({
-    fill: new Fill({ color: "rgba(255, 159, 28, 0.42)" }),
-    stroke: new Stroke({ color: "#ff7a00", width: 5 }),
+    fill: new Fill({ color: "rgba(255, 103, 0, 0.60)" }),
+    stroke: new Stroke({ color: "#ff5d00", width: 5 }),
     image: new CircleStyle({
       radius: 8,
-      fill: new Fill({ color: "#ff7a00" }),
+      fill: new Fill({ color: "#ff5d00" }),
       stroke: new Stroke({ color: "#ffffff", width: 2 }),
     }),
   }),
@@ -951,7 +951,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const featureId = String(raw.feature_id ?? feature.getId() ?? "");
     const fallbackAttributes = Object.entries(raw).filter(
       ([key]) =>
-        !["geometry", "displayColor", "isSelected", "catalogName"].includes(
+        !["geometry", "displayColor", "isSelected", "catalogName", "wms_identified", "wms_no_geometry", "identifyOverlay"].includes(
           key,
         ),
     );
@@ -963,7 +963,91 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     });
     // GetFeatureInfo do WMS já devolve os atributos oficiais.
     // Não existe correspondente em /sources/{id}/features/{id} (PostGIS).
-    if (feature.get("wms_identified") || !sourceId || !featureId) {
+    if (feature.get("wms_identified")) {
+      const controller = new AbortController();
+      identifyAbortRef.current = controller;
+      setIdentifiedFeature({
+        title,
+        layer,
+        attributes: [...fallbackAttributes,
+          ["Última atualização da base oficial", "Consultando o INCRA…"]],
+      });
+      const updateProperties = (label: string, value: string) => {
+        if (controller.signal.aborted || selectedFeatureRef.current !== feature) return;
+        setIdentifiedFeature((current) => {
+          if (!current) return current;
+          const attributes = current.attributes.filter(([key]) => key !== label);
+          return { ...current, attributes: [...attributes, [label, value]] };
+        });
+      };
+      void fetch(
+        `${getApiUrl()}/sources/${sourceId}/sigef-base-metadata`,
+        { signal: controller.signal, credentials: "include" },
+      ).then(async (response) => {
+        if (!response.ok) throw new Error("metadados indisponíveis");
+        return response.json();
+      }).then((metadata) => {
+        const rawDate = typeof metadata.last_updated === "string"
+          ? metadata.last_updated : null;
+        const parsed = rawDate ? new Date(rawDate) : null;
+        const value = parsed && !Number.isNaN(parsed.getTime())
+          ? new Intl.DateTimeFormat("pt-BR", {
+              dateStyle: "short", timeStyle: "short",
+              timeZone: "America/Belem",
+            }).format(parsed)
+          : "Não informada pelo provedor oficial";
+        updateProperties("Última atualização da base oficial", value);
+      }).catch(() => {
+        updateProperties(
+          "Última atualização da base oficial",
+          "Não foi possível verificar no INCRA",
+        );
+      });
+
+      if (feature.get("wms_no_geometry")) {
+        const parcelCode = String(
+          raw.parcela_codigo ?? raw.codigo_parcela ?? "",
+        );
+        const query = new URLSearchParams();
+        if (featureId) query.set("feature_id", featureId);
+        if (parcelCode) query.set("parcel_code", parcelCode);
+        if (query.size) {
+          void fetch(
+            `${getApiUrl()}/sources/${sourceId}/sigef-selected-geometry?${query}`,
+            { signal: controller.signal, credentials: "include" },
+          ).then(async (response) => {
+            if (!response.ok) throw new Error("WFS SIGEF sem geometria");
+            return response.json();
+          }).then((payload) => {
+            if (controller.signal.aborted || selectedFeatureRef.current !== feature) return;
+            if (!payload?.geometry) return;
+            const full = new GeoJSON().readFeature({
+              type: "Feature", geometry: payload.geometry, properties: {},
+            }, {
+              dataProjection: "EPSG:4326",
+              featureProjection: "EPSG:3857",
+            }) as Feature;
+            const geometry = full.getGeometry();
+            if (!geometry || !["Polygon", "MultiPolygon"].includes(geometry.getType())) return;
+            const highlight = new Feature({ geometry: geometry.clone() });
+            highlight.setStyle(identifyHighlightStyles);
+            highlight.set("isIdentifyHighlight", true);
+            identifySelectionSourceRef.current.clear();
+            identifySelectionSourceRef.current.addFeature(highlight);
+            mapRef.current?.renderSync();
+          }).catch(() => {
+            updateProperties(
+              "Geometria oficial",
+              "O WFS não disponibilizou o perímetro desta parcela para destaque.",
+            );
+          });
+        } else {
+          updateProperties("Geometria oficial", "Identificador da parcela não disponibilizado pelo WMS.");
+        }
+      }
+      return;
+    }
+    if (!sourceId || !featureId) {
       setIdentifiedFeature({ title, layer, attributes: fallbackAttributes });
       return;
     }
@@ -1476,6 +1560,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 feature.set("feature_id", featureId);
                 feature.set("displayColor", sigef.color);
                 feature.set("wms_identified", true);
+                feature.set("wms_no_geometry", !item.geometry);
                 const identity = featureIdentity(feature);
                 candidates.push({
                   feature,
