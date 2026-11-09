@@ -584,6 +584,8 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
                    survey_date: str | None = None,
                    property_metadata: dict[str, str] | None = None,
                    layout_template: str = 'lateral') -> tuple[bytes,str,int]:
+    from app.services.plant_croqui_warning import remove_optional_warnings
+    edited_memorial = remove_optional_warnings(edited_memorial, croqui)
     elements = plant_elements or {}
     enabled = lambda key: elements.get(key, True)
     if enabled("situation") and not raster_b64:
