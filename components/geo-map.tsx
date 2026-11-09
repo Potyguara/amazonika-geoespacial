@@ -990,12 +990,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         const rawDate = typeof metadata.last_updated === "string"
           ? metadata.last_updated : null;
         const parsed = rawDate ? new Date(rawDate) : null;
-        const value = parsed && !Number.isNaN(parsed.getTime())
-          ? new Intl.DateTimeFormat("pt-BR", {
-              dateStyle: "short", timeStyle: "short",
-              timeZone: "America/Belem",
-            }).format(parsed)
-          : "Não informada pelo provedor oficial";
+        const dateOnly = rawDate?.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+        const value = dateOnly
+          ? `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`
+          : parsed && !Number.isNaN(parsed.getTime())
+            ? new Intl.DateTimeFormat("pt-BR", {
+                dateStyle: "short", timeStyle: "short",
+                timeZone: "America/Belem",
+              }).format(parsed)
+            : "Não informada pelo provedor oficial";
         updateProperties("Última atualização da base oficial", value);
       }).catch(() => {
         updateProperties(
