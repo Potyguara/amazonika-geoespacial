@@ -386,31 +386,56 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                   "geodésicos calculados sobre o elipsóide GRS80. A precisão depende "
                   "da fonte da geometria; esta emissão não constitui certificação fundiária.",
                   space=13)
-    if y<195:
-        new_page()
-    _str(pdf,f"{address or 'Local não informado'}, "
-         f"{survey_date.strftime('%d/%m/%Y')}.",margin,y,7.2,color=c["dark"])
-    y-=18
-    width=(W-2*margin-20)/3
-    names=[
-        ("PROPRIETÁRIO / DETENTOR",owner or "Não informado",
-         f"CPF: {owner_cpf or '—'}"),
-        ("RESPONSÁVEL TÉCNICO",professional.get("full_name") or "Não informado",
-         " · ".join(
-             f"{label}: {professional[key]}" for key,label in (
-                 ("profession","Profissão"),("specialization","Especialização"),
-                 ("crea","CREA/CAU"),("visto","Visto"),("incra_code","INCRA"),
-                 ("art","ART"),
-             ) if professional.get(key)
-         ) or "Registro/ART não informado"),
-        ("CARIMBO DO RESPONSÁVEL TÉCNICO","",""),
+    # Assinaturas: duas colunas independentes, alturas calculadas.
+    # Não repetir dados cadastrais em texto avulso antes das assinaturas.
+    signature_width=(W-2*margin-18)/2
+    def sign_block(title,name,details):
+        prepared=[]
+        for value,bold_text in [(name,True),*[(entry,False) for entry in details]]:
+            item=_para(escape(value),size=7.0 if bold_text else 6.4,
+                       leading=9.1 if bold_text else 8.8,color=c["dark"],
+                       bold=bold_text)
+            _,height=item.wrap(signature_width-8,800)
+            prepared.append((item,height))
+        block_height=13+40+sum(h+3 for _,h in prepared)+12
+        return title,prepared,block_height
+    owner_details=[
+        f"CPF/CNPJ: {owner_cpf}" if owner_cpf else "CPF/CNPJ não informado",
     ]
-    for i,(label,name,doc) in enumerate(names):
-        xx=margin+i*(width+10)
-        _str(pdf,label,xx,y,5.6,"Helvetica-Bold",c["gold"])
+    if owner_rg:
+        owner_details.append(f"RG: {owner_rg}")
+    tech_details=[
+        f"{label}: {professional[k]}" for k,label in (
+            ("profession","Profissão"),
+            ("specialization","Especialidade"),
+            ("crea","CREA/CAU"),
+            ("visto","Visto"),
+            ("incra_code","INCRA"),
+            ("art","ART"),
+        ) if professional.get(k)
+    ]
+    signatures=[
+        sign_block("PROPRIETÁRIO / DETENTOR",owner or "Não informado",
+                   owner_details),
+        sign_block("RESPONSÁVEL TÉCNICO",
+                   professional.get("full_name") or "Não informado",
+                   tech_details),
+    ]
+    signature_height=max(item[2] for item in signatures)+25
+    if y<signature_height+76:
+        new_page()
+    location_date=f"{address or 'Local não informado'}, {survey_date.strftime('%d/%m/%Y')}."
+    y-=_fit_para(pdf,location_date,margin,y,W-2*margin,
+                 size=7.2,leading=9.1,color=c["dark"])+17
+    for i,(label,items,_) in enumerate(signatures):
+        xx=margin+i*(signature_width+18)
+        _str(pdf,label,xx,y,6.7,"Helvetica-Bold",c["gold"])
+        line_y=y-40
         pdf.setStrokeColor(_col(c["primary"]))
-        pdf.line(xx,y-43,xx+width,y-43)
-        _fit_para(pdf,name,xx,y-49,width,size=6.5,leading=8,
-                  color=c["dark"],bold=True)
-        _fit_para(pdf,doc,xx,y-69,width,size=5.8,leading=7.1,color="#69796E")
+        pdf.line(xx,line_y,xx+signature_width,line_y)
+        current=line_y-14
+        for paragraph,height in items:
+            paragraph.drawOn(pdf,xx+3,current-height)
+            current-=height+4
+    # Reservar altura até o maior bloco de qualificações para o rodapé.
     footer()
