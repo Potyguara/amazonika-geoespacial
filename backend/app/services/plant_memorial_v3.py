@@ -594,6 +594,30 @@ def make_joint_pdf(*, parcels: list[Parcel], title: str,
     projected=[[transformer.transform(*pt) for pt in parcel.points]
                for parcel in parcels]
     count=sum(len(p.points) for p in parcels)
+    if layout_template in ("classic_lateral", "cartographic_frame", "modern_lateral"):
+        from app.services.plant_template_engine import render_professional_plant
+        buffer = io.BytesIO()
+        printer = canvas.Canvas(buffer, pagesize=portrait(PAPERS[(paper_format or "A2").upper()]),
+                                pageCompression=1)
+        printer.setTitle(f"{plant_heading} — {title}")
+        _, _, selected_scale = render_professional_plant(
+            printer, parcels=parcels, title=title, owner_name=owner_name,
+            owner_rg=owner_rg, owner_cpf=owner_cpf, property_address=property_address,
+            professional=professional, raster=raster, raster_source=raster_source,
+            paper_format=(paper_format or "A2").upper(), orientation=orientation,
+            scale_denominator=scale_denominator, plant_elements=elements,
+            stamp=stamp, croqui=croqui, disclaimer=DISCLAIMER,
+            layout_template=layout_template, property_metadata=property_metadata,
+        )
+        printer.showPage()
+        _memorial_pdf(
+            printer, parcels, title, owner_name, owner_rg, owner_cpf,
+            property_address, memorial_heading, professional, croqui, stamp,
+            edited_memorial, property_metadata=property_metadata,
+        )
+        printer.save()
+        return buffer.getvalue(), (paper_format or "A2").upper(), selected_scale
+
     fmt,w,h,side,bounds,viewport,table_rect,scale=_layout(
         projected,vertex_count=count,paper=paper_format,
         orientation=orientation,scale=scale_denominator,
