@@ -554,8 +554,7 @@ def render_professional_plant(
     _heading(pdf,title,property_address,paper_format,scale_denominator,w,h,palette,layout_template)
 
     if paper_format in ("A4","A3"):
-        # Formatos compactos: mapa exclusivo, painel técnico e quadro
-        # de coordenadas em páginas próprias para preservar legibilidade.
+        # 1ª folha: mapa amplo, independente do número de vértices.
         map_rect=Rect(30,64,w-60,h-183)
         map_scale=_map(pdf,map_rect,parcels,transformer,zone,hemi,
                        scale_denominator,palette,elements,
@@ -564,36 +563,47 @@ def render_professional_plant(
         header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette,
                          dark_text=(layout_template=="modern_lateral"))
         _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
+        # 2ª folha: painéis em colunas, sem disputar espaço com a geometria.
         pdf.showPage()
         pdf.setPageSize((w,h))
         _heading(pdf,title,property_address,paper_format,map_scale,
                  w,h,palette,layout_template)
-        top=h-117
+        top=h-116
         gap=12
         col_w=(w-72-gap)/2
         xleft=30
         xright=xleft+col_w+gap
-        detail_h=min(205,(h-200)*.31)
-        image_h=min(158,(h-200)*.23)
-        confr_h=min(248,(h-200)*.39)
-        sign_h=min(282,(h-200)*.44)
-        reference_h=143
+        detail_h=195
+        image_h=132
+        confr_h=245
+        ref_h=143
         _details(pdf,Rect(xleft,top-detail_h,col_w,detail_h),fields,palette)
-        _image_card(pdf,Rect(xleft,top-detail_h-12-image_h,col_w,image_h),
+        _image_card(pdf,Rect(xleft,top-detail_h-gap-image_h,col_w,image_h),
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        reference_card(pdf,Rect(xleft,top-detail_h-image_h-24-reference_h,
-                                col_w,reference_h),zone,hemi,
-                       convergence=convergence,
-                       declination=magnetic_declination_degrees,
-                       magnetic_source=magnetic_source,palette=palette)
         confrontations_card(pdf,Rect(xright,top-confr_h,col_w,confr_h),
                             parcels,palette)
-        signature_card(pdf,Rect(xright,top-confr_h-12-sign_h,col_w,sign_h),
+        reference_card(pdf,Rect(xright,top-confr_h-gap-ref_h,col_w,ref_h),
+                       zone,hemi,convergence=convergence,
+                       declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source,palette=palette)
+        _footer(pdf,w,stamp,None,palette)
+        # 3ª folha: assinaturas completas e tabela coordenada com
+        # paginação automática sem cortar linhas de origem.
+        pdf.showPage()
+        pdf.setPageSize((w,h))
+        _heading(pdf,title,property_address,paper_format,map_scale,
+                 w,h,palette,layout_template)
+        signature_h=250
+        signature_card(pdf,Rect(32,h-116-signature_h,w-64,signature_h),
                        owner_name,owner_cpf,professional,palette,
                        date_text=survey_date,owner_rg=owner_rg)
+        table_h=max(90,h-116-signature_h-72-70)
+        written=_table(pdf,Rect(35,70,w-70,table_h),rows,palette,
+                       columns=2 if w>1100 else 1,
+                       font_size=6.4 if w<650 else 7.0)
         _footer(pdf,w,stamp,None,palette)
-        _continuation(pdf,rows,0,w,h,title,stamp,palette)
+        _continuation(pdf,rows,written,w,h,title,stamp,palette)
         return w,h,map_scale
 
     if orientation=="paisagem":
