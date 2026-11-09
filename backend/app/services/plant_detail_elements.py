@@ -287,36 +287,42 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,
             ("ART",professional.get("art")),
         ]),
     ]
-    def paragraph(value,bold_text=False):
-        style=ParagraphStyle("signature_info",fontName=bold if bold_text else regular,
-                              fontSize=7.0 if bold_text else 6.3,
-                              leading=9.5 if bold_text else 8.1,
-                              textColor=colors.HexColor(dark if bold_text else "#586C62"))
-        p=Paragraph(escape(str(value)),style)
-        _,height=p.wrap(width-3,1000)
-        return p,height
-    prepared=[]
-    for section,name,details in entries:
-        fields=[(k,str(v).strip()) for k,v in details if v is not None and str(v).strip()]
-        name_p,name_h=paragraph(name,True)
-        items=[paragraph(f"{label}: {value}") for label,value in fields]
-        block_h=13+name_h+sum(h+2 for _,h in items)+6
-        prepared.append((section,name_p,name_h,items,block_h))
-    available=rect.h-39-14
-    required=sum(v[4] for v in prepared)+16
-    # Se não houver altura suficiente, reservar ampliação no layout em vez
-    # de desenhar linhas por cima de outros campos.
-    if required>available:
-        # Mostrar dados completos até onde houver espaço, mas nunca colidir:
-        # o chamador deve adaptar a altura do painel conforme a orientação.
-        font_note=6.0
+    prepared=None
+    font_size=7.0
+    for candidate in (7.0,6.7,6.4,6.1,5.8,5.5,5.2):
+        def paragraph(value,bold_text=False):
+            size=candidate if bold_text else candidate-.5
+            leading=size+1.8
+            style=ParagraphStyle("signature_info",fontName=bold if bold_text else regular,
+                                  fontSize=size,leading=leading,
+                                  textColor=colors.HexColor(dark if bold_text else "#586C62"))
+            p=Paragraph(escape(str(value)),style)
+            _,height=p.wrap(width-3,1000)
+            return p,height
+        attempt=[]
+        required=0
+        for section,name,details in entries:
+            fields=[(k,str(v).strip()) for k,v in details
+                    if v is not None and str(v).strip()]
+            name_p,name_h=paragraph(name,True)
+            items=[paragraph(f"{label}: {value}") for label,value in fields]
+            block_h=16+name_h+3+sum(height+2 for _,height in items)+14
+            attempt.append((section,name_p,name_h,items,block_h))
+            required+=block_h
+        # Reserva cabeçalho, margem e a linha de elaboração. Os títulos
+        # nunca passam para cima da informação da seção anterior.
+        if required<=rect.h-38-24:
+            prepared=attempt
+            font_size=candidate
+            break
+    if prepared is None:
+        raise ValueError(
+            "Quadro de assinaturas insuficiente para os dados cadastrados. "
+            "Escolha um formato maior ou utilize orientação paisagem."
+        )
     y=rect.top-38
     for section,name_p,name_h,items,block_h in prepared:
-        if y-block_h < rect.y+13:
-            _text(pdf,"Dados adicionais do responsável técnico no memorial",
-                  x,rect.y+14,size=5.7,color="#586C62",max_width=width)
-            break
-        pdf.setFont(bold,6.5)
+        pdf.setFont(bold,max(5.9,font_size-.4))
         pdf.setFillColor(colors.HexColor(accent))
         pdf.drawString(x,y,section)
         y-=16
@@ -328,16 +334,18 @@ def signature_card(pdf,rect,owner,owner_cpf,professional,palette,
             y-=height+2
             p.drawOn(pdf,x+1,y)
         y-=14
-    # Carimbo apenas quando existir espaço real e livre.
-    if y-40 >= rect.y+12:
+    # O espaço para carimbo somente é usado quando não colide com o texto.
+    if y-31>=rect.y+22:
         pdf.setDash(3,3)
         pdf.setStrokeColor(colors.HexColor("#308467"))
-        pdf.roundRect(x,rect.y+9,width,min(40,y-rect.y-19),4,stroke=1,fill=0)
+        pdf.roundRect(x,rect.y+19,width,min(30,y-rect.y-38),4,stroke=1,fill=0)
         pdf.setDash()
         _text(pdf,"CARIMBO DO RESPONSÁVEL TÉCNICO",
-              x+9,rect.y+23,size=6.2,bold=True,color="#308467")
+              x+8,rect.y+30,size=6,bold=True,color="#308467",
+              max_width=width-16)
     if date_text:
-        _text(pdf,"Elaborado em "+date_text,x,rect.y+4,size=5.6,color="#65786C")
+        _text(pdf,"Elaborado em "+date_text,x,rect.y+10,
+              size=5.8,color="#65786C",max_width=width)
 
 
 def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01",dark_text=False):
