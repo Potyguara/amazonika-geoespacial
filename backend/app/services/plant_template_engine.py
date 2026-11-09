@@ -577,14 +577,35 @@ def render_professional_plant(
         image_h=132
         confr_h=245
         ref_h=143
-        _details(pdf,Rect(xleft,top-detail_h,col_w,detail_h),fields,palette)
-        _image_card(pdf,Rect(xleft,top-detail_h-gap-image_h,col_w,image_h),
+        # Três composições distintas mesmo quando a planta é pequena.
+        if layout_template=="classic_lateral":
+            positions=dict(
+                identity=Rect(xleft,top-detail_h,col_w,detail_h),
+                situation=Rect(xleft,top-detail_h-gap-image_h,col_w,image_h),
+                confrontations=Rect(xright,top-confr_h,col_w,confr_h),
+                reference=Rect(xright,top-confr_h-gap-ref_h,col_w,ref_h),
+            )
+        elif layout_template=="cartographic_frame":
+            positions=dict(
+                confrontations=Rect(xleft,top-confr_h,col_w,confr_h),
+                reference=Rect(xleft,top-confr_h-gap-ref_h,col_w,ref_h),
+                identity=Rect(xright,top-detail_h,col_w,detail_h),
+                situation=Rect(xright,top-detail_h-gap-image_h,col_w,image_h),
+            )
+        else:  # modern_lateral
+            positions=dict(
+                identity=Rect(xleft,top-detail_h,col_w,detail_h),
+                reference=Rect(xleft,top-detail_h-gap-ref_h,col_w,ref_h),
+                confrontations=Rect(xright,top-confr_h,col_w,confr_h),
+                situation=Rect(xright,top-confr_h-gap-image_h,col_w,image_h),
+            )
+        _details(pdf,positions["identity"],fields,palette)
+        _image_card(pdf,positions["situation"],
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        confrontations_card(pdf,Rect(xright,top-confr_h,col_w,confr_h),
-                            parcels,palette)
-        reference_card(pdf,Rect(xright,top-confr_h-gap-ref_h,col_w,ref_h),
-                       zone,hemi,convergence=convergence,
+        confrontations_card(pdf,positions["confrontations"],parcels,palette)
+        reference_card(pdf,positions["reference"],zone,hemi,
+                       convergence=convergence,
                        declination=magnetic_declination_degrees,
                        magnetic_source=magnetic_source,palette=palette)
         _footer(pdf,w,stamp,None,palette)
