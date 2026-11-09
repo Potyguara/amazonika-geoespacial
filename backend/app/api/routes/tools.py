@@ -71,7 +71,7 @@ class PlantElements(BaseModel):
     coordinates: bool = True
     situation: bool = True
     technical_stamp: bool = True
-    magnetic_declination: bool = False
+    magnetic_declination: bool = True
 
 
 def _document_professional(user: User, payload: "MemorialRequest") -> dict:
