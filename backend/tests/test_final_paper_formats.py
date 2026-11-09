@@ -3,13 +3,30 @@
 Testa imóvel pequeno (A4/A3), 61 vértices e dados técnicos completos.
 """
 import io
+import math
 import unittest
 from pypdf import PdfReader
 from reportlab.lib.pagesizes import A0,A1,A2,A3,A4
 
 from app.services.plant_memorial_v2 import prepare_parcels
 from app.services.plant_memorial_v3 import make_joint_pdf
-from tests.test_plant_landscape_memorial_wmm import synthetic_property
+def synthetic_property(n=61):
+    x,y=-50.85,1.07
+    ring=[[x+.002*math.cos(2*math.pi*i/n),
+           y+.003*math.sin(2*math.pi*i/n)] for i in range(n)]
+    ring.append(ring[0])
+    return prepare_parcels([dict(
+        name="IMÓVEL DE TESTE",
+        geometry={"type":"Polygon","coordinates":[ring]},
+        vertex_names=[
+            f"EQGV-M-{3000+i}" if i%15==0 else f"EQGV-V-{500+i}"
+            for i in range(n)
+        ],
+        altitudes_m=[1.1]*n,
+        confrontants=["Ramal São Benedito do Aporema" if i<15 else
+                      "Confrontante Sul" if i<32 else
+                      "Confrontante Oeste" for i in range(n)],
+    )])
 
 SIZES={"A0":A0,"A1":A1,"A2":A2,"A3":A3,"A4":A4}
 LAYOUTS=("classic_lateral","cartographic_frame","modern_lateral")
