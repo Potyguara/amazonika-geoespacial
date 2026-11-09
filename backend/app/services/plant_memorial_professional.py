@@ -431,10 +431,11 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                 narrative(prose.rstrip("; ")+("; linha ideal;" if idx<len(groups)-1 else "."),space=12)
             narrative(f"<b>ÁREA DESTA PARCELA:</b> {_br_number(parcel.area_ha,4)} ha · "
                       f"<b>PERÍMETRO:</b> {_br_number(parcel.perimeter,2)} m",space=10)
-        narrative("Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
-                  "geodésicos calculados sobre o elipsóide GRS80. A precisão depende "
-                  "da fonte da geometria; esta emissão não constitui certificação fundiária.",
-                  space=13)
+        if croqui:
+            narrative("Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
+                      "geodésicos calculados sobre o elipsóide GRS80. A precisão depende "
+                      "da fonte da geometria; esta emissão não constitui certificação fundiária.",
+                      space=13)
     # Assinaturas: duas colunas independentes, alturas calculadas.
     # Não repetir dados cadastrais em texto avulso antes das assinaturas.
     signature_width=(W-2*margin-18)/2
