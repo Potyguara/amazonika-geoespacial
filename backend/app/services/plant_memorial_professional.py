@@ -9,7 +9,7 @@ import math
 from datetime import date
 import re
 from xml.sax.saxutils import escape
-from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT
+from reportlab.lib.enums import TA_JUSTIFY, TA_LEFT, TA_CENTER
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -301,6 +301,44 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
     pdf.setLineWidth(2)
     pdf.line(margin,y-6,margin+75,y-6)
     y-=24
+
+    def confrontation_banner(number, group):
+        nonlocal y
+        # O cabeçalho e a primeira linha do trecho devem permanecer juntos.
+        if y < 164:
+            new_page()
+        bar_h=29
+        pdf.setFillColor(_col(c["primary"]))
+        pdf.roundRect(margin,y-bar_h,W-2*margin,bar_h,5,fill=1,stroke=0)
+        pdf.setFillColor(_col(c["gold"]))
+        pdf.rect(margin,y-bar_h,5,bar_h,stroke=0,fill=1)
+        pdf.setFillColor(_col(c["gold"]))
+        pdf.circle(margin+25,y-14,10,stroke=0,fill=1)
+        _str(pdf,str(number),margin+25,y-17,8,"Helvetica-Bold",
+             c["primary"],center=True)
+        name=str(group["name"])
+        # Reserva trecho à direita; não elide o nome: o restante vai
+        # para segunda linha quando necessário.
+        descriptor=(f"{_short(group['start'])} → {_short(group['end'])} · "
+                    f"{_br_number(group['distance'],2)} m")
+        available=W-2*margin-205
+        name_para=_para(escape("Confrontante: "+name),size=8.1,
+                        leading=10.2,color="#FFFFFF",bold=True)
+        _,name_h=name_para.wrap(available,100)
+        if name_h>19:
+            # Uma segunda linha demanda aumento real da faixa.
+            pdf.setFillColor(_col(c["primary"]))
+            pdf.roundRect(margin,y-bar_h-14,W-2*margin,22,5,stroke=0,fill=1)
+            pdf.setFillColor(_col(c["gold"]))
+            pdf.rect(margin,y-bar_h-14,5,22,stroke=0,fill=1)
+            name_para.drawOn(pdf,margin+42,y-8-name_h)
+            y-=bar_h+14
+        else:
+            name_para.drawOn(pdf,margin+42,y-9-name_h)
+            y-=bar_h
+        _str(pdf,descriptor,W-margin-9,y+12,6.4,
+             "Helvetica-Bold","#FFFFFF",right=True)
+        y-=13
 
     def narrative(html,*,keep_min=18,space=7):
         nonlocal y
