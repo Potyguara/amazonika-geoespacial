@@ -506,22 +506,24 @@ def render_professional_plant(
         map_scale=_map(pdf,frame,parcels,transformer,zone,hemi,
                        scale_denominator,palette,elements,inset_left=315)
         left=Rect(frame.x+15,frame.y+15,285,frame.h-30)
+        # Apenas as regiões são declaradas aqui; a renderização usa os
+        # componentes técnicos atuais, evitando referências legadas.
         cards=[
-            (_details,Rect(left.x,left.top-220,left.w,220)),
-            (_image_card,Rect(left.x,left.top-450,left.w,218)),
-            (_neighbors_card,Rect(left.x,left.top-640,left.w,178)),
-            (_legend_card,Rect(left.x,left.top-787,left.w,135)),
-            (_signature_card,Rect(left.x,left.top-1022,left.w,223)),
+            Rect(left.x,left.top-220,left.w,220),
+            Rect(left.x,left.top-450,left.w,218),
+            Rect(left.x,left.top-640,left.w,178),
+            Rect(left.x,left.top-787,left.w,135),
+            Rect(left.x,left.top-1022,left.w,223),
         ]
-        _details(pdf,cards[0][1],fields,palette)
-        _image_card(pdf,cards[1][1],
+        _details(pdf,cards[0],fields,palette)
+        _image_card(pdf,cards[1],
                     raster if elements.get("situation",True) else None,
                     raster_source,palette)
-        confrontations_card(pdf,cards[2][1],parcels,palette)
-        reference_card(pdf,cards[3][1],zone,hemi,
+        confrontations_card(pdf,cards[2],parcels,palette)
+        reference_card(pdf,cards[3],zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
                        palette=palette)
-        signature_card(pdf,cards[4][1],owner_name,owner_cpf,professional,palette,
+        signature_card(pdf,cards[4],owner_name,owner_cpf,professional,palette,
                        date_text=survey_date,owner_rg=owner_rg)
         # Quadro adaptativo conforme a quantidade efetiva de vértices.
         first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
