@@ -53,7 +53,8 @@ class LabelLayout:
 
     def place(self, pdf, lines: list[str], anchor: tuple[float,float],
               *, angle=0, font="Helvetica-Bold", color=None,
-              desired=7.3, minimum=6.0, offsets=None, allow_callout=True):
+              desired=7.3, minimum=6.0, offsets=None, allow_callout=True,
+              white_background=True):
         lines = [str(s) for s in lines if str(s).strip()]
         if not lines:
             return True
@@ -105,8 +106,9 @@ class LabelLayout:
                 pdf.saveState()
                 pdf.translate(cx,cy)
                 pdf.rotate(angle)
-                pdf.setFillColor(colors.white)
-                pdf.rect(-width/2,-height/2,width,height,stroke=0,fill=1)
+                if white_background:
+                    pdf.setFillColor(colors.white)
+                    pdf.rect(-width/2,-height/2,width,height,stroke=0,fill=1)
                 pdf.setFillColor(color or colors.HexColor("#23342A"))
                 pdf.setFont(font,size)
                 for n,value in enumerate(lines):
@@ -144,7 +146,8 @@ class LabelLayout:
             pdf.line(ax,ay,edge_x,edge_y)
             pdf.setFillColor(colors.white)
             pdf.circle(ax,ay,1.3,stroke=1,fill=1)
-            pdf.rect(box.x,box.y,box.w,box.h,stroke=1,fill=1)
+            if white_background:
+                pdf.rect(box.x,box.y,box.w,box.h,stroke=1,fill=1)
             pdf.setFillColor(color or colors.HexColor("#23342A"))
             pdf.setFont(font,size)
             for n,value in enumerate(lines):
