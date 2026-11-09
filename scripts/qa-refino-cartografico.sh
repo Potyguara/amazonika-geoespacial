@@ -21,6 +21,7 @@ docker build -f backend/Dockerfile.production \
 
 echo "===== TESTES DO MOTOR ====="
 for testfile in \
+  test_plant_detail_elements.py \
   test_professional_plant_refinement.py \
   test_professional_plant_engine.py \
   test_plant_layout_templates.py \
