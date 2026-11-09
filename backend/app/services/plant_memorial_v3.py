@@ -422,8 +422,8 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
                   address, heading, professional, croqui, stamp, edited_memorial=None, property_metadata=None):
     w,h=A4; margin=43
     body=ParagraphStyle(
-        "memorial",fontName="Helvetica",fontSize=9.4,leading=14,
-        alignment=4,textColor=DARK,
+        "memorial",fontName="Helvetica",fontSize=9.4,leading=14.2,
+        alignment=4,textColor=DARK,spaceAfter=0,
     )
     page_no=0
     def foot():
@@ -441,18 +441,21 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
         pdf.drawRightString(w-margin,20,f"{stamp} | Fl. {page_no}")
     def heading_block():
         pdf.setPageSize(A4)
+        pdf.setFillColor(GREEN)
+        pdf.rect(margin,h-75,w-2*margin,3,fill=1,stroke=0)
         pdf.setFillColor(DARK);pdf.setFont("Helvetica-Bold",15)
-        pdf.drawCentredString(w/2,h-46,heading[:56].upper())
+        pdf.drawCentredString(w/2,h-44,heading[:56].upper())
         pdf.setFont("Helvetica-Bold",10.5)
-        pdf.drawCentredString(w/2,h-63,property_name[:68].upper())
-        pdf.setStrokeColor(GREEN)
-        pdf.line(margin,h-74,w-margin,h-74)
+        pdf.drawCentredString(w/2,h-62,property_name[:68].upper())
+        pdf.setFont("Helvetica",7)
+        pdf.setFillColor(colors.HexColor("#58736A"))
+        pdf.drawCentredString(w/2,h-85,"PEÇA TÉCNICA  •  DADOS E DESCRIÇÃO PERIMETRAL")
     def next_page():
         nonlocal y,page_no
         if page_no:foot();pdf.showPage()
         page_no+=1
         heading_block()
-        y=h-93
+        y=h-105
     next_page()
     def paragraph(text,bold=False,space=4):
         nonlocal y
@@ -511,8 +514,16 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
         val = (property_metadata or {}).get(key)
         if val:
             meta.append(f"{label}: {val[:250]}")
-    for line in meta:paragraph(line,bold=line.startswith("IMÓVEL"),space=2)
-    y-=10
+    # Identificação em seção única, evitando cabeçalho isolado.
+    pdf.setFillColor(GREEN)
+    pdf.roundRect(margin,y-21,w-2*margin,20,3,stroke=0,fill=1)
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold",8.4)
+    pdf.drawString(margin+9,y-15,"01  IDENTIFICAÇÃO CADASTRAL DO IMÓVEL")
+    y-=32
+    for line in meta:
+        paragraph(line,bold=line.startswith("IMÓVEL"),space=2)
+    y-=8
     prose=build_joint_memorial(
         parcels,title=property_name,owner=owner,
         responsible=professional.get("full_name"),croqui=False,
@@ -525,8 +536,15 @@ def _memorial_pdf(pdf, parcels, property_name, owner, owner_rg, owner_cpf,
         line=line.strip()
         if not line:continue
         if line.startswith("DESCRIÇÃO DO PERÍMETRO"):
-            y-=7
-            paragraph(line,bold=True,space=8)
+            if y<165:next_page()
+            y-=4
+            pdf.setFillColor(GREEN)
+            pdf.roundRect(margin,y-24,w-2*margin,21,3,fill=1,stroke=0)
+            pdf.setFillColor(colors.white)
+            pdf.setFont("Helvetica-Bold",8.4)
+            pdf.drawString(margin+9,y-18,"02  DESCRIÇÃO TÉCNICA DO PERÍMETRO")
+            y-=34
+            paragraph(line,bold=True,space=9)
         else:
             paragraph(line,space=4)
     if y<190:next_page()
