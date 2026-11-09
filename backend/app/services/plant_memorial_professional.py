@@ -29,7 +29,7 @@ def _style_for(template):
     return choices[template]
 
 
-def _col(pdf,value):
+def _col(value):
     return colors.HexColor(value)
 
 
