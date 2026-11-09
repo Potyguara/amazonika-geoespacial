@@ -217,13 +217,13 @@ def build_joint_memorial(
             f"perímetro: {_br_number(parcel.perimeter, 2)} m."
         )
         lines.append("")
-    lines.append(
-        "Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
-        "geodésicos calculados sobre o elipsóide GRS80. "
-        "A precisão depende da fonte da geometria; a emissão não corresponde "
-        "a certificação fundiária."
-    )
     if croqui:
+        lines.append(
+            "Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
+            "geodésicos calculados sobre o elipsóide GRS80. "
+            "A precisão depende da fonte da geometria; a emissão não corresponde "
+            "a certificação fundiária."
+        )
         lines.extend(["", "OBSERVAÇÃO:", DISCLAIMER])
     person = responsible or professional.get("full_name") or "Não informado"
     lines.extend(["", "________________________________________", person])
