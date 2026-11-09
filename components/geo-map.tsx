@@ -955,7 +955,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       attributes: fallbackAttributes,
       loading: true,
     });
-    if (!sourceId || !featureId) {
+    // GetFeatureInfo do WMS já devolve os atributos oficiais.
+    // Não existe correspondente em /sources/{id}/features/{id} (PostGIS).
+    if (feature.get("wms_identified") || !sourceId || !featureId) {
       setIdentifiedFeature({ title, layer, attributes: fallbackAttributes });
       return;
     }
@@ -1392,8 +1394,114 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         return;
       }
 
-      // WMS é somente referência visual. A ferramenta Identificar
-      // trabalha exclusivamente com geometrias vetoriais presentes no PostGIS.
+      /*
+       * Fallback oficial SIGEF Brasil — OGC WMS GetFeatureInfo.
+       * A camada é visualizada por ImageWMS e não possui cópia PostGIS.
+       * Consultar apenas quando estiver ativa, usando o mesmo proxy WMS
+       * e o mesmo filtro estadual que desenharam a imagem no mapa.
+       */
+      const sigef = layersRef.current.find(
+        (layer) =>
+          layer.slug === "incra-sigef-brasil" &&
+          layer.id &&
+          layer.enabled &&
+          layer.wmsEnabled,
+      );
+      const sigefSource = sigef?.id
+        ? wmsLayersRef.current.get(sigef.id)?.getSource()
+        : null;
+      if (sigef && sigefSource) {
+        const resolution = map.getView().getResolution();
+        const infoUrl = resolution
+          ? sigefSource.getFeatureInfoUrl(
+              event.coordinate,
+              resolution,
+              map.getView().getProjection(),
+              {
+                INFO_FORMAT: "application/json",
+                FEATURE_COUNT: 10,
+              },
+            )
+          : undefined;
+        if (infoUrl) {
+          identifyAbortRef.current?.abort();
+          const controller = new AbortController();
+          identifyAbortRef.current = controller;
+          setIdentifyLoadingMessage("Consultando atributos oficiais SIGEF/INCRA…");
+          try {
+            const response = await fetch(infoUrl, {
+              credentials: "include",
+              signal: controller.signal,
+              headers: { Accept: "application/json" },
+            });
+            if (!response.ok) {
+              throw new Error(`Serviço SIGEF indisponível (HTTP ${response.status}).`);
+            }
+            const body = await response.json();
+            if (controller.signal.aborted) return;
+            if (body?.type !== "FeatureCollection" ||
+                !Array.isArray(body.features)) {
+              throw new Error("O WMS SIGEF não retornou informações em GeoJSON.");
+            }
+
+            const format = new GeoJSON();
+            const candidates: IdentifyCandidate[] = [];
+            for (const item of body.features.slice(0, 10)) {
+              if (!item || item.type !== "Feature") continue;
+              try {
+                const feature = item.geometry
+                  ? format.readFeature(item, {
+                      featureProjection: map.getView().getProjection(),
+                    }) as Feature
+                  : new Feature({
+                      geometry: new Point(event.coordinate.slice()),
+                      ...(item.properties ?? {}),
+                    });
+                const props = item.properties ?? {};
+                const featureId = String(item.id ?? props.fid ?? props.id ?? "");
+                if (featureId) feature.setId(featureId);
+                feature.set("source_id", sigef.id);
+                feature.set("source_name", sigef.name);
+                feature.set("catalogName", sigef.name);
+                feature.set("feature_id", featureId);
+                feature.set("displayColor", sigef.color);
+                feature.set("wms_identified", true);
+                const identity = featureIdentity(feature);
+                candidates.push({
+                  feature,
+                  title: identity.title,
+                  layer: identity.layer,
+                });
+              } catch (itemError) {
+                console.warn("Feição WMS SIGEF com geometria inválida.", itemError);
+              }
+            }
+            if (candidates.length === 1) {
+              setIdentifyLoading(false);
+              selectFeatureRef.current(candidates[0].feature);
+              return;
+            }
+            if (candidates.length > 1) {
+              setIdentifyLoading(false);
+              identifyCandidateHistoryRef.current = candidates;
+              setIdentifyCandidates(candidates);
+              return;
+            }
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            console.warn("Falha no GetFeatureInfo SIGEF Brasil.", error);
+            setIdentifyLoading(false);
+            setIdentifiedFeature({
+              title: "Consulta SIGEF indisponível",
+              layer: sigef.name,
+              attributes: [["status",
+                error instanceof Error ? error.message :
+                "O serviço oficial não respondeu à identificação."]],
+            });
+            return;
+          }
+        }
+      }
       setIdentifyLoading(false);
       setIdentifiedFeature(null);
     };
