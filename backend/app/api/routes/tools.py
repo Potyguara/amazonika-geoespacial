@@ -95,7 +95,7 @@ class MemorialRequest(BaseModel):
     memorial_heading: str = Field(default="MEMORIAL DESCRITIVO", max_length=150)
     paper_format: str = Field(default="A4", pattern="^(A4|A3|A2|A1|A0)$")
     orientation: str = Field(default="paisagem", pattern="^(paisagem|retrato)$")
-    layout_template: str = Field(default="lateral", pattern="^(lateral|inferior)$")
+    layout_template: str = Field(default="lateral", pattern="^(lateral|inferior|classic_lateral|cartographic_frame|modern_lateral)$")
     scale_denominator: int | None = Field(default=None, ge=50, le=1000000)
     owner_rg: str | None = Field(default=None, max_length=60)
     owner_cpf: str | None = Field(default=None, max_length=25)
