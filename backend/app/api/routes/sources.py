@@ -1309,6 +1309,81 @@ def proxy_source_wms(source_id:UUID,request:Request,db:Session=Depends(get_db)):
     except (HTTPError,URLError,TimeoutError) as exc:
         raise HTTPException(502,f"O serviço WMS oficial não respondeu: {exc}") from exc
 
+@router.get("/{source_id}/sigef-selected-geometry")
+def sigef_selected_geometry(
+    source_id: UUID,
+    feature_id: str = Query(default="", max_length=120),
+    parcel_code: str = Query(default="", max_length=64),
+    db: Session = Depends(get_db),
+):
+    """Obter geometria da parcela oficialmente identificada via WMS.
+
+    FEATUREID é preferível: aponta para a feição exata do GetFeatureInfo.
+    Código de parcela UUID só é usado quando o servidor omite FEATUREID.
+    """
+    import re
+
+    source = db.get(Source, source_id)
+    if not source or not source.is_active or source.slug != "incra-sigef-brasil":
+        raise HTTPException(404, "Camada SIGEF Brasil não encontrada.")
+    db.close()
+
+    fid = feature_id.strip()
+    parcel = parcel_code.strip()
+    if fid and not re.fullmatch(r"(?:geonode:)?sigef_geo\\.[A-Za-z0-9_-]{1,72}", fid):
+        raise HTTPException(422, "Identificador WFS SIGEF inválido.")
+    if not fid and not re.fullmatch(
+        r"[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}",
+        parcel,
+    ):
+        raise HTTPException(422, "Informe um identificador oficial da parcela.")
+
+    params = {
+        "SERVICE": "WFS", "VERSION": "1.1.0", "REQUEST": "GetFeature",
+        "TYPENAME": "geonode:sigef_geo",
+        "OUTPUTFORMAT": "application/json", "SRSNAME": "EPSG:4326",
+        "MAXFEATURES": "2",
+    }
+    if fid:
+        params["FEATUREID"] = fid
+    else:
+        params["CQL_FILTER"] = f"parcela_codigo='{parcel.lower()}'"
+
+    destination = SIGEF_GEONODE_WFS + "?" + urlencode(params)
+    upstream = UrlRequest(destination, headers={
+        "User-Agent": "Amazonika-Geoespacial/1.0",
+        "Accept": "application/json",
+    })
+    try:
+        opener = build_opener(
+            OfficialOnlyRedirectHandler(),
+            HTTPSHandler(context=ssl.create_default_context()),
+        )
+        with opener.open(upstream, timeout=25) as response:
+            raw = response.read(6 * 1024 * 1024 + 1)
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise HTTPException(502, "O WFS oficial SIGEF não respondeu à geometria.") from exc
+    if len(raw) > 6 * 1024 * 1024:
+        raise HTTPException(413, "Geometria oficial excede o limite da consulta.")
+    try:
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(502, "O WFS SIGEF retornou dados incompatíveis.") from exc
+
+    if payload.get("type") != "FeatureCollection":
+        raise HTTPException(502, "Resposta WFS SIGEF não é GeoJSON.")
+    features = payload.get("features")
+    if not isinstance(features, list):
+        raise HTTPException(502, "Resposta WFS SIGEF sem lista de feições.")
+    for item in features[:2]:
+        if not isinstance(item, dict):
+            continue
+        geometry = item.get("geometry")
+        if isinstance(geometry, dict) and geometry.get("type") in ("Polygon", "MultiPolygon"):
+            return {"geometry": geometry, "source": "INCRA_SIGEF_WFS"}
+    raise HTTPException(404, "A geometria da parcela não foi encontrada no WFS.")
+
+
 @router.get("/{source_id}/sigef-snap")
 def sigef_geonode_snap(
     source_id: UUID,
