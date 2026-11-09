@@ -297,7 +297,8 @@ def _table_height(rows_count, columns, *, font_size=6.2):
 
 
 def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
-         elements, *, inset_left=0):
+         elements, *, inset_left=0, magnetic_declination=None,
+         magnetic_source=None):
     from app.services.plant_memorial_v3 import _grid, _azimuth_and_distance
     from app.services.plant_label_layout import LabelLayout, Box
     points = [transformer.transform(*pos) for parcel in parcels for pos in parcel.points]
@@ -346,6 +347,8 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
         shape=shape_box(rect.x,rect.y,rect.x+rect.w,rect.y+rect.h)
         return not any(geom.intersects(shape) for geom in geometries)
     # Escolher quadrante livre da geometria. Manter distância do bordo UTM.
+    declination_label=magnetic_declination is not None
+    rose_pad=78 if declination_label else 52
     rose_candidates=[
         (actual.x+68,actual.y+103),
         (actual.x+68,actual.top-85),
@@ -353,10 +356,10 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
     ]
     rose_x,rose_y=next(
         ((x,y) for x,y in rose_candidates
-         if furniture_free(Box(x-52,y-52,104,104))),
+         if furniture_free(Box(x-52,y-rose_pad,104,52+rose_pad))),
         rose_candidates[0],
     )
-    rose_rect=Box(rose_x-52,rose_y-52,104,104)
+    rose_rect=Box(rose_x-52,rose_y-rose_pad,104,52+rose_pad)
     scale_candidates=[
         Rect(actual.x+actual.w-220,actual.top-150,208,138),
         Rect(actual.x+actual.w-220,actual.y+20,208,138),
@@ -412,6 +415,11 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
         pdf.setFillColor(colors.white)
         pdf.circle(rose_x,rose_y,53,fill=1,stroke=0)
         compass_rose(pdf,rose_x,rose_y,36,palette)
+        if declination_label:
+            regular,bold,_=_fonts()
+            source="WMM2025" if magnetic_source and "WMM2025" in magnetic_source else "RT"
+            caption=f"δ {magnetic_declination:+.2f}° · {source}"
+            _text(pdf,caption,rose_x-50,rose_y-65,7.2,bold,palette[0])
     # Escala numérica e gráfica reunidas no mesmo quadro técnico.
     if elements.get("scale_text", True) or elements.get("scale_bar", True):
         scale_card(pdf,scale_rect,scale,palette)
@@ -529,7 +537,9 @@ def render_professional_plant(
         sidebar_x=33+map_w+gap
         main_rect=Rect(33,bottom,map_w,top-bottom)
         map_scale=_map(pdf,main_rect,parcels,transformer,zone,hemi,
-                       scale_denominator,palette,elements)
+                       scale_denominator,palette,elements,
+                       magnetic_declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source)
         card_w=side_w
         available=top-bottom
         gap_y=7
@@ -564,7 +574,9 @@ def render_professional_plant(
         sidebar_x=map_box.x+map_box.w+14
         sidebar_w=w-sidebar_x-33
         map_scale=_map(pdf,map_box,parcels,transformer,zone,hemi,
-                       scale_denominator,palette,elements)
+                       scale_denominator,palette,elements,
+                       magnetic_declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source)
         t=map_box.top
         _details(pdf,Rect(sidebar_x,t-225,sidebar_w,225),fields,palette)
         _image_card(pdf,Rect(sidebar_x,t-405,sidebar_w,170),
@@ -591,7 +603,9 @@ def render_professional_plant(
         # Painéis sobrepostos à moldura, respeitando uma faixa segura
         # para que a geometria permaneça inteiramente visível.
         map_scale=_map(pdf,frame,parcels,transformer,zone,hemi,
-                       scale_denominator,palette,elements,inset_left=315)
+                       scale_denominator,palette,elements,inset_left=315,
+                       magnetic_declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source)
         left=Rect(frame.x+15,frame.y+15,285,frame.h-30)
         # Apenas as regiões são declaradas aqui; a renderização usa os
         # componentes técnicos atuais, evitando referências legadas.
@@ -621,7 +635,9 @@ def render_professional_plant(
         xright=left.x+left.w+14
         right=Rect(xright,490,w-xright-33,h-608)
         map_scale=_map(pdf,left,parcels,transformer,zone,hemi,
-                       scale_denominator,palette,elements)
+                       scale_denominator,palette,elements,
+                       magnetic_declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source)
         right_table_h=min(right.h,_table_height(len(rows),1,font_size=6.6))
         compact_table=Rect(right.x,right.top-right_table_h,right.w,right_table_h)
         first=_table(pdf,compact_table,rows,palette,columns=1,font_size=6.6)
