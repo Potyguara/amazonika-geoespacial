@@ -2398,7 +2398,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setOwnerCpf(String(data.cpf ?? ""));
       setPropertyAddress(String(data.address ?? ""));
       setCroquiNote(Boolean(data.croqui));
-      setPaperFormat(data.format === "A1" ? "A1" : "A2");
+      setPaperFormat(["A0","A1","A2","A3","A4"].includes(String(data.format)) ? data.format as typeof paperFormat : "A2");
       setPaperOrientation(data.orientation === "paisagem" ? "paisagem" : "retrato");
       setPlantLayoutTemplate(typeof data.layoutTemplate === "string" && ["classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) ? data.layoutTemplate as PecasData["layoutTemplate"] : "classic_lateral");
       setScaleChoice(String(data.scale ?? "auto"));
@@ -2438,7 +2438,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       case "cpf": setOwnerCpf(String(value)); break;
       case "address": setPropertyAddress(String(value)); break;
       case "croqui": setCroquiNote(Boolean(value)); break;
-      case "format": setPaperFormat(value === "A1" ? "A1" : "A2"); break;
+      case "format": setPaperFormat(["A0","A1","A2","A3","A4"].includes(String(value)) ? value as typeof paperFormat : "A2"); break;
       case "orientation": setPaperOrientation(value === "paisagem" ? "paisagem" : "retrato"); break;
       case "layoutTemplate": {
         const chosen = value as PecasData["layoutTemplate"];
