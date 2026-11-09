@@ -127,6 +127,7 @@ def build_joint_memorial(
     property_address: str | None = None,
     memorial_heading: str = "MEMORIAL DESCRITIVO",
     professional: dict | None = None,
+    property_metadata: dict[str, str] | None = None,
 ) -> str:
     """Redação corrida, agrupando trechos contíguos do mesmo confrontante.
 
@@ -144,6 +145,18 @@ def build_joint_memorial(
         lines.append(f"CPF: {owner_cpf}")
     if property_address:
         lines.append(f"LOCALIZAÇÃO: {property_address}")
+    for key, label in (
+        ("legal_status", "SITUAÇÃO JURÍDICA"),
+        ("area_nature", "NATUREZA DA ÁREA"),
+        ("sncr", "CÓDIGO SNCR/INCRA"),
+        ("cns", "CÓDIGO DO CARTÓRIO/CNS"),
+        ("registration", "MATRÍCULA"),
+        ("reference_system", "SISTEMA DE REFERÊNCIA"),
+    ):
+        value = (property_metadata or {}).get(key)
+        if value:
+            lines.append(f"{label}: {value[:250]}")
+
     lines += [
         f"ÁREA TOTAL: {_br_number(sum(p.area_ha for p in parcels), 4)} ha",
         f"PERÍMETRO TOTAL: {_br_number(sum(p.perimeter for p in parcels), 2)} m",
