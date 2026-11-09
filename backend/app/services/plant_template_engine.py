@@ -21,6 +21,10 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph
 
 from app.services.plant_memorial_v2 import _dms, _br_number, _azimuth_minutes
+from app.services.plant_detail_elements import (
+    confrontations_card, reference_card, signature_card, scale_card,
+    compass_rose, grouped_label_positions, header_technical,
+)
 
 PAPER = {"A1": A1, "A2": A2}
 SCALES = (200, 250, 500, 750, 1000, 1500, 2000, 2500,
@@ -132,7 +136,7 @@ def _image_card(pdf, rect, image, source, palette):
           5.8, _fonts()[0], palette[0])
 
 
-def _signature_card(pdf, rect, owner, professional, palette):
+def _signature_card_legacy(pdf, rect, owner, professional, palette):
     """Duas áreas de assinatura proporcionais, sem vácuo entre os campos."""
     _card(pdf, rect, "RESPONSABILIDADE E ASSINATURAS", palette)
     regular, bold, _ = _fonts()
@@ -176,7 +180,7 @@ def _legend_card(pdf, rect, palette):
             break
 
 
-def _neighbors_card(pdf, rect, parcels, palette):
+def _neighbors_card_legacy(pdf, rect, parcels, palette):
     _card(pdf, rect, "CONFRONTAÇÕES", palette)
     regular = _fonts()[0]
     labels = []
@@ -265,20 +269,25 @@ def _table(pdf, box, rows, palette, *, columns=1, font_size=6.2):
                 break
             row = shown[idx]
             yy = inner_top - row_h * (r + 2)
-            if r % 2 == 0:
+            is_mark = "-M-" in str(row[0]).upper() or str(row[0]).upper().startswith("M-")
+            if is_mark:
+                pdf.setFillColor(_color("#F4E9C8"))
+                pdf.rect(x, yy, cell_width, row_h, fill=1, stroke=0)
+            elif r % 2 == 0:
                 pdf.setFillColor(_color("#F2F6F5"))
                 pdf.rect(x, yy, cell_width, row_h, fill=1, stroke=0)
             for i, value in enumerate(row):
                 avail = fractions[i] * cell_width - 4
+                row_font = bold if is_mark else regular
                 fit_font = font_size
-                while fit_font > 4.6 and pdfmetrics.stringWidth(str(value), regular, fit_font) > avail:
+                while fit_font > 4.6 and pdfmetrics.stringWidth(str(value), row_font, fit_font) > avail:
                     fit_font -= .2
-                if pdfmetrics.stringWidth(str(value), regular, fit_font) > avail:
+                if pdfmetrics.stringWidth(str(value), row_font, fit_font) > avail:
                     raise ValueError(
                         f"Identificador ou coordenada não cabe na tabela: {value}. "
                         "Escolha papel maior ou outro modelo."
                     )
-                _text(pdf, value, xcoords[i] + 2, yy + 3, fit_font, regular, dark)
+                _text(pdf, value, xcoords[i] + 2, yy + 3, fit_font, row_font, dark)
     return len(shown)
 
 
@@ -344,9 +353,11 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
         if elements.get("vertex_labels", True):
             for i, point in enumerate(coords):
                 label_layout.place(pdf, [p.names[i]], point,
-                                   desired=6.5, minimum=5.8,
-                                   offsets=[(10,8),(-10,8),(10,-8),(-10,-8)])
+                                   desired=6.5, minimum=5.0,
+                                   offsets=[(8,7),(-8,7),(8,-7),(-8,-7)],
+                                   allow_callout=False, white_background=False)
         if elements.get("azimuths") or elements.get("distances") or elements.get("confrontants"):
+            confrontant_labels = grouped_label_positions(p)
             for i, point in enumerate(coords):
                 _azimuth_and_distance(
                     pdf, point, coords[(i+1) % len(coords)],
@@ -355,7 +366,7 @@ def _map(pdf, box, parcels, transformer, zone, hemi, scale_value, palette,
                     layout=label_layout,
                     show_azimuth=bool(elements.get("azimuths")),
                     show_distance=bool(elements.get("distances")),
-                    show_confrontants=bool(elements.get("confrontants")),
+                    show_confrontants=bool(elements.get("confrontants")) and i in confrontant_labels,
                 )
     regular, bold, _ = _fonts()
     if elements.get("north", True):
