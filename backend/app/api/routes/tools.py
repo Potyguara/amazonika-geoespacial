@@ -440,7 +440,11 @@ def memorial_word(payload: MemorialRequest, user: User = Depends(get_current_use
             professional=profile,
             include_warning=payload.include_croqui_warning,
             property_metadata=payload.property_metadata,
-            edited_memorial=payload.edited_memorial,
+            edited_memorial=__import__(
+                "app.services.plant_croqui_warning", fromlist=["remove_optional_warnings"]
+            ).remove_optional_warnings(
+                payload.edited_memorial, payload.include_croqui_warning
+            ),
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
