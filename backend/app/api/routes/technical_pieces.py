@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.models.auth import User
 from app.models.technical_piece import TechnicalPiece
 from app.services.auth import get_current_user, require_permission
+from app.services.technical_import import parse_sigef_ods
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -39,6 +40,24 @@ def _owned(piece_id: UUID, db: Session, user: User) -> TechnicalPiece:
     if piece is None:
         raise HTTPException(404, "Peça técnica não encontrada.")
     return piece
+
+
+
+@router.post("/import-sigef-ods")
+def import_sigef_ods(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """Valida e converte ODS SIGEF para GeoJSON completo. Não grava rascunho sem revisão."""
+    if not (file.filename or "").lower().endswith(".ods"):
+        raise HTTPException(422, "Envie uma planilha .ods do SIGEF.")
+    raw = file.file.read(15 * 1024 * 1024 + 1)
+    if len(raw) > 15 * 1024 * 1024:
+        raise HTTPException(413, "Arquivo ODS maior que 15 MB.")
+    try:
+        return parse_sigef_ods(raw)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("")
