@@ -62,7 +62,7 @@ export type PecasData = {
   croqui: boolean;
   format: "A4" | "A3" | "A2" | "A1" | "A0";
   orientation: "paisagem" | "retrato";
-  layoutTemplate: "lateral" | "inferior";
+  layoutTemplate: "lateral" | "inferior" | "classic_lateral" | "cartographic_frame" | "modern_lateral";
   scale: string;
   customScale: string;
 };
@@ -441,6 +441,9 @@ export function PecasTecnicasWorkspace({
                 <select value={data.layoutTemplate} onChange={(event) => onDataChange("layoutTemplate", event.target.value)}>
                   <option value="lateral">Clássico — identificação na lateral</option>
                   <option value="inferior">Quadro inferior — coordenadas em largura total</option>
+                  <option value="classic_lateral">Profissional A — clássico lateral (A2 retrato)</option>
+                  <option value="cartographic_frame">Profissional B — moldura cartográfica (A2 retrato)</option>
+                  <option value="modern_lateral">Profissional C — moderno com quadro lateral (A2 retrato)</option>
                 </select>
               </label>
               <label className="pecas-field"><span>Formato da folha</span>
@@ -467,6 +470,7 @@ export function PecasTecnicasWorkspace({
                   onChange={(e) => onDataChange("customScale", e.target.value)} />
               </label>}
             </div>
+            {["classic_lateral", "cartographic_frame", "modern_lateral"].includes(data.layoutTemplate) && <p className="pecas-note">Modelos profissionais: folha A2 ou A1, orientação retrato. Fonte e quadro técnico ajustados para composição de engenharia.</p>}
             {data.layoutTemplate === "inferior" && <p className="pecas-note">No modelo inferior, o quadro utiliza toda a largura da folha; quando houver muitos vértices, os demais seguem em folhas de continuação para manter a leitura.</p>}
             <details className="pecas-advanced">
               <summary>Configurações avançadas dos elementos da planta</summary>
