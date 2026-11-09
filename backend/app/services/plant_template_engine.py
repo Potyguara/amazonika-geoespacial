@@ -489,7 +489,7 @@ def render_professional_plant(
                        convergence=convergence,declination=magnetic_declination_degrees,
                        palette=palette)
         signature_card(pdf,Rect(sidebar_x,t-1040,sidebar_w,227),
-                       owner_name,owner_cpf,professional,palette,date_text=survey_date)
+                       owner_name,owner_cpf,professional,palette,date_text=survey_date,owner_rg=owner_rg)
         summary_y=max(410,t-1125)
         if summary_y+75 < t-1040:
             _summary_card(pdf,Rect(sidebar_x,summary_y,sidebar_w,75),parcels,palette)
@@ -522,7 +522,7 @@ def render_professional_plant(
                        convergence=convergence,declination=magnetic_declination_degrees,
                        palette=palette)
         signature_card(pdf,cards[4][1],owner_name,owner_cpf,professional,palette,
-                       date_text=survey_date)
+                       date_text=survey_date,owner_rg=owner_rg)
         # Quadro adaptativo conforme a quantidade efetiva de vértices.
         first=_table(pdf,Rect(33,54,w-66,bottom_h),rows,palette,columns=2,font_size=7.0)
 
@@ -542,7 +542,7 @@ def render_professional_plant(
                     raster_source,palette)
         confrontations_card(pdf,Rect(left.x,58,half,172),parcels,palette)
         signature_card(pdf,Rect(left.x+half+12,58,half,172),
-                       owner_name,owner_cpf,professional,palette,date_text=survey_date)
+                       owner_name,owner_cpf,professional,palette,date_text=survey_date,owner_rg=owner_rg)
         _summary_card(pdf,Rect(right.x,290,right.w,135),parcels,palette)
         reference_card(pdf,Rect(right.x,135,right.w,140),zone,hemi,
                        convergence=convergence,declination=magnetic_declination_degrees,
