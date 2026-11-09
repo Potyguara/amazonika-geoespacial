@@ -1393,7 +1393,7 @@ def sigef_selected_geometry(
     fid = feature_id.strip()
     parcel = parcel_code.strip().lower()
     fid_valid = bool(re.fullmatch(
-        r"(?:geonode:)?sigef_geo\\.[A-Za-z0-9_-]{1,72}", fid,
+        r"(?:geonode:)?sigef_geo\.[A-Za-z0-9_-]{1,72}", fid,
     ))
     parcel_valid = bool(re.fullmatch(
         r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",
