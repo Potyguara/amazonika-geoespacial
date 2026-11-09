@@ -573,7 +573,9 @@ def render_professional_plant(
         col_w=(w-72-gap)/2
         xleft=30
         xright=xleft+col_w+gap
-        detail_h=195
+        # Oito campos exigem ao menos 33 + 8 × 22 = 209 pt.
+        # Reserva 225 pt inclusive na folha A4 paisagem.
+        detail_h=225
         image_h=132
         confr_h=245
         ref_h=143
