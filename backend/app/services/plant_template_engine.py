@@ -1,4 +1,4 @@
-"""Motor de composição de pranchas técnicas A2/A1 baseado em zonas mensuráveis.
+"""Motor de composição de pranchas técnicas A0–A4 baseado em zonas mensuráveis.
 
 Não modifica coordenadas, identificadores ou altitudes. Os modelos diferem
 na composição gráfica, não na geodésia. Fontes são embutidas no PDF quando
@@ -14,7 +14,7 @@ from xml.sax.saxutils import escape
 
 from pyproj import CRS, Transformer
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A1, A2, landscape, portrait
+from reportlab.lib.pagesizes import A0, A1, A2, A3, A4, landscape, portrait
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -26,7 +26,7 @@ from app.services.plant_detail_elements import (
     compass_rose, grouped_label_positions, header_technical,
 )
 
-PAPER = {"A1": A1, "A2": A2}
+PAPER = {"A0": A0, "A1": A1, "A2": A2, "A3": A3, "A4": A4}
 SCALES = (200, 250, 500, 750, 1000, 1500, 2000, 2500,
           3000, 4000, 4500, 5000, 6000, 7500, 10000, 15000,
           20000, 25000, 50000, 100000, 200000, 500000)
@@ -493,10 +493,10 @@ def _continuation(pdf, rows, start, w, h, title, stamp, palette):
     while remaining:
         pdf.showPage()
         pdf.setPageSize((w, h))
-        _heading(pdf, title, "Continuação do quadro de coordenadas", "A2",
+        _heading(pdf, title, "Continuação do quadro de coordenadas", "",
                  None, w, h, palette, "modern_lateral")
         written = _table(pdf, rect, remaining, palette,
-                         columns=2 if w>1100 else 1, font_size=7.6)
+                         columns=2 if w>1100 else 1, font_size=6.4 if w<650 else 7.0)
         if written <= 0:
             raise ValueError("Não há espaço para coordenadas nesta folha.")
         remaining = remaining[written:]
@@ -515,7 +515,7 @@ def render_professional_plant(
     A camada superior de exportação chama showPage() antes do memorial.
     """
     if paper_format not in PAPER or orientation not in ("retrato","paisagem"):
-        raise ValueError("Modelos profissionais: A2/A1, retrato ou paisagem.")
+        raise ValueError("Modelos profissionais: A0–A4, retrato ou paisagem.")
     w,h=(portrait if orientation=="retrato" else landscape)(PAPER[paper_format])
     palette=PALETTES[layout_template]
     fields=[
@@ -552,6 +552,49 @@ def render_professional_plant(
     if elements.get("situation", True) and raster is None:
         raise ValueError("A Planta de Situação exige imagem capturada do mapa.")
     _heading(pdf,title,property_address,paper_format,scale_denominator,w,h,palette,layout_template)
+
+    if paper_format in ("A4","A3"):
+        # Formatos compactos: mapa exclusivo, painel técnico e quadro
+        # de coordenadas em páginas próprias para preservar legibilidade.
+        map_rect=Rect(30,64,w-60,h-183)
+        map_scale=_map(pdf,map_rect,parcels,transformer,zone,hemi,
+                       scale_denominator,palette,elements,
+                       magnetic_declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source)
+        header_technical(pdf,w,h,zone,hemi,map_scale,survey_date,palette,
+                         dark_text=(layout_template=="modern_lateral"))
+        _footer(pdf,w,stamp,disclaimer if croqui else None,palette)
+        pdf.showPage()
+        pdf.setPageSize((w,h))
+        _heading(pdf,title,property_address,paper_format,map_scale,
+                 w,h,palette,layout_template)
+        top=h-117
+        gap=12
+        col_w=(w-72-gap)/2
+        xleft=30
+        xright=xleft+col_w+gap
+        detail_h=min(205,(h-200)*.31)
+        image_h=min(158,(h-200)*.23)
+        confr_h=min(248,(h-200)*.39)
+        sign_h=min(282,(h-200)*.44)
+        reference_h=143
+        _details(pdf,Rect(xleft,top-detail_h,col_w,detail_h),fields,palette)
+        _image_card(pdf,Rect(xleft,top-detail_h-12-image_h,col_w,image_h),
+                    raster if elements.get("situation",True) else None,
+                    raster_source,palette)
+        reference_card(pdf,Rect(xleft,top-detail_h-image_h-24-reference_h,
+                                col_w,reference_h),zone,hemi,
+                       convergence=convergence,
+                       declination=magnetic_declination_degrees,
+                       magnetic_source=magnetic_source,palette=palette)
+        confrontations_card(pdf,Rect(xright,top-confr_h,col_w,confr_h),
+                            parcels,palette)
+        signature_card(pdf,Rect(xright,top-confr_h-12-sign_h,col_w,sign_h),
+                       owner_name,owner_cpf,professional,palette,
+                       date_text=survey_date,owner_rg=owner_rg)
+        _footer(pdf,w,stamp,None,palette)
+        _continuation(pdf,rows,0,w,h,title,stamp,palette)
+        return w,h,map_scale
 
     if orientation=="paisagem":
         # A2/A1 horizontal: prioridade ao mapa e aos cinco quadros.
