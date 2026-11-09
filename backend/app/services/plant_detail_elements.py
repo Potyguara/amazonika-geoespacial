@@ -98,61 +98,71 @@ def _text(pdf,value,x,baseline,*,size=7,bold=False,color="#20352D",max_width=Non
 
 
 def confrontations_card(pdf, rect, parcels, palette):
-    groups = group_confrontations(parcels)
+    """Quadro sem colisões: a altura de cada linha segue o texto medido."""
+    groups=group_confrontations(parcels)
     _box(pdf,rect,"CONFRONTAÇÕES",palette)
     dark,pale,accent,_=palette
     x=rect.x+9
-    top=rect.top-32
     available=rect.w-18
-    ext_w=max(48,available*.19)
+    ext_w=max(53,available*.18)
     stretch=available-ext_w
-    name_w=stretch*.57
+    name_w=stretch*.58
     segment_w=stretch-name_w
+    top=rect.top-32
     pdf.setFillColor(colors.HexColor("#EFF5F1"))
-    pdf.rect(x,top-22,available,22,stroke=0,fill=1)
+    pdf.rect(x,top-22,available,22,fill=1,stroke=0)
     _text(pdf,"CONFRONTANTE",x+4,top-15,size=6.7,bold=True,color=dark)
     _text(pdf,"TRECHO",x+name_w+4,top-15,size=6.7,bold=True,color=dark)
     _text(pdf,"EXT. (m)",x+name_w+segment_w+3,top-15,size=6.7,bold=True,color=dark)
-    row_top=top-22
-    footer_y=rect.y+8
-    available_h=row_top-(footer_y+29)
-    if len(groups)>0 and available_h/max(len(groups),1)<15:
-        # Nunca descartar confrontantes nem falsificar o perímetro; sinalizar
-        # explicitamente excesso e remeter ao memorial completo.
-        count=max(0,int(available_h//16)-1)
-        shown=groups[:count]
-        overflow=len(groups)-len(shown)
-    else:
-        shown=groups
-        overflow=0
-    row_h=min(28,max(15,available_h/max(1,len(shown))))
-    for i,group in enumerate(shown):
-        yy=row_top-(i+1)*row_h
-        if yy<=footer_y+23:
-            overflow=len(groups)-i
-            break
-        _text(pdf,group["name"],x+4,yy+7,size=7,bold=True,
-              color="#243A30",max_width=name_w-8)
-        _text(pdf,f'{group["start"]} – {group["end"]}',x+name_w+4,yy+7,
-              size=6.6,color="#53685E",max_width=segment_w-8)
-        text=_br_number(group["distance"],2)
-        regular,bold,_=_font_names()
-        pdf.setFont(bold,7.3)
-        pdf.setFillColor(colors.HexColor("#243A30"))
-        pdf.drawRightString(x+available-5,yy+7,text)
-        pdf.setStrokeColor(colors.HexColor("#DEE6E2"))
-        pdf.line(x+4,yy,x+available-4,yy)
-    if overflow:
-        _text(pdf,f"{overflow} confrontação(ões) adicional(is) no memorial",
-              x+4,footer_y+29,size=6.4,color="#765A21")
-    pdf.setStrokeColor(colors.HexColor("#D9E3DD"))
-    pdf.line(x,footer_y+24,x+available,footer_y+24)
-    _text(pdf,"PERÍMETRO TOTAL",x+3,footer_y+7,size=7.5,bold=True,color=accent)
-    total=sum(float(seg["distance"]) for p in parcels for seg in p.segments)
     regular,bold,_=_font_names()
+    def rows_at(font_size):
+        result=[]
+        for group in groups:
+            name=str(group["name"])
+            segment=f'{group["start"]} – {group["end"]}'
+            name_style=ParagraphStyle("name",fontName=bold,fontSize=font_size,
+                                      leading=font_size+2.1,textColor=colors.HexColor("#243A30"))
+            segment_style=ParagraphStyle("seg",fontName=regular,fontSize=font_size-.25,
+                                         leading=font_size+2,textColor=colors.HexColor("#53685E"))
+            name_para=Paragraph(escape(name),name_style)
+            seg_para=Paragraph(escape(segment),segment_style)
+            _,name_h=name_para.wrap(name_w-10,500)
+            _,seg_h=seg_para.wrap(segment_w-10,500)
+            row_h=max(name_h,seg_h,font_size+3)+9
+            result.append((group,name_para,seg_para,name_h,seg_h,row_h))
+        return result
+    footer_top=rect.y+39
+    max_body=(top-24)-footer_top
+    size=7.2
+    rows=rows_at(size)
+    while sum(item[5] for item in rows)>max_body and size>5.6:
+        size=round(size-.2,2)
+        rows=rows_at(size)
+    y=top-24
+    remaining=0
+    for i,(group,name_para,seg_para,name_h,seg_h,row_h) in enumerate(rows):
+        if y-row_h<footer_top:
+            remaining=len(rows)-i
+            break
+        name_para.drawOn(pdf,x+4,y-5-name_h)
+        seg_para.drawOn(pdf,x+name_w+4,y-5-seg_h)
+        pdf.setFont(bold,max(6.3,size))
+        pdf.setFillColor(colors.HexColor("#243A30"))
+        pdf.drawRightString(x+available-4,y-8-max(name_h,seg_h)/2,
+                            _br_number(group["distance"],2))
+        y-=row_h
+        pdf.setStrokeColor(colors.HexColor("#DEE6E2"))
+        pdf.line(x+4,y+1,x+available-4,y+1)
+    if remaining:
+        _text(pdf,f"Mais {remaining} confrontação(ões) no memorial descritivo",
+              x+4,footer_top-8,size=6,color="#765A21",max_width=available-8)
+    pdf.setStrokeColor(colors.HexColor("#D9E3DD"))
+    pdf.line(x,rect.y+34,x+available,rect.y+34)
+    _text(pdf,"PERÍMETRO TOTAL",x+3,rect.y+17,size=7.4,bold=True,color=accent)
+    total=sum(float(seg["distance"]) for p in parcels for seg in p.segments)
     pdf.setFont(bold,10)
     pdf.setFillColor(colors.HexColor(dark))
-    pdf.drawRightString(x+available-4,footer_y+6,f"{_br_number(total,2)} m")
+    pdf.drawRightString(x+available-4,rect.y+15,f"{_br_number(total,2)} m")
 
 
 def reference_card(pdf,rect,zone,hemi,*,convergence=None,declination=None,
@@ -252,52 +262,78 @@ def compass_rose(pdf,cx,cy,r,palette):
     pdf.restoreState()
 
 
-def signature_card(pdf,rect,owner,owner_cpf,professional,palette,*,date_text=None,owner_rg=None):
+def signature_card(pdf,rect,owner,owner_cpf,professional,palette,
+                   *,date_text=None,owner_rg=None):
+    """Assinaturas: cada dado em linha própria, sem comprimir ou sobrepor."""
     _box(pdf,rect,"QUADRO DE ASSINATURAS",palette)
     dark,pale,accent,_=palette
-    x=rect.x+13
-    width=rect.w-26
-    compact=rect.h<245
-    first=rect.top-42
-    second=rect.top-(95 if compact else 112)
-    def section(title,name,subtitle,y):
-        _text(pdf,title,x,y,size=6.2,bold=True,color=accent)
-        line_y=y-(25 if compact else 35)
-        pdf.setStrokeColor(colors.HexColor("#526960"))
-        pdf.line(x,line_y,x+width,line_y)
-        _text(pdf,name or "Não informado",x+2,line_y-11,
-              size=7.1,bold=True,color=dark,max_width=width-4)
-        if subtitle:
-            _text(pdf,subtitle,x+2,line_y-22,size=5.7,color="#687C71",
-                  max_width=width-4)
-    owner_docs=" | ".join(part for part in (
-        f"CPF/CNPJ: {owner_cpf}" if owner_cpf else "",
-        f"RG: {owner_rg}" if owner_rg else "") if part)
-    section("PROPRIETÁRIO / DETENTOR",owner,
-            owner_docs or "Documento não informado",first)
-    details=[
-        ("Profissão",professional.get("profession")),
-        ("CREA/CAU",professional.get("crea") or professional.get("cau") or professional.get("registration_number")),
-        ("Visto",professional.get("visto")),
-        ("ART",professional.get("art")),
+    x=rect.x+12
+    width=rect.w-24
+    regular,bold,_=_font_names()
+    # A largura real do cartão define quantas linhas cada informação ocupa.
+    entries=[
+        ("PROPRIETÁRIO / DETENTOR",str(owner or "Não informado"),[
+            ("CPF/CNPJ",owner_cpf),("RG",owner_rg),
+        ]),
+        ("RESPONSÁVEL TÉCNICO",str(professional.get("full_name") or "Não informado"),[
+            ("Profissão",professional.get("profession")),
+            ("Especialidade",professional.get("specialization") or professional.get("specialty")),
+            ("CREA/CAU",professional.get("crea") or professional.get("cau") or professional.get("registration_number")),
+            ("Visto",professional.get("visto")),
+            ("ART",professional.get("art")),
+        ]),
     ]
-    prof_label=" | ".join(str(v).strip() for _,v in details if v)
-    section("RESPONSÁVEL TÉCNICO",professional.get("full_name"),
-            prof_label or "Registro e ART não informados",second)
-    if not compact:
-        box_y=rect.y+12
-        box_h=min(55,max(32,rect.h-195))
-        if box_y+box_h < second-52:
-            pdf.setDash(4,3)
-            pdf.setStrokeColor(colors.HexColor("#308467"))
-            pdf.roundRect(x,box_y,width,box_h,6,stroke=1,fill=0)
-            pdf.setDash()
-            _text(pdf,"CARIMBO DO RESPONSÁVEL TÉCNICO",
-                  x+12,box_y+box_h/2+3,size=6.1,bold=True,color="#308467",
-                  max_width=width-24)
-            if date_text:
-                _text(pdf,"Elaborado em "+date_text,x+12,box_y+box_h/2-11,
-                      size=6.0,color="#687C71")
+    def paragraph(value,bold_text=False):
+        style=ParagraphStyle("signature_info",fontName=bold if bold_text else regular,
+                              fontSize=7.0 if bold_text else 6.3,
+                              leading=9.5 if bold_text else 8.1,
+                              textColor=colors.HexColor(dark if bold_text else "#586C62"))
+        p=Paragraph(escape(str(value)),style)
+        _,height=p.wrap(width-3,1000)
+        return p,height
+    prepared=[]
+    for section,name,details in entries:
+        fields=[(k,str(v).strip()) for k,v in details if v is not None and str(v).strip()]
+        name_p,name_h=paragraph(name,True)
+        items=[paragraph(f"{label}: {value}") for label,value in fields]
+        block_h=13+name_h+sum(h+2 for _,h in items)+6
+        prepared.append((section,name_p,name_h,items,block_h))
+    available=rect.h-39-14
+    required=sum(v[4] for v in prepared)+16
+    # Se não houver altura suficiente, reservar ampliação no layout em vez
+    # de desenhar linhas por cima de outros campos.
+    if required>available:
+        # Mostrar dados completos até onde houver espaço, mas nunca colidir:
+        # o chamador deve adaptar a altura do painel conforme a orientação.
+        font_note=6.0
+    y=rect.top-38
+    for section,name_p,name_h,items,block_h in prepared:
+        if y-block_h < rect.y+13:
+            _text(pdf,"Dados adicionais do responsável técnico no memorial",
+                  x,rect.y+14,size=5.7,color="#586C62",max_width=width)
+            break
+        pdf.setFont(bold,6.5)
+        pdf.setFillColor(colors.HexColor(accent))
+        pdf.drawString(x,y,section)
+        y-=16
+        pdf.setStrokeColor(colors.HexColor("#71877C"))
+        pdf.line(x,y,x+width,y)
+        y-=name_h+3
+        name_p.drawOn(pdf,x+1,y)
+        for p,height in items:
+            y-=height+2
+            p.drawOn(pdf,x+1,y)
+        y-=14
+    # Carimbo apenas quando existir espaço real e livre.
+    if y-40 >= rect.y+12:
+        pdf.setDash(3,3)
+        pdf.setStrokeColor(colors.HexColor("#308467"))
+        pdf.roundRect(x,rect.y+9,width,min(40,y-rect.y-19),4,stroke=1,fill=0)
+        pdf.setDash()
+        _text(pdf,"CARIMBO DO RESPONSÁVEL TÉCNICO",
+              x+9,rect.y+23,size=6.2,bold=True,color="#308467")
+    if date_text:
+        _text(pdf,"Elaborado em "+date_text,x,rect.y+4,size=5.6,color="#65786C")
 
 
 def header_technical(pdf,w,h,zone,hemi,scale,date_text,palette,*,sheet="01",dark_text=False):
