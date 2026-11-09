@@ -5,7 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gdal-bin libgdal-dev ca-certificates curl \
+    && apt-get install -y --no-install-recommends gdal-bin libgdal-dev ca-certificates curl fonts-dejavu-core fonts-liberation2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
