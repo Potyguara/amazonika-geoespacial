@@ -346,6 +346,7 @@ export function PecasTecnicasWorkspace({
               geometryKey={situationKey}
               saved={situationSaved}
               onSave={onSaveSituation}
+              vertexNames={chosen.map((polygon) => polygon.vertices)}
             />
           </div>
         )}
