@@ -13,6 +13,7 @@ export type SavedTechnicalPiece = {
 export type TechnicalPieceSnapshot = {
   features?: Record<string, unknown>;
   selected_ids?: string[];
+  imported_sigef_metadata?: Record<string, string> | null;
   data?: Record<string, unknown>;
   professional?: Record<string, string> | null;
   elements?: Record<string, boolean>;
