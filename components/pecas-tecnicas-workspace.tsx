@@ -87,6 +87,14 @@ type TopconPreview = {
   project: Record<string, string | number | null>;
   points: TopconPoint[];
   point_count: number;
+  solution: Array<{
+    baseline: string; distance_m: number; solution_type: string;
+    orbit: string; pdop: number; hdop: number; vdop: number;
+  }>;
+  sessions: Array<{
+    point: string; started_at_reported: string; ended_at_reported: string;
+    duration: string; method: string; antenna: string; interval_ms: string;
+  }>;
   checks: { errors: string[]; warnings: string[] };
   ready_for_sigef: false;
 };
@@ -366,6 +374,45 @@ export function PecasTecnicasWorkspace({
                         </tbody>
                       </table>
                     </div>
+                    {topconPreview.solution.length > 0 && (
+                      <details>
+                        <summary>Vetores e qualidade GNSS ({topconPreview.solution.length})</summary>
+                        <div style={{ overflowX: "auto" }}>
+                          <table><thead><tr>
+                            <th>Linha-base</th><th>Distância (m)</th><th>Solução</th><th>Órbita</th>
+                            <th>PDOP</th><th>HDOP</th><th>VDOP</th>
+                          </tr></thead><tbody>
+                            {topconPreview.solution.map((v) => (
+                              <tr key={v.baseline}><td>{v.baseline}</td>
+                                <td>{v.distance_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}</td>
+                                <td>{v.solution_type}</td><td>{v.orbit}</td>
+                                <td>{v.pdop.toLocaleString("pt-BR")}</td>
+                                <td>{v.hdop.toLocaleString("pt-BR")}</td>
+                                <td>{v.vdop.toLocaleString("pt-BR")}</td>
+                              </tr>
+                            ))}
+                          </tbody></table>
+                        </div>
+                      </details>
+                    )}
+                    {topconPreview.sessions.length > 0 && (
+                      <details>
+                        <summary>Sessões de levantamento ({topconPreview.sessions.length})</summary>
+                        <div style={{ overflowX: "auto" }}>
+                          <table><thead><tr>
+                            <th>Ponto</th><th>Início informado</th><th>Fim informado</th>
+                            <th>Duração</th><th>Método</th><th>Antena</th>
+                          </tr></thead><tbody>
+                            {topconPreview.sessions.map((v) => (
+                              <tr key={v.point}><td>{v.point}</td>
+                                <td>{v.started_at_reported}</td><td>{v.ended_at_reported}</td>
+                                <td>{v.duration}</td><td>{v.method}</td><td>{v.antenna}</td>
+                              </tr>
+                            ))}
+                          </tbody></table>
+                        </div>
+                      </details>
+                    )}
                     <p className="pecas-note">Pré-visualização de processamento: nenhum ponto foi incluído no perímetro e nenhum documento oficial foi gerado.</p>
                   </div>
                 )}
