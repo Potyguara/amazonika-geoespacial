@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
 import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
+import { getApiUrl } from "@/lib/api";
 
 export type ProfessionalDocumentProfile = {
   full_name: string;
@@ -65,6 +66,29 @@ export type PecasData = {
   layoutTemplate: "lateral" | "inferior" | "classic_lateral" | "cartographic_frame" | "modern_lateral";
   scale: string;
   customScale: string;
+};
+
+type TopconPoint = {
+  name: string;
+  northing_m: number;
+  easting_m: number;
+  elevation_reported_m: number;
+  latitude: number | null;
+  longitude: number | null;
+  sigma_n_m: number | null;
+  sigma_e_m: number | null;
+  sigma_hz_m: number | null;
+  sigma_u_m: number | null;
+  point_role: "CONTROL" | "UNCLASSIFIED";
+};
+type TopconPreview = {
+  source: "TOPCON_TOOLS";
+  filename: string;
+  project: Record<string, string | number | null>;
+  points: TopconPoint[];
+  point_count: number;
+  checks: { errors: string[]; warnings: string[] };
+  ready_for_sigef: false;
 };
 
 type Props = {
@@ -137,6 +161,31 @@ export function PecasTecnicasWorkspace({
   onSavePiece, onSaveMemorial, loadedMemorialDraft, loadedPieceId,
 }: Props) {
   const [stage, setStage] = useState(0);
+  const [topconPreview, setTopconPreview] = useState<TopconPreview | null>(null);
+  const [topconLoading, setTopconLoading] = useState(false);
+  const [topconError, setTopconError] = useState("");
+  const importTopcon = async (file: File) => {
+    setTopconError("");
+    setTopconPreview(null);
+    setTopconLoading(true);
+    try {
+      const payload = new FormData();
+      payload.append("file", file);
+      const response = await fetch(`${getApiUrl()}/technical-pieces/import-topcon`, {
+        method: "POST", credentials: "include", body: payload,
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(typeof result?.detail === "string"
+          ? result.detail : "Relatório TOPCON não pôde ser interpretado.");
+      }
+      setTopconPreview(result as TopconPreview);
+    } catch (error) {
+      setTopconError(error instanceof Error ? error.message : "Falha ao ler relatório TOPCON.");
+    } finally {
+      setTopconLoading(false);
+    }
+  };
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -268,6 +317,59 @@ export function PecasTecnicasWorkspace({
             <div className="pecas-card">
               <h3>1. Identificação do imóvel</h3>
               <p>As informações abaixo compõem a planta e o memorial. As correções do responsável técnico valem somente para esta peça.</p>
+              <div className="pecas-card" aria-label="Pré-validação do processamento TOPCON Tools">
+                <h4>Importar processamento GNSS — TOPCON Tools</h4>
+                <p>Arquivo HTML/HTM, XLSX ou PDF textual. Extração preliminar dos pontos e das precisões; a importação não converte automaticamente estações de controle em vértices SIGEF.</p>
+                <input
+                  type="file"
+                  accept=".html,.htm,.xlsx,.pdf"
+                  aria-label="Selecionar relatório TOPCON Tools"
+                  disabled={topconLoading}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) void importTopcon(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+                {topconLoading && <p role="status">Interpretando relatório de processamento...</p>}
+                {topconError && <p className="pecas-warning" role="alert">{topconError}</p>}
+                {topconPreview && (
+                  <div>
+                    <p><strong>{topconPreview.point_count} pontos extraídos</strong> de {topconPreview.filename}.
+                      Referencial: {topconPreview.project.datum || "não identificado"};
+                      projeção: {topconPreview.project.projection || "não identificada"}.</p>
+                    <p><strong>Pré-validação:</strong> {topconPreview.checks.errors.length} erro(s)
+                      e {topconPreview.checks.warnings.length} ressalva(s).
+                      A geração ODS dependerá da classificação dos vértices,
+                      confrontações, altura elipsoidal e revisão pelo responsável técnico.</p>
+                    {topconPreview.checks.errors.map((message, index) => (
+                      <p key={index} className="pecas-warning" role="alert">{message}</p>
+                    ))}
+                    {topconPreview.checks.warnings.map((message, index) => (
+                      <p key={index} className="pecas-note">{message}</p>
+                    ))}
+                    <div style={{ overflowX: "auto" }}>
+                      <table>
+                        <thead><tr><th>Ponto TOPCON</th><th>N (m)</th><th>E (m)</th>
+                          <th>Elevação informada (m)</th><th>σ horizontal (m)</th><th>Função</th></tr></thead>
+                        <tbody>
+                          {topconPreview.points.map((point) => (
+                            <tr key={point.name}>
+                              <td>{point.name}</td>
+                              <td>{point.northing_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}</td>
+                              <td>{point.easting_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}</td>
+                              <td>{point.elevation_reported_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}</td>
+                              <td>{point.sigma_hz_m?.toLocaleString("pt-BR", { maximumFractionDigits: 3 }) ?? "—"}</td>
+                              <td>{point.point_role === "CONTROL" ? "Controle" : "A classificar"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="pecas-note">Pré-visualização de processamento: nenhum ponto foi incluído no perímetro e nenhum documento oficial foi gerado.</p>
+                  </div>
+                )}
+              </div>
               {importedMetadata?.source === "SIGEF_ODS" && (
                 <div className="pecas-card" aria-label="Dados preservados da planilha SIGEF">
                   <h4>Identificação SIGEF importada</h4>
