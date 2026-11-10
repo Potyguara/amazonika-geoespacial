@@ -227,7 +227,7 @@ def _sessions(rows: list[list[str]]) -> list[dict]:
             continue
         # Data/hora são mantidas exatamente como constam no arquivo.
         # Não inferir UTC a partir do horário local do receptor.
-        if not re.search(r"\\d{2}/\\d{2}/\\d{4}", cells[2]):
+        if not re.search(r"\d{2}/\d{2}/\d{4}", cells[2]):
             continue
         results.append({
             "point": cells[0], "original_name": cells[1],
