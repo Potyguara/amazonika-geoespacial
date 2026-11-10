@@ -281,6 +281,8 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
     warnings = []
     if not re.search(r"sirgas", datum, re.I):
         errors.append("Datum não identificado como SIRGAS: confirmar referencial e época.")
+    elif "2000" not in datum:
+        warnings.append("TOPCON informa apenas SIRGAS: confirmar SIRGAS 2000 e época das coordenadas antes de gerar SIGEF.")
     if not zone or not 1 <= zone <= 60:
         errors.append("Zona UTM não identificada com segurança.")
     if len(utm) != len(geographic) or set(utm) != set(geographic):
@@ -304,6 +306,8 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
         warnings.append("Conferência cruzada de coordenadas indisponível: CRS/UTM SIRGAS2000 não confirmado.")
     for name, coords in utm.items():
         easting, northing, elevation = coords[1], coords[0], coords[2]
+        if not (100000 <= easting <= 900000 and 0 <= northing <= 10000000):
+            errors.append(f"{name}: coordenadas UTM fora da faixa esperada.")
         geo = geographic.get(name)
         point = {
             "name": name, "northing_m": northing, "easting_m": easting,
