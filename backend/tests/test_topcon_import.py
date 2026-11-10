@@ -45,6 +45,16 @@ FATOR DE ESCALA
 Nome      Fator de Escala Combinado Proj ao Terr    Convergência
 0304      1,000400874590                          0°00'08,2379"
 0305      1,000400500982                          0°00'08,8456"
+
+DISTÂNCIA, SOLUÇÃO, ÓRBITA E PDOP
+Nome        Distancia (m)      Tipo Solução   Órbita    PDOP    HDOP    VDOP
+0304−Base   1104,165          Fixo,L1        Preciso   1,977   0,825   1,796
+0305−Base   365,120           Fixo,L1        Preciso   2,219   0,913   2,023
+
+DURAÇÃO E INTERVALO
+Nome Ponto   Nome Original     Hora Início            Hora Fim              Duração    Método     Interval (msec) Tipo Antena
+Base         Base              28/10/2026 06:30:00    28/10/2026 17:22:15   10:52:15   Estático    15000           HiPer SR
+0304         0304              28/10/2026 06:40:00    28/10/2026 07:25:15   00:45:15   Estático    15000           HiPer SR
 """
 
 
@@ -65,6 +75,11 @@ class TopconParsingTests(unittest.TestCase):
         self.assertIsNone(point["sigef_vertex_code"])
         base=next(p for p in result["points"] if p["name"]=="Base")
         self.assertEqual(base["point_role"],"CONTROL")
+        self.assertEqual(len(result["solution"]), 2)
+        self.assertEqual(result["solution"][0]["baseline"], "0304−Base")
+        self.assertAlmostEqual(result["solution"][0]["pdop"], 1.977)
+        self.assertEqual(len(result["sessions"]), 2)
+        self.assertEqual(result["sessions"][1]["method"], "Estático")
         self.assertFalse(result["ready_for_sigef"])
         self.assertFalse(result["checks"]["errors"],result["checks"])
 
