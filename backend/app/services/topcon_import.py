@@ -247,21 +247,22 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
     if len(utm) != len(geographic) or set(utm) != set(geographic):
         errors.append("Divergência entre os identificadores UTM e geográficos.")
     points = []
-    transformer = (
-        Transformer.from_crs("EPSG:31960" if False else
-                             f"EPSG:{31960 + zone}" if north and zone in range(17,26)
-                             else f"EPSG:{31985 + (zone - 19)}" if south and zone in range(19,26)
-                             else f"EPSG:{32600 + zone}" if north and zone
-                             else f"EPSG:{32700 + zone}" if zone else "EPSG:4326",
-                             "EPSG:4674", always_xy=True)
-        if zone and 1 <= zone <= 60 and "sirgas" in datum.casefold()
-        else None
-    )
+    # Sistemas SIRGAS2000/UTM em uso no Brasil (IBGE):
+    # 18N..22N = EPSG 31972..31976; 18S..25S = 31978..31985.
+    epsg = None
+    if "sirgas" in datum.casefold() and zone:
+        if north and 18 <= zone <= 22:
+            epsg = 31954 + zone
+        elif south and 18 <= zone <= 25:
+            epsg = 31960 + zone
+    transformer = Transformer.from_crs(
+        f"EPSG:{epsg}", "EPSG:4674", always_xy=True,
+    ) if epsg else None
     # Para o Brasil, transformar usando diretamente os códigos SIRGAS2000
     # EPSG:31960...31985; em zonas fora da cobertura, bloquear conferência
     # automática em vez de etiquetar outro datum como SIRGAS.
     if transformer is None:
-        warnings.append("Conferência cruzada de coordenadas indisponível.")
+        warnings.append("Conferência cruzada de coordenadas indisponível: CRS/UTM SIRGAS2000 não confirmado.")
     for name, coords in utm.items():
         easting, northing, elevation = coords[1], coords[0], coords[2]
         geo = geographic.get(name)
