@@ -201,6 +201,43 @@ def _parse_geo_rows(rows: list[list[str]]) -> dict:
     return points
 
 
+def _solution_rows(rows: list[list[str]]) -> list[dict]:
+    results = []
+    for cells in rows:
+        if len(cells) < 7 or not _point_name(cells[0]):
+            continue
+        try:
+            distance = _number(cells[1])
+            pdop, hdop, vdop = (_number(cells[-3]), _number(cells[-2]),
+                                _number(cells[-1]))
+        except (ValueError, TypeError):
+            continue
+        results.append({
+            "baseline": cells[0], "distance_m": distance,
+            "solution_type": cells[2], "orbit": cells[3],
+            "pdop": pdop, "hdop": hdop, "vdop": vdop,
+        })
+    return results[:LIMIT_POINTS]
+
+
+def _sessions(rows: list[list[str]]) -> list[dict]:
+    results = []
+    for cells in rows:
+        if len(cells) < 8 or not _point_name(cells[0]):
+            continue
+        # Data/hora são mantidas exatamente como constam no arquivo.
+        # Não inferir UTC a partir do horário local do receptor.
+        if not re.search(r"\\d{2}/\\d{2}/\\d{4}", cells[2]):
+            continue
+        results.append({
+            "point": cells[0], "original_name": cells[1],
+            "started_at_reported": cells[2], "ended_at_reported": cells[3],
+            "duration": cells[4], "method": cells[5],
+            "interval_ms": cells[6], "antenna": cells[7],
+        })
+    return results[:LIMIT_POINTS]
+
+
 def parse_topcon_report(raw: bytes, filename: str) -> dict:
     if not raw or len(raw) > MAX_BYTES:
         raise ValueError("Relatório vazio ou maior que 12 MB.")
@@ -222,6 +259,8 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
     geographic = _parse_geo_rows(sections["geo"])
     sigma = _point_fields(sections["sigma"], 4)
     scale = _point_fields(sections["scale"], 1)
+    solution = _solution_rows(sections["solution"])
+    sessions = _sessions(sections["sessions"])
     if not utm or not geographic:
         raise ValueError(
             "Não foram identificadas as tabelas de coordenadas UTM e geográficas. "
@@ -311,6 +350,7 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
             "adjustment": _value_after_label(text, "Tipo de Ajustamento"),
         },
         "points": points, "point_count": len(points),
+        "solution": solution, "sessions": sessions,
         "checks": {"errors": list(dict.fromkeys(errors)),
                    "warnings": list(dict.fromkeys(warnings))},
         "ready_for_sigef": False,
