@@ -83,7 +83,11 @@ def _rows_from_xlsx(raw: bytes) -> str:
 def _text(raw: bytes, extension: str) -> str:
     if extension in (".html", ".htm"):
         parser = TopconHTMLParser()
-        parser.feed(raw.decode("utf-8-sig", errors="replace"))
+        try:
+            decoded = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            decoded = raw.decode("cp1252", errors="replace")
+        parser.feed(decoded)
         return parser.text()
     if extension == ".pdf":
         try:
@@ -204,7 +208,7 @@ def _parse_geo_rows(rows: list[list[str]]) -> dict:
 def _solution_rows(rows: list[list[str]]) -> list[dict]:
     results = []
     for cells in rows:
-        if len(cells) < 7 or not _point_name(cells[0]):
+        if len(cells) < 7 or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}[−–-][A-Za-z0-9_-]{1,32}", cells[0]):
             continue
         try:
             distance = _number(cells[1])
