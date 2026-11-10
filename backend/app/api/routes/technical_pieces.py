@@ -12,6 +12,7 @@ from app.models.auth import User
 from app.models.technical_piece import TechnicalPiece
 from app.services.auth import get_current_user, require_permission
 from app.services.technical_import import parse_sigef_ods
+from app.services.topcon_import import parse_topcon_report, MAX_BYTES
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -41,6 +42,24 @@ def _owned(piece_id: UUID, db: Session, user: User) -> TechnicalPiece:
         raise HTTPException(404, "Peça técnica não encontrada.")
     return piece
 
+
+
+@router.post("/import-topcon")
+def import_topcon(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    """Extrai relatório GNSS para revisão, sem cadastrar perímetro ou certificar."""
+    filename = file.filename or ""
+    if not filename.lower().endswith((".htm", ".html", ".xlsx", ".pdf")):
+        raise HTTPException(422, "Envie relatório TOPCON HTML, HTM, XLSX ou PDF.")
+    raw = file.file.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        raise HTTPException(413, "Relatório maior que 12 MB.")
+    try:
+        return parse_topcon_report(raw, filename)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/import-sigef-ods")
