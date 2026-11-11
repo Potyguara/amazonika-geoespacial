@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import tempfile
+import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -60,6 +62,11 @@ def main():
             data = path.read_bytes()
             assert data.startswith(b"%PDF-"), "PDF inválido"
             assert len(data) > 8_000, "Arquivo PDF inesperadamente pequeno"
+            preview = os.environ.get("PDF_PREVIEW_DIR")
+            if preview:
+                out = Path(preview)
+                out.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, out / path.name)
             print(f"OK fontes={count} avisos={warnings} tamanho={len(data)} bytes")
         print("SMOKE TEST DO DOSSIÊ CONCLUÍDO")
 
