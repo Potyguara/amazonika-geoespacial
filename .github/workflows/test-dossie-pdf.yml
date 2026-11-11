@@ -25,4 +25,12 @@ jobs:
       - name: Generate three simulated reports (0, 1, 10 sources)
         env:
           PYTHONPATH: backend
+          PDF_PREVIEW_DIR: backend/pdf-preview
         run: python backend/scripts/smoke_territorial_dossie.py
+      - name: Upload visual PDF previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dossier-pdf-previews
+          path: backend/pdf-preview/*.pdf
+          if-no-files-found: warn
