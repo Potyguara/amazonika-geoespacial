@@ -1,0 +1,28 @@
+name: Validar dossiê PDF
+on:
+  push:
+    branches:
+      - feat/relatorio-dossie-layout-modelo-20261111
+  pull_request:
+    paths:
+      - 'backend/app/services/territorial_report*.py'
+      - 'backend/scripts/smoke_territorial_dossie.py'
+      - '.github/workflows/test-dossie-pdf.yml'
+permissions:
+  contents: read
+jobs:
+  pdf-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Validate Python syntax
+        run: python -m compileall -q backend/app/services/territorial_report.py backend/app/services/territorial_report_dossie.py
+      - name: Generate three simulated reports (0, 1, 10 sources)
+        env:
+          PYTHONPATH: backend
+        run: python backend/scripts/smoke_territorial_dossie.py
