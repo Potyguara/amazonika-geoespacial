@@ -1304,7 +1304,7 @@ def build_report_pdf(
         )
 
     company_text = Paragraph(
-        "<font size='11'><b>AMAZONIKA ENGENHARIA LTDA</b></font><br/>"
+        "<font size='8.5'><b>AMAZONIKA ENGENHARIA LTDA</b></font><br/>"
         "<font size='7.3'>TOPOGRAFIA E MEIO AMBIENTE</font>",
         styles["AmazonikaBody"],
     )
@@ -1990,7 +1990,7 @@ def build_report_pdf(
                 ),
             ]
         ],
-        colWidths=[36 * mm, 87 * mm, 49 * mm],
+        colWidths=[34 * mm, 81 * mm, 57 * mm],
     )
 
     verification.setStyle(
