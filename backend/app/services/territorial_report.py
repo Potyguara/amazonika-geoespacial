@@ -1219,6 +1219,15 @@ def build_report_pdf(
     pdf_path: Path,
     verification_url: str,
 ) -> None:
+    # Layout editorial do dossiê. O gerador antigo permanece disponível
+    # para rollback controlado via TERRITORIAL_REPORT_LAYOUT=legacy.
+    import os
+    if os.environ.get("TERRITORIAL_REPORT_LAYOUT", "dossie").lower() != "legacy":
+        from app.services.territorial_report_dossie import build_report_pdf_dossie
+        return build_report_pdf_dossie(
+            snapshot, map_path, pdf_path, verification_url,
+        )
+
     _register_pdf_fonts()
     styles = _pdf_styles()
 
