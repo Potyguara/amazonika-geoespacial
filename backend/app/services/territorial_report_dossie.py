@@ -388,11 +388,16 @@ class Dossier:
             y += 60
 
         # Os demais itens recebem páginas de continuação, se necessário.
-        if y > 605 or len(rows) > 5 or len(overlaps) > 2:
+        if y > 525 or len(rows) > 5 or len(overlaps) > 2:
             self.finish_page()
             self.continuation(rows[5:], overlaps[2:], url)
             return
 
+        warnings = list(self.snapshot.get("warnings") or [])
+        if warnings:
+            self.finish_page()
+            self.continuation([], [], url)
+            return
         self.final_panel(y+10, url)
 
     def continuation(self, rows, overlaps, url):
@@ -423,7 +428,27 @@ class Dossier:
                       str(row.get("matched_features") or 0)+" feições",
                       8, INK)
             y += 80
-        if y > 560:
+        warnings = []
+        for warning in self.snapshot.get("warnings") or []:
+            text = _sanitize_report_warning(str(warning))
+            if text and text not in warnings:
+                warnings.append(text)
+        if warnings:
+            if y > 540:
+                self.finish_page()
+                self.header()
+                y = 90
+            self.rect(50, y+10, 495, 26, "#FFF5D9", "#D8BC6B", radius=4)
+            self.text(63, y+18, "ADVERTÊNCIAS DA EXECUÇÃO", 8, "#8F7529", self.bold)
+            y += 45
+            for warning in warnings:
+                h = self.paragraph(65, y, warning, 470, 7.0, 10, INK)
+                y += h + 12
+                if y > 540:
+                    self.finish_page()
+                    self.header()
+                    y = 90
+        if y > 540:
             self.finish_page()
             self.header()
             y = 90
