@@ -181,7 +181,7 @@ class Dossier:
         self.rect(50, top, 495, 27, GREEN)
         widths = [119, 71, 65, 40, 65, 44, 53, 38]
         labels = ["FONTE", "ÓRGÃO", "SITUAÇÃO", "FEIÇÕES",
-                  "ÁREA (HA)", "%", "DISTÂNCIA", "REFERÊNCIA"]
+                  "ÁREA (HA)", "%", "DISTÂNCIA", "REF."]
         x = 50
         for width, label in zip(widths, labels):
             self.text(x+5, top+9, label, 5.4, WHITE, self.bold)
