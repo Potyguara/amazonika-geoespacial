@@ -12,7 +12,7 @@ from datetime import datetime
 from html import escape
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -187,6 +187,11 @@ class Dossier:
             self.text(x+5, top+9, label, 5.4, WHITE, self.bold)
             x += width
 
+    def qr_green(self, url):
+        """Matriz QR real do rastreio, nas cores institucionais."""
+        with Image.open(io.BytesIO(_qr_png(url))) as im:
+            return ImageOps.colorize(im.convert("L"), black=GREEN, white=WHITE)
+
     def logo_cover(self):
         self.page += 1
         self.rect(0, 0, W, 219, GREEN)
@@ -309,7 +314,7 @@ class Dossier:
         self.rect(50, 500, 4, 22, GOLD)
         self.text(62, 507, "V E R I F I C A Ç Ã O", 7, WHITE, self.bold)
         self.rect(77, 532, 110, 110, WHITE, LINE, radius=5)
-        self.image(io.BytesIO(_qr_png(url)), 83, 538, 98, 98)
+        self.image(self.qr_green(url), 83, 538, 98, 98)
         self.text(132, 652, "CÓDIGO", 6.1, GOLD, self.bold, "center")
         self.text(132, 666, sp["tracking_code"], 10, GREEN, self.bold, "center")
         self.paragraph(64, 693,
@@ -494,7 +499,7 @@ class Dossier:
         self.text(63, y+7, "VERIFICAÇÃO E RASTREABILIDADE",
                   8, WHITE, self.bold)
         self.rect(65, y+32, 101, 100, WHITE, LINE, radius=5)
-        self.image(io.BytesIO(_qr_png(url)), 69, y+36, 92, 92)
+        self.image(self.qr_green(url), 69, y+36, 92, 92)
         sp = self.snapshot
         self.text(183, y+36, "CÓDIGO", 6.2, GOLD, self.bold)
         self.text(183, y+49, sp["tracking_code"], 12, GREEN, self.bold)
