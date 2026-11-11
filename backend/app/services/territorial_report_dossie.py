@@ -382,6 +382,27 @@ class Dossier:
                     self.text(px, y+49, labels[j], 5.9, GOLD, self.bold)
                     self.text(px, y+62, vals[j], 8.5, INK, self.bold)
                 y += 95
+
+            # Síntese tabular vermelha, presente no modelo de referência.
+            if len(overlaps) <= 2 and y + 56 < 650:
+                self.rect(50, y, 495, 23, RED)
+                columns = [
+                    (62, "FONTE"), (260, "ÓRGÃO"), (378, "FEIÇÕES"),
+                    (437, "ÁREA (HA)"), (507, "%"),
+                ]
+                for px, label in columns:
+                    self.text(px, y+8, label, 6, WHITE, self.bold)
+                y += 23
+                for overlap in overlaps:
+                    self.rect(50, y, 495, 31, WHITE, LINE)
+                    self.paragraph(62, y+9, overlap.get("source_name") or "—",
+                                   190, 6.5, 8, INK)
+                    self.text(260, y+9, overlap.get("institution") or "—", 6.3, INK)
+                    self.text(378, y+9, str(overlap.get("matched_features") or 0), 6.3, INK)
+                    self.text(437, y+9, _fmt_number(overlap.get("overlap_hectares") or 0), 6.3, INK)
+                    self.text(507, y+9, _fmt_number(overlap.get("overlap_percent") or 0, 2), 6.3, RED)
+                    y += 31
+                y += 9
         else:
             self.rect(50, y, 495, 51, PALE, LINE, radius=5)
             self.text(67, y+15, "Nenhuma interferência registrada.", 11, GREEN, self.bold)
