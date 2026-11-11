@@ -1304,15 +1304,21 @@ def build_report_pdf(
         )
 
     company_text = Paragraph(
-        "<font size='12'><b>AMAZONIKA ENGENHARIA</b></font><br/>"
-        "<font size='7.5'>TOPOGRAFIA E MEIO AMBIENTE</font><br/>"
-        "<font size='6.5'>CNPJ 49.158.834/0001-19</font>",
+        "<font size='11'><b>AMAZONIKA ENGENHARIA LTDA</b></font><br/>"
+        "<font size='7.3'>TOPOGRAFIA E MEIO AMBIENTE</font>",
         styles["AmazonikaBody"],
     )
 
     company_contact = Paragraph(
-        "Av. Almirante Barroso, 620-B, Centro, Macapá/AP<br/>"
-        "amazonika@amazonikaengenharia.com.br",
+        "<para align='right'>"
+        "<b>AMAZONIKA ENGENHARIA LTDA</b><br/>"
+        "Av. Almirante Barroso 620-B - CEP 68900-401<br/>"
+        "Bairro: Central - Macapá/AP<br/>"
+        "CNPJ: 49.158.834/0001-19<br/>"
+        "Contato: 96 98803-6439 / 96 9141-0943<br/>"
+        "www.amazonikaengenharia.com.br<br/>"
+        "amazonika@amazonikaengenharia.com.br"
+        "</para>",
         styles["AmazonikaSmall"],
     )
 
@@ -1320,8 +1326,8 @@ def build_report_pdf(
         [
             [logo, company_text, company_contact],
         ],
-        colWidths=[28 * mm, 72 * mm, 72 * mm],
-        rowHeights=[28 * mm],
+        colWidths=[28 * mm, 53 * mm, 91 * mm],
+        rowHeights=[34 * mm],
     )
 
     institutional_header.setStyle(
@@ -1972,10 +1978,13 @@ def build_report_pdf(
                     styles["AmazonikaBody"],
                 ),
                 Paragraph(
-                    "<b>AMAZONIKA ENGENHARIA</b><br/>"
-                    "CNPJ 49.158.834/0001-19<br/>"
-                    "Av. Almirante Barroso, 620-B<br/>"
-                    "Centro · Macapá/AP<br/>"
+                    "<font size='6'><b>AMAZONIKA ENGENHARIA LTDA</b></font><br/>"
+                    "Av. Almirante Barroso 620-B<br/>"
+                    "CEP 68900-401<br/>"
+                    "Bairro: Central - Macapá/AP<br/>"
+                    "CNPJ: 49.158.834/0001-19<br/>"
+                    "Contato: 96 98803-6439 / 96 9141-0943<br/>"
+                    "www.amazonikaengenharia.com.br<br/>"
                     "amazonika@amazonikaengenharia.com.br",
                     styles["AmazonikaSmall"],
                 ),
