@@ -7,7 +7,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from app.services.territorial_report import build_report_pdf
 
@@ -49,7 +49,32 @@ def main():
     with tempfile.TemporaryDirectory(prefix="amazonika-dossie-") as tmp:
         root = Path(tmp)
         map_path = root / "mapa.png"
-        Image.new("RGB", (1600, 1050), "#F3F8F5").save(map_path)
+        # Mapa sintético de homologação: testa o recorte real da
+        # moldura cartográfica, sem se passar por dado territorial oficial.
+        image = Image.new("RGB", (1600, 1050), "#F3F8F5")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((55, 135, 1545, 790), fill="#F6F9F7", outline="#B9C9C0", width=3)
+        for x in range(200, 1500, 170):
+            draw.line((x, 135, x, 790), fill="#D6E3DD", width=2)
+        for y in range(200, 780, 125):
+            draw.line((55, y, 1545, y), fill="#D6E3DD", width=2)
+        draw.polygon([(360, 620), (520, 310), (960, 230), (1250, 460),
+                      (1080, 670), (620, 710)],
+                     fill="#D8E8DE", outline="#225941", width=10)
+        draw.polygon([(820, 280), (1190, 350), (1310, 530), (990, 610),
+                      (770, 480)], fill="#EAB4A7", outline="#B72A2B", width=8)
+        draw.line([(1460, 290), (1460, 185)], fill="#174C38", width=9)
+        draw.polygon([(1460, 169), (1443, 202), (1477, 202)], fill="#174C38")
+        draw.text((1444, 146), "N", fill="#174C38")
+        draw.line((100, 730, 350, 730), fill="#174C38", width=9)
+        for x in (100, 225, 350):
+            draw.line((x, 717, x, 745), fill="#174C38", width=5)
+        draw.text((100, 748), "0", fill="#174C38")
+        draw.text((302, 748), "500 m", fill="#174C38")
+        draw.text((620, 150), "MAPA SINTETICO DE TESTE", fill="#60766B")
+        image.save(map_path)
+        # Impede que o teste volte a usar um painel cartográfico vazio.
+        assert len(image.getcolors(maxcolors=1600 * 1050) or []) > 5
 
         for count, warnings in [(1, False), (0, False), (10, True)]:
             path = root / f"dossie-{count}.pdf"
