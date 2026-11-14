@@ -36,6 +36,12 @@ docker run --rm --network none --memory 512m --cpus 0.5 \
   -e PYTHONPATH=/app --workdir /app \
   --entrypoint python "$NEW" -B /tmp/test_pa2_intersection.py
 
+echo "===== 2B. VALIDAR SIGMAS INDIVIDUAIS ====="
+docker run --rm --network none --memory 512m --cpus 0.5 \
+  -v "$PWD/backend/tests/test_topcon_perimeter_review.py:/tmp/test_topcon_perimeter_review.py:ro" \
+  -e PYTHONPATH=/app --workdir /app \
+  --entrypoint python "$NEW" -B /tmp/test_topcon_perimeter_review.py
+
 echo "===== 3. SUBSTITUIR SOMENTE API GEO83 ====="
 start_api() {
   local image="$1"
