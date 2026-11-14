@@ -904,6 +904,26 @@ export function PecasTecnicasWorkspace({
                       </div>
                       <div className="pecas-card" aria-label="Precisões SIGEF">
                         <h4>Precisões e referências dos confrontantes</h4>
+                        <p><strong>Revisão assistida:</strong> {topconBoundary.filter((p) =>
+                          p.sigma_lon_m !== null && p.sigma_lat_m !== null).length}
+                          /{topconBoundary.length} vértices com sigmas horizontalmente preenchidos;
+                          {topconBoundary.filter((p) => p.height_reference_confirmed).length}
+                          /{topconBoundary.length} alturas confirmadas.</p>
+                        <p>Os RMS das linhas de base são detectados automaticamente.
+                          Para sugerir sigmas individuais, importe no TOPCON o quadro
+                          de desvios-padrão dos pontos ajustados (N, E e U) ou a matriz
+                          de covariância. A conferência de referencial e a confirmação
+                          técnica continuam obrigatórias.</p>
+                        <button type="button" className="pecas-secondary"
+                          disabled={!topconBoundary.length}
+                          onClick={() => {
+                            if (!window.confirm("Confirma que você verificou todas as alturas h no referencial SIRGAS2000 e sua época?")) return;
+                            setTopconBoundary((old) => old.map((p) => ({ ...p, height_reference_confirmed: true })));
+                            setVerticalConfirmed(Object.fromEntries(topconBoundary.map((p) => [p.name, true])));
+                            setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature("");
+                          }}>
+                          Confirmar h de todos após conferência do RT
+                        </button>
                         <p><strong>Dados do TOPCON — vetores GNSS:</strong> os RMS horizontal e
                           vertical e σX/Y/Z são apresentados abaixo para conferência.
                           Não equivalem automaticamente aos sigmas das coordenadas ajustadas
