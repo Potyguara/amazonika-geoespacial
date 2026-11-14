@@ -13,6 +13,7 @@ from app.models.technical_piece import TechnicalPiece
 from app.services.auth import get_current_user, require_permission
 from app.services.technical_import import parse_sigef_ods
 from app.services.topcon_import import parse_topcon_report, MAX_BYTES
+from app.services.topcon_perimeter_review import review_topcon_perimeter
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -60,6 +61,19 @@ def import_topcon(
         return parse_topcon_report(raw, filename)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+class TopconPerimeterReviewInput(BaseModel):
+    points: list[dict] = Field(default_factory=list, max_length=5000)
+
+
+@router.post("/topcon/perimeter-review")
+def review_topcon_perimeter_route(
+    payload: TopconPerimeterReviewInput,
+    user: User = Depends(get_current_user),
+):
+    """Revisão técnica de perímetro; não cria ODS nem altera peças salvas."""
+    return review_topcon_perimeter(payload.points)
 
 
 @router.post("/import-sigef-ods")
