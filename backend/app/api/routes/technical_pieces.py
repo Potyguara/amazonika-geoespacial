@@ -16,6 +16,7 @@ from app.services.topcon_import import parse_topcon_report, MAX_BYTES
 from app.services.topcon_perimeter_review import review_topcon_perimeter
 from app.services.sigef_parcel_review import review_sigef_parcels
 from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
+from app.services.vertical_datum import convert_altitudes
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -92,6 +93,23 @@ def review_sigef_parcels_route(
     """Validação preliminar: nunca modifica vértices nem certifica parcelas."""
     try:
         return review_sigef_parcels(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class VerticalConversionInput(BaseModel):
+    points: list[dict] = Field(default_factory=list, max_length=5000)
+    model: str = "hgeoHNOR2020"
+
+
+@router.post("/topcon/vertical-conversion")
+def convert_topcon_vertical(
+    payload: VerticalConversionInput,
+    user: User = Depends(get_current_user),
+):
+    """Converte h para HN/H com fator informado; SIGEF permanece h."""
+    try:
+        return convert_altitudes(payload.points, model=payload.model)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
