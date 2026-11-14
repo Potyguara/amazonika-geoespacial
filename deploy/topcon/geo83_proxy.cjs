@@ -7,7 +7,7 @@ const targets = {
 };
 const server = http.createServer((req, res) => {
   const url = req.url || "/";
-  const type = url === "/api" || url.startsWith("/api/") ? "api" : "web";
+  const type = url === "/ready" || url === "/health" || url === "/api" || url.startsWith("/api/") ? "api" : "web";
   const target = targets[type];
   const headers = { ...req.headers, host: target.hostname + ":" + target.port };
   const upstream = http.request({
