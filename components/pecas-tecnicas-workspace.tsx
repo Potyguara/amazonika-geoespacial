@@ -256,6 +256,7 @@ export function PecasTecnicasWorkspace({
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8">("PA2");
   const [constructionDistance, setConstructionDistance] = useState("");
+  const [pt8PointConfirmed, setPt8PointConfirmed] = useState(false);
   const [constructionSide, setConstructionSide] = useState<"LEFT" | "RIGHT" | "FORWARD" | "BACKWARD">("LEFT");
   const [mapHint, setMapHint] = useState<{ longitude: number; latitude: number } | null>(null);
   const [pa2Witnesses, setPa2Witnesses] = useState<string[]>([]);
@@ -463,15 +464,16 @@ export function PecasTecnicasWorkspace({
     const at = topconBoundary.findIndex((p) => p.name === pa2InsertAfter);
     if (at < 0) { setPa2Error("Selecione o segmento de limite onde inserir V."); return; }
     const previous = topconBoundary[at];
-    if (constructionMethod === "PT8") {
-      setPa2Error("PT8 exige vértice do tipo M ou P; a criação automática como V está bloqueada.");
+    if (constructionMethod === "PT8" && !pt8PointConfirmed) {
+      setPa2Error("PT8 requer caracterização do ponto tipo P em campo antes da inserção.");
       return;
     }
     const used = new Set([...topconPreview.points.map((p) => p.name),
       ...topconBoundary.map((p) => p.name)]);
     let suffix = 1;
-    while (used.has(`V${String(suffix).padStart(3, "0")}`)) suffix++;
-    const name = `V${String(suffix).padStart(3, "0")}`;
+    const prefix = constructionMethod === "PT8" ? "P" : "V";
+    while (used.has(`${prefix}${String(suffix).padStart(3, "0")}`)) suffix++;
+    const name = `${prefix}${String(suffix).padStart(3, "0")}`;
     const newVertex: TopconBoundaryPoint = {
       ...previous, name,
       northing_m: pa2Result.northing_m, easting_m: pa2Result.easting_m,
@@ -489,7 +491,7 @@ export function PecasTecnicasWorkspace({
     setTopconBoundary((old) => [...old.slice(0, at + 1), newVertex, ...old.slice(at + 1)]);
     setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature("");
     setPa2Result(null); setPa2Witnesses([]); setPa2InsertAfter(name);
-    setPa2Error("V provisório inserido: informe código SIGEF, h e sigmas com suporte técnico antes de exportar.");
+    setPa2Error("Ponto provisório inserido: confira identificação, método, h e sigmas antes de exportar.");
   };
   const updateBoundaryPoint = (index: number, patch: Partial<TopconBoundaryPoint>) => {
     setTopconReview(null);
@@ -1117,6 +1119,12 @@ export function PecasTecnicasWorkspace({
                             onClick={() => void calculatePa2()}>
                             {pa2Busy ? "Calculando..." : "Calcular " + constructionMethod}
                           </button>
+                          {constructionMethod === "PT8" && <label className="pecas-check">
+                            <input type="checkbox" checked={pt8PointConfirmed}
+                              onChange={event => setPt8PointConfirmed(event.target.checked)} />
+                            Confirmo em campo a caracterização do ponto como vértice do tipo P
+                            (PT8 não pode gerar um vértice do tipo V).
+                          </label>}
                           {pa2Result && <div role="status">
                             <p><strong>{pa2Result.vertex_type} preliminar:</strong> E {pa2Result.easting_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
                               {" · "}N {pa2Result.northing_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
@@ -1133,11 +1141,11 @@ export function PecasTecnicasWorkspace({
                               </select>
                             </label>
                             <button type="button" className="pecas-secondary"
-                              disabled={!pa2ConfirmedCrs || constructionMethod === "PT8" ||
+                              disabled={!pa2ConfirmedCrs || (constructionMethod === "PT8" && !pt8PointConfirmed) ||
                                 !pa2InsertAfter || !Number.isFinite(pa2Result.latitude)}
                               onClick={addProvisionalPa2}>
                               {constructionMethod === "PT8"
-                                ? "PT8: requer identificação M/P e revisão específica"
+                                ? "Adicionar P provisório e renomear na tabela"
                                 : "Adicionar V provisório e renomear na tabela"}
                             </button>
                             <p className="pecas-note">h e sigmas não são estimados sem método altimétrico,
