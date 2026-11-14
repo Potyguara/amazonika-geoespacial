@@ -96,6 +96,7 @@ type TopconReview = {
   vertex_count: number;
   area_ha: number | null;
   perimeter_m: number | null;
+  geometry: Record<string, unknown> | null;
 };
 
 type TopconPreview = {
@@ -192,6 +193,47 @@ export function PecasTecnicasWorkspace({
   const [topconBoundary, setTopconBoundary] = useState<TopconBoundaryPoint[]>([]);
   const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
+  const [sigefMunicipalities, setSigefMunicipalities] = useState("");
+  const [sigefSituation, setSigefSituation] = useState("Área não Titulada");
+  const [sigefCns, setSigefCns] = useState("");
+  const [sigefRegistration, setSigefRegistration] = useState("");
+  const [sigefParcelReview, setSigefParcelReview] = useState<{
+    status: string; errors: string[]; warnings: string[];
+    parcels: Array<{ number: string; area_ha: number }>;
+  } | null>(null);
+  const [sigefParcelBusy, setSigefParcelBusy] = useState(false);
+  const validateSigefParcel = async () => {
+    if (!topconReview?.ready_for_ods || !topconReview.geometry) return;
+    setSigefParcelBusy(true);
+    setSigefParcelReview(null);
+    setTopconError("");
+    try {
+      const response = await fetch(`${getApiUrl()}/technical-pieces/sigef/parcels-review`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identification: {
+            holder_name: data.owner, holder_document: data.cpf,
+            property_name: data.title, situation: sigefSituation,
+            cns: sigefCns, registration: sigefRegistration,
+            municipalities: sigefMunicipalities.split(/[;,\\n]/).map((v) => v.trim()).filter(Boolean),
+          },
+          parcels: [{ number: "1", name: data.title || "Parcela 1",
+            geometry: topconReview.geometry, parcelling_type: "SEM_PARCELAMENTO" }],
+          neighbors: [],
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(
+        typeof payload?.detail === "string" ? payload.detail :
+        "A pré-validação cadastral SIGEF não foi concluída.");
+      setSigefParcelReview(payload);
+    } catch (error) {
+      setTopconError(error instanceof Error ? error.message : "Erro na revisão cadastral.");
+    } finally {
+      setSigefParcelBusy(false);
+    }
+  };
   const updateBoundaryPoint = (index: number, patch: Partial<TopconBoundaryPoint>) => {
     setTopconReview(null);
     setTopconBoundary((current) => current.map((point, i) =>
@@ -232,6 +274,7 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(null);
     setTopconBoundary([]);
     setTopconReview(null);
+    setSigefParcelReview(null);
     setTopconLoading(true);
     try {
       const payload = new FormData();
@@ -503,6 +546,51 @@ export function PecasTecnicasWorkspace({
                           <p key={index} className="pecas-warning" role="alert">{message}</p>)}
                         {topconReview.warnings.map((message, index) =>
                           <p key={index} className="pecas-note">{message}</p>)}
+                        {topconReview.ready_for_ods && topconReview.geometry && (
+                          <div className="pecas-card" aria-label="Revisão preliminar de identificação SIGEF">
+                            <h4>3. Identificação e situação jurídica — pré-validação SIGEF</h4>
+                            <p>Preencha os dados do titular e imóvel nos campos gerais acima.
+                              Informe aqui os municípios e a situação jurídica para testar uma parcela.
+                              Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
+                            <label className="pecas-field"><span>Municípios (separados por ponto e vírgula)</span>
+                              <input value={sigefMunicipalities} placeholder="Macapá-AP; Santana-AP"
+                                onChange={(e) => { setSigefMunicipalities(e.target.value); setSigefParcelReview(null); }} />
+                            </label>
+                            <label className="pecas-field"><span>Situação jurídica</span>
+                              <select value={sigefSituation}
+                                onChange={(e) => { setSigefSituation(e.target.value); setSigefParcelReview(null); }}>
+                                <option>Imóvel Registrado</option>
+                                <option>Área Titulada não Registrada</option>
+                                <option>Área não Titulada</option>
+                              </select>
+                            </label>
+                            {sigefSituation === "Imóvel Registrado" && <div>
+                              <label className="pecas-field"><span>CNS cartório</span>
+                                <input value={sigefCns} onChange={(e) => { setSigefCns(e.target.value); setSigefParcelReview(null); }} />
+                              </label>
+                              <label className="pecas-field"><span>Matrícula / transcrição</span>
+                                <input value={sigefRegistration} onChange={(e) => { setSigefRegistration(e.target.value); setSigefParcelReview(null); }} />
+                              </label>
+                            </div>}
+                            <button type="button" className="pecas-primary" disabled={sigefParcelBusy}
+                              onClick={() => void validateSigefParcel()}>
+                              {sigefParcelBusy ? "Validando identificação..." : "Pré-validar identificação e parcela"}
+                            </button>
+                            {sigefParcelReview && <div role="status">
+                              <p><strong>{sigefParcelReview.status === "PREVALIDATED"
+                                ? "Pré-validação cadastral sem erros locais"
+                                : "Pendências cadastrais detectadas"}</strong></p>
+                              {sigefParcelReview.parcels.map((p) => <p key={p.number}>
+                                Parcela {p.number}: {p.area_ha.toLocaleString("pt-BR")} ha</p>)}
+                              {sigefParcelReview.errors.map((msg, i) =>
+                                <p key={i} className="pecas-warning" role="alert">{msg}</p>)}
+                              {sigefParcelReview.warnings.map((msg, i) =>
+                                <p key={i} className="pecas-note">{msg}</p>)}
+                              <p>A ausência de base confrontante não comprova inexistência de sobreposição.
+                                Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
+                            </div>}
+                          </div>
+                        )}
                         <p>Este teste não gera ODS certificável nem modifica a geometria salva.
                           A próxima etapa será vincular o perímetro revisado ao modelo SIGEF, à planta e ao memorial.</p>
                       </div>}
