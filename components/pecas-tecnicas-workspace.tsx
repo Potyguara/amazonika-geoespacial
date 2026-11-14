@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
 import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
+import { Pa2WitnessMap } from "@/components/pa2-witness-map";
 import { getApiUrl } from "@/lib/api";
 
 export type ProfessionalDocumentProfile = {
@@ -248,6 +249,20 @@ export function PecasTecnicasWorkspace({
   const [topconBoundary, setTopconBoundary] = useState<TopconBoundaryPoint[]>([]);
   const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
+  const [pa2Mode, setPa2Mode] = useState(false);
+  const [pa2Witnesses, setPa2Witnesses] = useState<string[]>([]);
+  const [pa2InsertAfter, setPa2InsertAfter] = useState("");
+  const [pa2ConfirmedCrs, setPa2ConfirmedCrs] = useState(false);
+  const [pa2Result, setPa2Result] = useState<{
+    status: string; method: string; vertex_type: string;
+    easting_m: number; northing_m: number;
+    latitude: number | null; longitude: number | null;
+    angle_deg_acute: number; height_m: number | null;
+    sigma_e_m: number | null; sigma_n_m: number | null; sigma_h_m: number | null;
+    warnings: string[]; ready_for_sigef: boolean;
+  } | null>(null);
+  const [pa2Busy, setPa2Busy] = useState(false);
+  const [pa2Error, setPa2Error] = useState("");
   const [verticalModel, setVerticalModel] = useState<"hgeoHNOR2020" | "MAPGEO2015">("hgeoHNOR2020");
   const [verticalFactors, setVerticalFactors] = useState<Record<string, string>>({});
   const [verticalOrigin, setVerticalOrigin] = useState("IBGE - fator informado manualmente");
@@ -386,6 +401,73 @@ export function PecasTecnicasWorkspace({
       setSigefParcelBusy(false);
     }
   };
+  const pickPa2Witness = (name: string) => {
+    setPa2Result(null);
+    setPa2Error("");
+    setPa2Witnesses((old) => old.includes(name) ? old.filter((n) => n !== name)
+      : old.length >= 4 ? [name] : [...old, name]);
+  };
+  const calculatePa2 = async () => {
+    if (!topconPreview || pa2Witnesses.length !== 4) return;
+    setPa2Busy(true); setPa2Error(""); setPa2Result(null);
+    try {
+      const witnesses = pa2Witnesses.map((name) => topconPreview.points.find((p) => p.name === name));
+      if (witnesses.some((point) => !point)) throw new Error("Marco de apoio não encontrado no relatório.");
+      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/pa2-intersection`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          witnesses: witnesses.map((point) => ({
+            name: point?.name, easting_m: point?.easting_m, northing_m: point?.northing_m,
+          })),
+          utm_zone: topconPreview.project.utm_zone,
+          hemisphere: topconPreview.project.hemisphere,
+          sirgas2000_confirmed: pa2ConfirmedCrs,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(typeof payload?.detail === "string"
+        ? payload.detail : "Não foi possível calcular a interseção PA2.");
+      setPa2Result(payload);
+    } catch (error) {
+      setPa2Error(error instanceof Error ? error.message : "Falha ao calcular PA2.");
+    } finally {
+      setPa2Busy(false);
+    }
+  };
+  const addProvisionalPa2 = () => {
+    if (!topconPreview || !pa2Result || !Number.isFinite(pa2Result.latitude)
+        || !Number.isFinite(pa2Result.longitude)) {
+      setPa2Error("Confirme SIRGAS2000 e recalcule antes de inserir o vértice.");
+      return;
+    }
+    const at = topconBoundary.findIndex((p) => p.name === pa2InsertAfter);
+    if (at < 0) { setPa2Error("Selecione o segmento de limite onde inserir V."); return; }
+    const previous = topconBoundary[at];
+    const used = new Set([...topconPreview.points.map((p) => p.name),
+      ...topconBoundary.map((p) => p.name)]);
+    let suffix = 1;
+    while (used.has(`V${String(suffix).padStart(3, "0")}`)) suffix++;
+    const name = `V${String(suffix).padStart(3, "0")}`;
+    const newVertex: TopconBoundaryPoint = {
+      ...previous, name,
+      northing_m: pa2Result.northing_m, easting_m: pa2Result.easting_m,
+      latitude: pa2Result.latitude, longitude: pa2Result.longitude,
+      elevation_reported_m: 0, ellipsoidal_height_reported_m: null,
+      ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
+      sigma_hz_m: null, sigma_u_m: null,
+      sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+      height_reference_confirmed: false,
+      sigef_vertex_code: "", sigef_method: "PA2", boundary_type: previous.boundary_type,
+      confrontant: previous.confrontant, confrontant_cns: previous.confrontant_cns,
+      confrontant_registration: previous.confrontant_registration,
+      point_role: "BOUNDARY",
+    };
+    setTopconBoundary((old) => [...old.slice(0, at + 1), newVertex, ...old.slice(at + 1)]);
+    setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature("");
+    setPa2Result(null); setPa2Witnesses([]); setPa2InsertAfter(name);
+    setPa2Error("V provisório inserido: informe código SIGEF, h e sigmas com suporte técnico antes de exportar.");
+  };
   const updateBoundaryPoint = (index: number, patch: Partial<TopconBoundaryPoint>) => {
     setTopconReview(null);
     setSigefParcelReview(null);
@@ -449,6 +531,8 @@ export function PecasTecnicasWorkspace({
   const importTopcon = async (file: File) => {
     setTopconError("");
     setTopconPreview(null);
+    setPa2Mode(false); setPa2Result(null); setPa2Witnesses([]);
+    setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setTopconReview(null);
     setVerticalFactors({});
