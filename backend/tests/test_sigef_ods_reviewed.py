@@ -64,6 +64,15 @@ class ReviewedSigefOdsTests(unittest.TestCase):
             self.assertIn("identificacao", names)
             self.assertIn("perimetro_1", names)
             self.assertIn("perimetro_2", names)
+            # Modelo ODS oficial pode repetir a linha modelo N vezes:
+            # cada vertice exportado deve representar uma unica linha.
+            for name in ("perimetro_1", "perimetro_2"):
+                tab = next(t for t in root.iter(TABLE + "table")
+                           if t.get(TABLE + "name") == name)
+                vertex_rows = tab.findall(TABLE + "table-row")[11:14]
+                self.assertEqual(len(vertex_rows), 3)
+                for row in vertex_rows:
+                    self.assertNotIn(TABLE + "number-rows-repeated", row.attrib)
         parsed = parse_sigef_ods(blob)
         self.assertEqual(len(parsed["features"]), 2)
         self.assertEqual(parsed["vertex_count"], 6)
