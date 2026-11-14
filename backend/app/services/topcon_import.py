@@ -242,6 +242,87 @@ def _sessions(rows: list[list[str]]) -> list[dict]:
     return results[:LIMIT_POINTS]
 
 
+
+def _native_topcon_tables(text: str) -> dict | None:
+    """Quadros do relatório padrão TOPCON Tools Point Summary/Observações GPS.
+
+    Preserva separadamente as precisões dos vetores, que NÃO são os desvios
+    padrão das coordenadas ajustadas dos pontos.
+    """
+    titles = {
+        "point summary": "points",
+        "observacoes gps": "observations",
+        "ocupacoes gps": "occupations",
+        "ajustamento": "other",
+        "adjustment": "other",
+    }
+    state = None
+    point_rows = {}
+    observations = []
+    occupations = []
+    seen_points = False
+    for line in text.splitlines():
+        key = re.sub(r"\s+", " ", _norm(line))
+        if key in titles:
+            state = titles[key]
+            if state == "points":
+                seen_points = True
+            continue
+        cells = _cells(line)
+        if not cells:
+            continue
+        if state == "points" and len(cells) >= 7 and _point_name(cells[0]):
+            try:
+                northing, easting, elevation = map(_number, cells[1:4])
+                lat = _geo_coord(cells[4], True)
+                lon = _geo_coord(cells[5], False)
+                ellip_reported = _number(cells[6])
+            except (ValueError, TypeError):
+                continue
+            point_rows[cells[0]] = {
+                "northing": northing, "easting": easting,
+                "elevation": elevation, "latitude": lat,
+                "longitude": lon, "ellip_reported": ellip_reported,
+            }
+            if len(point_rows) > LIMIT_POINTS:
+                raise ValueError("Relatório excede 5.000 pontos.")
+        elif state == "observations" and len(cells) >= 10:
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}[−–-][A-Za-z0-9_-]{1,32}", cells[0]):
+                continue
+            try:
+                nums = [_number(v) for v in cells[1:9]]
+            except (ValueError, TypeError):
+                continue
+            observations.append({
+                "baseline": cells[0],
+                "dn_m": nums[0], "de_m": nums[1], "dz_m": nums[2],
+                "horizontal_rms_m": nums[3], "vertical_rms_m": nums[4],
+                "sigma_x_m": nums[5], "sigma_y_m": nums[6],
+                "sigma_z_m": nums[7], "solution_type": cells[9],
+            })
+        elif state == "occupations" and len(cells) >= 6 and _point_name(cells[0]):
+            if not re.match(r"\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}", cells[1]):
+                continue
+            occupations.append({
+                "point": cells[0], "original_name": cells[0],
+                "started_at_reported": cells[1], "ended_at_reported": cells[2],
+                "duration": cells[3], "method": "",
+                "interval_ms": cells[5], "antenna": cells[4],
+            })
+    if not seen_points:
+        return None
+    if not point_rows:
+        raise ValueError(
+            "O quadro Point Summary foi identificado, mas nenhuma coordenada "
+            "válida foi extraída. Confira a disposição das colunas."
+        )
+    return {
+        "points": point_rows,
+        "observations": observations[:LIMIT_POINTS],
+        "occupations": occupations[:LIMIT_POINTS],
+    }
+
+
 def parse_topcon_report(raw: bytes, filename: str) -> dict:
     if not raw or len(raw) > MAX_BYTES:
         raise ValueError("Relatório vazio ou maior que 12 MB.")
@@ -259,19 +340,28 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
         if current and line.strip():
             sections[current].append(_cells(line))
 
+    native = _native_topcon_tables(text)
     utm = _point_fields(sections["utm"], 3)
     geographic = _parse_geo_rows(sections["geo"])
     sigma = _point_fields(sections["sigma"], 4)
     scale = _point_fields(sections["scale"], 1)
     solution = _solution_rows(sections["solution"])
     sessions = _sessions(sections["sessions"])
+    observations = []
+    if native is not None:
+        utm = {name: [p["northing"], p["easting"], p["elevation"]]
+               for name, p in native["points"].items()}
+        geographic = {name: [p["latitude"], p["longitude"], p["elevation"]]
+                      for name, p in native["points"].items()}
+        observations = native["observations"]
+        sessions = native["occupations"]
     if not utm or not geographic:
         raise ValueError(
             "Não foram identificadas as tabelas de coordenadas UTM e geográficas. "
             "Exporte o relatório original do TOPCON com os dois quadros habilitados."
         )
 
-    projection = _value_after_label(text, "Projeção") or ""
+    projection = (_value_after_label(text, "Projeção") or _value_after_label(text, "Projection") or "")
     datum = _value_after_label(text, "Datum") or ""
     zone_match = re.search(r"(?:zone[_ -]?|zona\s*)(\d{1,2})", projection, re.I)
     zone = int(zone_match.group(1)) if zone_match else None
@@ -323,11 +413,15 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
             "sigma_hz_m": sigma[name][2] if name in sigma else None,
             "sigma_u_m": sigma[name][3] if name in sigma else None,
             "scale_combined": scale[name][0] if name in scale else None,
-            "point_role": "CONTROL" if name.casefold() in ("base", "estacao base")
+            "point_role": "CONTROL" if name.casefold() in ("base", "estacao base", "b1")
                           else "UNCLASSIFIED",
             "sigef_vertex_code": None, "sigef_method": None,
             "ellipsoidal_height_m": None, "vertex_order": None,
         }
+        if native is not None and name in native["points"]:
+            # Campo explicitamente WGS84 no relatório; requer comprovação
+            # de referencial/época antes de reutilizar como SIRGAS 2000.
+            point["ellipsoidal_height_reported_m"] = native["points"][name]["ellip_reported"]
         if geo and transformer:
             try:
                 lon2, lat2 = transformer.transform(easting, northing)
@@ -338,6 +432,16 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
             except Exception:
                 warnings.append(f"{name}: transformação UTM não pôde ser conferida.")
         points.append(point)
+    if native is not None:
+        warnings.append(
+            "O relatório nativo apresenta RMS dos vetores, não precisões "
+            "individuais das coordenadas; preencher σ Longitude/Latitude/h "
+            "somente após conferência dos resultados ajustados."
+        )
+        warnings.append(
+            "Latitude, longitude e altura elipsoidal estão rotuladas WGS84 "
+            "no TOPCON; confirmar SIRGAS2000 e época, sem conversão automática."
+        )
     if any(p["sigma_hz_m"] is None for p in points if p["point_role"] != "CONTROL"):
         warnings.append("Precisão horizontal faltante em um ou mais pontos.")
     warnings += [
@@ -350,15 +454,16 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
     return {
         "source": "TOPCON_TOOLS", "filename": filename,
         "project": {
-            "name": _value_after_label(text, "Nome do Projeto"),
-            "created": _value_after_label(text, "Hora da Criação do Projeto"),
+            "name": _value_after_label(text, "Nome do Projeto") or _value_after_label(text, "Project name"),
+            "created": _value_after_label(text, "Hora da Criação do Projeto") or _value_after_label(text, "Creation time"),
             "datum": datum, "projection": projection, "utm_zone": zone,
             "hemisphere": "N" if north else "S",
-            "geoid": _value_after_label(text, "Geóide"),
-            "adjustment": _value_after_label(text, "Tipo de Ajustamento"),
+            "geoid": _value_after_label(text, "Geóide") or _value_after_label(text, "Geoid"),
+            "adjustment": _value_after_label(text, "Tipo de Ajustamento") or _value_after_label(text, "Adjustment type"),
         },
         "points": points, "point_count": len(points),
         "solution": solution, "sessions": sessions,
+        "observations": observations,
         "checks": {"errors": list(dict.fromkeys(errors)),
                    "warnings": list(dict.fromkeys(warnings))},
         "ready_for_sigef": False,
