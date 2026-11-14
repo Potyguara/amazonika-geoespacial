@@ -852,6 +852,56 @@ export function PecasTecnicasWorkspace({
                           </tbody>
                         </table>
                       </div>
+                      <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
+                        <h4>Precisará criar vértices V (interseção de retas PA2)?</h4>
+                        <p>Se os limites exigirem vértices virtuais, ative o mapa de apoio e indique
+                          quatro marcos testemunhos: A1 e A2 definem a primeira reta; B1 e B2
+                          definem a segunda. A posição V será calculada na interseção, não por
+                          uma escolha visual imprecisa de coordenadas.</p>
+                        <label className="pecas-check"><input type="checkbox" checked={pa2Mode}
+                          onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
+                          Criar vértice virtual com duas retas de apoio (PA2)</label>
+                        {pa2Mode && <>
+                          <p>Use o mapa à direita para clicar os testemunhos em sequência.
+                            Se necessário, clique novamente no nome para desmarcar.</p>
+                          <p><strong>Reta A:</strong> {pa2Witnesses[0] || "—"} até {pa2Witnesses[1] || "—"}
+                            {" · "}<strong>Reta B:</strong> {pa2Witnesses[2] || "—"} até {pa2Witnesses[3] || "—"}</p>
+                          <label className="pecas-check">
+                            <input type="checkbox" checked={pa2ConfirmedCrs}
+                              onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPa2Result(null); }} />
+                            Confirmo que os quatro marcos estão no mesmo referencial SIRGAS2000,
+                            na zona e hemisfério indicados pelo processamento.
+                          </label>
+                          <button type="button" className="pecas-primary" disabled={pa2Busy || pa2Witnesses.length !== 4}
+                            onClick={() => void calculatePa2()}>
+                            {pa2Busy ? "Calculando..." : "Calcular interseção PA2"}
+                          </button>
+                          {pa2Result && <div role="status">
+                            <p><strong>V estimado:</strong> E {pa2Result.easting_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
+                              {" · "}N {pa2Result.northing_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
+                              {" · "}Ângulo agudo {pa2Result.angle_deg_acute.toLocaleString("pt-BR")}°</p>
+                            {pa2Result.warnings.map((warning, i) => <p key={i} className="pecas-note">{warning}</p>)}
+                            <label className="pecas-field">
+                              <span>Inserir V após qual vértice de limite?</span>
+                              <select value={pa2InsertAfter} onChange={(event) => setPa2InsertAfter(event.target.value)}>
+                                <option value="">Selecione o segmento do perímetro</option>
+                                {topconBoundary.map((point) => <option key={point.name} value={point.name}>
+                                  Após {point.name} — parcela {point.parcel_number}
+                                </option>)}
+                              </select>
+                            </label>
+                            <button type="button" className="pecas-secondary"
+                              disabled={!pa2ConfirmedCrs || !pa2InsertAfter || !Number.isFinite(pa2Result.latitude)}
+                              onClick={addProvisionalPa2}>
+                              Adicionar V provisório e renomear na tabela
+                            </button>
+                            <p className="pecas-note">h e sigmas não são estimados sem método altimétrico,
+                              matriz de covariância e revisão do responsável técnico.
+                              O vértice permanecerá com pendências de exportação.</p>
+                          </div>}
+                          {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
+                        </>}
+                      </div>
                       <div className="pecas-card" aria-label="Precisões SIGEF">
                         <h4>Precisões e referências dos confrontantes</h4>
                         <p><strong>Dados do TOPCON — vetores GNSS:</strong> os RMS horizontal e
@@ -1147,14 +1197,26 @@ export function PecasTecnicasWorkspace({
                 </div>
               )}
             </div>
-            <SituationMapPreview
-              geometry={displaySituationGeometry}
-              geometryKey={displaySituationKey}
-              saved={previewTopconGeometry ? null : situationSaved}
-              onSave={onSaveSituation}
-              vertexNames={displayVertexNames}
-              showVertices={Boolean(previewTopconGeometry)}
-            />
+            {topconPreview && pa2Mode
+              ? <div className="pecas-card">
+                  <h4>Mapa interativo — construção PA2</h4>
+                  <Pa2WitnessMap points={topconPreview.points} selected={pa2Witnesses}
+                    intersection={pa2Result} onPick={pickPa2Witness} />
+                  <button type="button" className="pecas-secondary"
+                    onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
+                    Limpar testemunhos selecionados
+                  </button>
+                  <p className="pecas-note">Clique para escolher os quatro marcos no mapa.
+                    Os dados de h e precisão de V não serão inferidos do clique.</p>
+                </div>
+              : <SituationMapPreview
+                  geometry={displaySituationGeometry}
+                  geometryKey={displaySituationKey}
+                  saved={previewTopconGeometry ? null : situationSaved}
+                  onSave={onSaveSituation}
+                  vertexNames={displayVertexNames}
+                  showVertices={Boolean(previewTopconGeometry)}
+                />}
           </div>
         )}
 
