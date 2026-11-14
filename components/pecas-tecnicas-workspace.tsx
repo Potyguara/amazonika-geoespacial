@@ -1216,6 +1216,7 @@ export function PecasTecnicasWorkspace({
                   onSave={onSaveSituation}
                   vertexNames={displayVertexNames}
                   showVertices={Boolean(previewTopconGeometry)}
+                  previewBasemap={previewTopconGeometry ? "osm" : "satellite"}
                 />}
           </div>
         )}
