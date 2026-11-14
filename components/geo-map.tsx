@@ -64,6 +64,7 @@ interface GeoMapProps {
   analysisPanelOpen?: boolean;
   restorePiece?: { id: string; snapshot: TechnicalPieceSnapshot; nonce: number } | null;
   onPieceSaved?: () => void;
+  startTopconNonce?: number;
   layers: Array<{
     id?: string;
     slug?: string;
@@ -226,7 +227,7 @@ const UF_VIEW: Record<string, { center: [number, number]; zoom: number }> = {
   ALL: { center: [-52.3, -14.5], zoom: 4.2 },
 };
 
-export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, analysisPanelOpen = false, restorePiece = null, onPieceSaved }: GeoMapProps) {
+export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hideAdvancedTools = false, focusRequest = null, analysisId = null, analysisPanelOpen = false, restorePiece = null, onPieceSaved, startTopconNonce = 0 }: GeoMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -315,6 +316,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     vertices: number;
   }>({ areaHectares: null, perimeterMeters: null, vertices: 0 });
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const lastStartTopconNonce = useRef(startTopconNonce);
+  useEffect(() => {
+    if (startTopconNonce <= lastStartTopconNonce.current) return;
+    lastStartTopconNonce.current = startTopconNonce;
+    setAdvancedPanel(null);
+    setWorkspaceOpen(true);
+  }, [startTopconNonce]);
   const [documentProfessional, setDocumentProfessional] = useState<ProfessionalDocumentProfile | null>(null);
   const [documentProfessionalLoading, setDocumentProfessionalLoading] = useState(false);
   const [documentProfessionalError, setDocumentProfessionalError] = useState("");
