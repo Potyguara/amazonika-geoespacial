@@ -83,7 +83,7 @@ type TopconPoint = {
   point_role: "CONTROL" | "UNCLASSIFIED";
   ellipsoidal_height_reported_m?: number | null;
 };
-type TopconBoundaryPoint = Omit<TopconPoint, "point_role"> & {
+export type TopconBoundaryPoint = Omit<TopconPoint, "point_role"> & {
   sigef_vertex_code: string;
   sigef_method: string;
   boundary_type: string;
