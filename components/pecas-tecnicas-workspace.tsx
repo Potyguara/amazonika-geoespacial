@@ -438,6 +438,9 @@ export function PecasTecnicasWorkspace({
           ...(constructionMethod === "PA2" ? {} : {
             method: constructionMethod, distance_m: Number(constructionDistance),
             side: constructionSide,
+            ...(constructionMethod === "PA1" && mapHint
+              ? { hint_longitude: mapHint.longitude, hint_latitude: mapHint.latitude }
+              : {}),
           }),
         }),
       });
@@ -1328,7 +1331,23 @@ export function PecasTecnicasWorkspace({
                   <h4>Mapa ampliado — {constructionMethod}</h4>
                   <Pa2WitnessMap points={topconPreview.points} selected={pa2Witnesses}
                     method={constructionMethod} intersection={pa2Result}
-                    hint={mapHint} onPositionHint={point => { setMapHint(point); setPa2Result(null); }}
+                    hint={mapHint} onPositionHint={point => {
+                      setMapHint(point); setPa2Result(null);
+                      const a = topconPreview.points.find(p => p.name === pa2Witnesses[0]);
+                      const b = topconPreview.points.find(p => p.name === pa2Witnesses[1]);
+                      if (constructionMethod !== "PA2" && a && b && Number.isFinite(a.longitude)
+                          && Number.isFinite(a.latitude) && Number.isFinite(b.longitude)
+                          && Number.isFinite(b.latitude)) {
+                        const cosine = Math.cos((a.latitude as number) * Math.PI / 180);
+                        const dx = ((b.longitude as number) - (a.longitude as number)) * cosine;
+                        const dy = (b.latitude as number) - (a.latitude as number);
+                        const px = (point.longitude - (a.longitude as number)) * cosine;
+                        const py = point.latitude - (a.latitude as number);
+                        if (constructionMethod === "PA1") {
+                          setConstructionSide(dx * py - dy * px >= 0 ? "LEFT" : "RIGHT");
+                        } else setConstructionSide(dx * px + dy * py >= 0 ? "FORWARD" : "BACKWARD");
+                      }
+                    }}
                     onPick={pickPa2Witness} />
                   <button type="button" className="pecas-secondary"
                     onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
