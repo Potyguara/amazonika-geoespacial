@@ -193,6 +193,51 @@ export function PecasTecnicasWorkspace({
   const [topconBoundary, setTopconBoundary] = useState<TopconBoundaryPoint[]>([]);
   const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
+  const [verticalModel, setVerticalModel] = useState<"hgeoHNOR2020" | "MAPGEO2015">("hgeoHNOR2020");
+  const [verticalFactors, setVerticalFactors] = useState<Record<string, string>>({});
+  const [verticalOrigin, setVerticalOrigin] = useState("IBGE - fator informado manualmente");
+  const [verticalConfirmed, setVerticalConfirmed] = useState<Record<string, boolean>>({});
+  const [verticalCalculated, setVerticalCalculated] = useState<Array<{
+    name: string; ellipsoidal_height_m: number;
+    normal_height_m?: number; orthometric_height_m?: number;
+    conversion_factor_m?: number; eta_m?: number;
+    geoid_undulation_m?: number;
+  }> | null>(null);
+  const [verticalError, setVerticalError] = useState("");
+  const [verticalLoading, setVerticalLoading] = useState(false);
+  const calculateVertical = async () => {
+    setVerticalLoading(true);
+    setVerticalCalculated(null);
+    setVerticalError("");
+    try {
+      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/vertical-conversion`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: verticalModel,
+          points: topconBoundary.map((point) => ({
+            name: point.name,
+            latitude: point.latitude,
+            longitude: point.longitude,
+            ellipsoidal_height_m: point.ellipsoidal_height_m,
+            height_reference_confirmed: Boolean(verticalConfirmed[point.name]),
+            conversion_factor_m: verticalFactors[point.name] ?? "",
+            factor_origin: verticalOrigin,
+          })),
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(
+        typeof result?.detail === "string" ? result.detail : "Falha na conversão altimétrica.");
+      if (result?.status !== "READY") throw new Error(
+        (result?.errors ?? []).join("; ") || "Dados altimétricos incompletos.");
+      setVerticalCalculated(result.points);
+    } catch (error) {
+      setVerticalError(error instanceof Error ? error.message : "Falha na conversão.");
+    } finally {
+      setVerticalLoading(false);
+    }
+  };
   const [sigefMunicipalities, setSigefMunicipalities] = useState("");
   const [sigefSituation, setSigefSituation] = useState("Área não Titulada");
   const [sigefCns, setSigefCns] = useState("");
@@ -236,6 +281,7 @@ export function PecasTecnicasWorkspace({
   };
   const updateBoundaryPoint = (index: number, patch: Partial<TopconBoundaryPoint>) => {
     setTopconReview(null);
+    setVerticalCalculated(null);
     setTopconBoundary((current) => current.map((point, i) =>
       i === index ? { ...point, ...patch } : point));
   };
@@ -530,6 +576,65 @@ export function PecasTecnicasWorkspace({
                               })}
                           </tbody>
                         </table>
+                      </div>
+                      <div className="pecas-card" aria-label="Conversão altimétrica IBGE">
+                        <h4>Conversão altimétrica — IBGE</h4>
+                        <p>A ODS SIGEF utiliza a altura elipsoidal (h). A altitude normal ou
+                          ortométrica é complementar e depende do fator do modelo escolhido.
+                          Confirme individualmente que h está referido ao SIRGAS2000.</p>
+                        <label className="pecas-field"><span>Modelo do fator</span>
+                          <select value={verticalModel} onChange={(event) => {
+                            setVerticalModel(event.target.value as "hgeoHNOR2020" | "MAPGEO2015");
+                            setVerticalCalculated(null);
+                          }}>
+                            <option value="hgeoHNOR2020">IBGE hgeoHNOR2020 — altitude normal (HN)</option>
+                            <option value="MAPGEO2015">IBGE MAPGEO2015 — altitude ortométrica (H)</option>
+                          </select>
+                        </label>
+                        <label className="pecas-field"><span>Origem dos fatores (protocolo/modelo)</span>
+                          <input value={verticalOrigin} onChange={(event) => {
+                            setVerticalOrigin(event.target.value); setVerticalCalculated(null);
+                          }} />
+                        </label>
+                        <div style={{ overflowX: "auto" }}>
+                          <table>
+                            <thead><tr><th>Ponto</th><th>h confirmado (m)</th>
+                              <th>{verticalModel === "hgeoHNOR2020" ? "Fator η (m)" : "Ondulação N (m)"}</th>
+                              <th>h é SIRGAS2000?</th></tr></thead>
+                            <tbody>{topconBoundary.map((point) => <tr key={point.name}>
+                              <td>{point.name}</td>
+                              <td>{point.ellipsoidal_height_m ?? "Não informado"}</td>
+                              <td><input aria-label={`Fator altimétrico ${point.name}`}
+                                inputMode="decimal" value={verticalFactors[point.name] ?? ""}
+                                onChange={(e) => {
+                                  setVerticalFactors((old) => ({ ...old, [point.name]: e.target.value }));
+                                  setVerticalCalculated(null);
+                                }} /></td>
+                              <td><input type="checkbox" aria-label={`Confirmar h SIRGAS2000 ${point.name}`}
+                                checked={Boolean(verticalConfirmed[point.name])}
+                                onChange={(e) => {
+                                  setVerticalConfirmed((old) => ({ ...old, [point.name]: e.target.checked }));
+                                  setVerticalCalculated(null);
+                                }} /></td>
+                            </tr>)}</tbody>
+                          </table>
+                        </div>
+                        <button type="button" className="pecas-secondary"
+                          disabled={verticalLoading || topconBoundary.length === 0}
+                          onClick={() => void calculateVertical()}>
+                          {verticalLoading ? "Calculando..." : "Calcular altitudes físicas"}
+                        </button>
+                        {verticalError && <p className="pecas-warning" role="alert">{verticalError}</p>}
+                        {verticalCalculated && <div role="status">
+                          <p><strong>Conversão concluída. Nenhuma coordenada ou h foi alterada.</strong></p>
+                          {verticalCalculated.map((point) => <p key={point.name}>
+                            {point.name}: h = {point.ellipsoidal_height_m.toLocaleString("pt-BR")} m;
+                            {" "}{verticalModel === "hgeoHNOR2020" ? "HN" : "H"} =
+                            {" "}{(point.normal_height_m ?? point.orthometric_height_m)?.toLocaleString("pt-BR")} m
+                          </p>)}
+                        </div>}
+                        <p>Consulte o fator no serviço hgeoHNOR2020 do IBGE e transcreva-o
+                          para cada ponto. O sistema ainda não consulta automaticamente esse serviço.</p>
                       </div>
                       <button type="button" className="pecas-primary"
                         disabled={topconReviewBusy || topconBoundary.length < 3}
