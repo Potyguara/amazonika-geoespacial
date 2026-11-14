@@ -41,6 +41,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick, method =
   const [mapboxEnabled, setMapboxEnabled] = useState(false);
   const [baseError, setBaseError] = useState("");
   const [googleAttribution, setGoogleAttribution] = useState("");
+  const lastFitKey = useRef("");
   const hintRef = useRef(onPositionHint);
   hintRef.current = onPositionHint;
   const pickRef = useRef(onPick);
@@ -145,7 +146,9 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick, method =
       source.addFeature(point);
     }
     const map = mapRef.current;
-    if (map && positions.size) {
+    const fitKey = JSON.stringify(points);
+    if (map && positions.size && lastFitKey.current !== fitKey) {
+      lastFitKey.current = fitKey;
       map.updateSize();
       const extent = source.getExtent();
       if (extent.every(Number.isFinite)) map.getView().fit(extent, {
