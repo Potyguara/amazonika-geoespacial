@@ -40,7 +40,7 @@ class ConstructedMethodsTests(unittest.TestCase):
             calculate_constructed_vertex("PT8", WITNESSES, None, "FORWARD")
 
     def test_reject_duplicate_testimony(self):
-        with self.assertRaisesRegex(ValueError, "diferentes"):
+        with self.assertRaisesRegex(ValueError, "distintos"):
             calculate_constructed_vertex("PA1", [WITNESSES[0], WITNESSES[0]], 4, "LEFT")
 
     def test_reject_zero_alignment(self):
