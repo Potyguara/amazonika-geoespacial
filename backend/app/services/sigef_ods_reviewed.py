@@ -30,14 +30,14 @@ def _required_text(value, field: str) -> str:
     return value
 
 
-def _required_number(value, field: str, *, positive: bool = False) -> float:
+def _required_number(value, field: str, *, nonnegative: bool = True) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{field}: valor numérico inválido.")
     try:
         number = float(str(value).strip().replace(",", "."))
     except (ValueError, TypeError) as exc:
         raise ValueError(f"{field}: número ausente ou inválido.") from exc
-    if not math.isfinite(number) or (positive and number <= 0) or (not positive and number < 0):
+    if not math.isfinite(number) or (nonnegative and number < 0):
         raise ValueError(f"{field}: precisão/altura inválida.")
     return number
 
@@ -102,7 +102,7 @@ def _write_perimeter(sheet, parcel: dict) -> None:
         # Sigma horizontal única não substitui incertezas individuais por eixo.
         sigma_lon = _required_number(vertex.get("sigma_lon_m"), "sigma longitude")
         sigma_lat = _required_number(vertex.get("sigma_lat_m"), "sigma latitude")
-        height = _required_number(vertex.get("ellipsoidal_height_m"), "altura elipsoidal")
+        height = _required_number(vertex.get("ellipsoidal_height_m"), "altura elipsoidal", nonnegative=False)
         sigma_h = _required_number(vertex.get("sigma_h_m"), "sigma altura")
         values = [
             name,
@@ -171,8 +171,9 @@ def build_reviewed_sigef_ods(payload: dict) -> bytes:
         if parent is None:
             raise ValueError("Perímetro do modelo não está vinculado à planilha.")
         index = list(parent).index(first)
+        pristine = deepcopy(first)
         for pos, parcel in enumerate(validated_parcels):
-            current = first if pos == 0 else deepcopy(_sheet(root, "perimetro_1"))
+            current = first if pos == 0 else deepcopy(pristine)
             # Clone antes de alterar o modelo original para preservar o layout.
             if pos > 0:
                 parent.insert(index + pos, current)
