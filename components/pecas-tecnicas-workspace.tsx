@@ -497,7 +497,13 @@ export function PecasTecnicasWorkspace({
     setTopconReview(null);
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
-    setVerticalCalculated(null);
+    // Mudanças cadastrais, métodos e sigmas não invalidam conversão altimétrica.
+    // Somente coordenada, altura ou confirmação do referencial obrigam recalcular.
+    if (["latitude", "longitude", "ellipsoidal_height_m", "height_reference_confirmed"]
+      .some((field) => field in patch)) {
+      setVerticalCalculated(null);
+      setPa2Result(null);
+    }
     setTopconBoundary((current) => current.map((point, i) =>
       i === index ? { ...point, ...patch } : point));
   };
