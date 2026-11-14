@@ -1,0 +1,4 @@
+# GEO-85: substitui APENAS o importador nativo no overlay API Topcon.
+ARG BASE_API_IMAGE=amazonika-api-topcon:geo80-20261114
+FROM ${BASE_API_IMAGE}
+COPY backend/app/services/topcon_import.py /app/app/services/topcon_import.py
