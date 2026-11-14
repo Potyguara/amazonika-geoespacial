@@ -9,7 +9,12 @@ from __future__ import annotations
 import math
 
 
-def intersect_pa2(witnesses: list[dict]) -> dict:
+def intersect_pa2(
+    witnesses: list[dict], *,
+    utm_zone: int | None = None,
+    hemisphere: str | None = None,
+    sirgas2000_confirmed: bool = False,
+) -> dict:
     if len(witnesses) != 4:
         raise ValueError("PA2 exige dois alinhamentos, cada qual com dois marcos de apoio (4 no total).")
     names = [str(p.get("name") or "").strip() for p in witnesses]
@@ -46,6 +51,22 @@ def intersect_pa2(witnesses: list[dict]) -> dict:
         "Coordenadas de interseção são preliminares: confirmar referencial, época, alinhamentos e realidade de campo.",
         "O cálculo PA2 não determina automaticamente a altitude h nem os sigmas sem metodologia altimétrica e covariâncias dos marcos.",
     ]
+    longitude = latitude = None
+    if sirgas2000_confirmed:
+        if hemisphere not in ("N", "S") or not isinstance(utm_zone, int):
+            raise ValueError("Confirme o hemisfério e zona UTM do SIRGAS2000.")
+        if hemisphere == "N" and 18 <= utm_zone <= 22:
+            epsg = 31954 + utm_zone
+        elif hemisphere == "S" and 18 <= utm_zone <= 25:
+            epsg = 31960 + utm_zone
+        else:
+            raise ValueError("Zona UTM fora da faixa SIRGAS2000 prevista no sistema.")
+        from pyproj import Transformer
+        longitude, latitude = Transformer.from_crs(
+            f"EPSG:{epsg}", "EPSG:4674", always_xy=True,
+        ).transform(x, y)
+    else:
+        warnings.append("SIRGAS2000 não confirmado: coordenadas geográficas não calculadas.")
     if t < 0 or t > 1 or u < 0 or u > 1:
         warnings.append("A interseção extrapola pelo menos um dos segmentos medidos.")
     return {
@@ -54,6 +75,8 @@ def intersect_pa2(witnesses: list[dict]) -> dict:
         "vertex_type": "V",
         "easting_m": round(x, 4),
         "northing_m": round(y, 4),
+        "longitude": longitude,
+        "latitude": latitude,
         "angle_deg_acute": round(math.degrees(math.asin(sin_angle)), 4),
         "line_parameters": {"first_t": round(t, 8), "second_t": round(u, 8)},
         "height_m": None,
