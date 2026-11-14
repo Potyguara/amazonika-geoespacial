@@ -87,6 +87,12 @@ type TopconBoundaryPoint = Omit<TopconPoint, "point_role"> & {
   boundary_type: string;
   confrontant: string;
   ellipsoidal_height_m: number | null;
+  sigma_lon_m: number | null;
+  sigma_lat_m: number | null;
+  sigma_h_m: number | null;
+  confrontant_cns: string;
+  confrontant_registration: string;
+  height_reference_confirmed: boolean;
   point_role: "BOUNDARY";
 };
 type TopconReview = {
@@ -281,12 +287,14 @@ export function PecasTecnicasWorkspace({
   };
   const updateBoundaryPoint = (index: number, patch: Partial<TopconBoundaryPoint>) => {
     setTopconReview(null);
+    setSigefParcelReview(null);
     setVerticalCalculated(null);
     setTopconBoundary((current) => current.map((point, i) =>
       i === index ? { ...point, ...patch } : point));
   };
   const moveBoundaryPoint = (index: number, offset: number) => {
     setTopconReview(null);
+    setSigefParcelReview(null);
     setTopconBoundary((current) => {
       const dest = index + offset;
       if (dest < 0 || dest >= current.length) return current;
@@ -320,6 +328,9 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(null);
     setTopconBoundary([]);
     setTopconReview(null);
+    setVerticalFactors({});
+    setVerticalConfirmed({});
+    setVerticalCalculated(null);
     setSigefParcelReview(null);
     setTopconLoading(true);
     try {
@@ -539,9 +550,13 @@ export function PecasTecnicasWorkspace({
                                   <td><input type="checkbox" aria-label={`Incluir ${point.name} no perímetro`}
                                     checked={Boolean(selected)} onChange={(event) => {
                                       setTopconReview(null);
+                                      setSigefParcelReview(null);
                                       setTopconBoundary((current) => event.target.checked
                                         ? [...current, { ...point, point_role: "BOUNDARY",
                                           sigef_vertex_code: "", ellipsoidal_height_m: null,
+                                          sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+                                          height_reference_confirmed: false,
+                                          confrontant_cns: "", confrontant_registration: "",
                                           sigef_method: "", boundary_type: "", confrontant: "" }]
                                         : current.filter((item) => item.name !== point.name));
                                     }} /></td>
