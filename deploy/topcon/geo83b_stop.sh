@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 NET=amazonika-geo83-internal
+EDGE=amazonika-geo83-edge
 LABEL=amazonika.geo83.homolog
 for NAME in amazonika-geo83-proxy amazonika-geo83-web amazonika-geo83-api amazonika-geo83-db; do
   if docker container inspect "$NAME" >/dev/null 2>&1; then
@@ -13,13 +14,15 @@ for NAME in amazonika-geo83-proxy amazonika-geo83-web amazonika-geo83-api amazon
     fi
   fi
 done
-if docker network inspect "$NET" >/dev/null 2>&1; then
-  actual="$(docker network inspect "$NET" --format '{{index .Labels "amazonika.geo83.homolog"}}')"
-  if [[ "$actual" != 1 ]]; then
-    echo "BLOQUEADO: rede $NET nao possui o marcador GEO83."
-    exit 1
+for N in "$NET" "$EDGE"; do
+  if docker network inspect "$N" >/dev/null 2>&1; then
+    actual="$(docker network inspect "$N" --format '{{index .Labels "amazonika.geo83.homolog"}}')"
+    if [[ "$actual" != 1 ]]; then
+      echo "BLOQUEADO: rede $N nao possui o marcador GEO83."
+      exit 1
+    fi
   fi
-fi
+done
 echo "===== ENCERRANDO HOMOLOGACAO GEO83 ====="
 for NAME in amazonika-geo83-proxy amazonika-geo83-web amazonika-geo83-api amazonika-geo83-db; do
   if docker container inspect "$NAME" >/dev/null 2>&1; then
@@ -27,10 +30,12 @@ for NAME in amazonika-geo83-proxy amazonika-geo83-web amazonika-geo83-api amazon
     echo "Removido: $NAME"
   fi
 done
-if docker network inspect "$NET" >/dev/null 2>&1; then
-  docker network rm "$NET" >/dev/null
-  echo "Rede interna removida: $NET"
-fi
+for N in "$NET" "$EDGE"; do
+  if docker network inspect "$N" >/dev/null 2>&1; then
+    docker network rm "$N" >/dev/null
+    echo "Rede GEO83 removida: $N"
+  fi
+done
 echo "===== PRODUCAO ====="
 curl -fsS http://127.0.0.1:18000/ready
 echo
