@@ -1054,10 +1054,11 @@ export function PecasTecnicasWorkspace({
                         {!verticalCalculated && <p className="pecas-warning">
                           Conclua primeiro o cálculo das altitudes normais/ortométricas dos marcos
                           de apoio para habilitar a construção dos vértices.</p>}
-                        <p>Se os limites exigirem vértices virtuais, ative o mapa de apoio e indique
-                          quatro marcos testemunhos: A1 e A2 definem a primeira reta; B1 e B2
-                          definem a segunda. A posição V será calculada na interseção, não por
-                          uma escolha visual imprecisa de coordenadas.</p>
+                        <p>Após calcular as altitudes físicas, selecione o método adequado.
+                          PA1 usa dois marcos, distância perpendicular e lado; PA2 utiliza
+                          quatro marcos em duas retas; PT8 usa dois marcos e distância
+                          medida a partir do primeiro. O mapa permite escolher visualmente
+                          um local, mas o cálculo mantém as restrições geométricas do método.</p>
                         <label className="pecas-check"><input type="checkbox"
                           disabled={!verticalCalculated} checked={pa2Mode}
                           onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
