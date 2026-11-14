@@ -324,9 +324,10 @@ export function PecasTecnicasWorkspace({
   };
 
   const validateSigefParcel = async () => {
-    if (!topconReview?.ready_for_ods || !topconReview.geometry) return;
+    if (!topconReview?.ready_for_ods || !topconReview.parcel_geometries?.length) return;
     setSigefParcelBusy(true);
     setSigefParcelReview(null);
+    setSigefValidatedSignature("");
     setTopconError("");
     try {
       const response = await fetch(`${getApiUrl()}/technical-pieces/sigef/parcels-review`, {
@@ -334,8 +335,9 @@ export function PecasTecnicasWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           identification: makeSigefIdentity(),
-          parcels: [{ number: "1", name: data.title || "Parcela 1",
-            geometry: topconReview.geometry, parcelling_type: "SEM_PARCELAMENTO" }],
+          parcels: topconReview.parcel_geometries.map((parcel) => ({
+            ...parcel, parcelling_type: "SEM_PARCELAMENTO",
+          })),
           neighbors: [],
         }),
       });
@@ -344,6 +346,7 @@ export function PecasTecnicasWorkspace({
         typeof payload?.detail === "string" ? payload.detail :
         "A pré-validação cadastral SIGEF não foi concluída.");
       setSigefParcelReview(payload);
+      if (payload?.status === "PREVALIDATED") setSigefValidatedSignature(sigefSignature());
     } catch (error) {
       setTopconError(error instanceof Error ? error.message : "Erro na revisão cadastral.");
     } finally {
@@ -353,6 +356,7 @@ export function PecasTecnicasWorkspace({
   const updateBoundaryPoint = (index: number, patch: Partial<TopconBoundaryPoint>) => {
     setTopconReview(null);
     setSigefParcelReview(null);
+    setSigefValidatedSignature("");
     setVerticalCalculated(null);
     setTopconBoundary((current) => current.map((point, i) =>
       i === index ? { ...point, ...patch } : point));
@@ -360,6 +364,7 @@ export function PecasTecnicasWorkspace({
   const moveBoundaryPoint = (index: number, offset: number) => {
     setTopconReview(null);
     setSigefParcelReview(null);
+    setSigefValidatedSignature("");
     setTopconBoundary((current) => {
       const dest = index + offset;
       if (dest < 0 || dest >= current.length) return current;
@@ -372,16 +377,36 @@ export function PecasTecnicasWorkspace({
     setTopconReviewBusy(true);
     setTopconError("");
     setTopconReview(null);
+    setSigefParcelReview(null);
+    setSigefValidatedSignature("");
     try {
-      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/perimeter-review`, {
-        method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ points: topconBoundary }),
+      const parcels = parcelsForOds();
+      if (!parcels.length) throw new Error("Selecione ao menos uma parcela.");
+      const reviews: Array<{ number: string; name: string; review: TopconReview }> = [];
+      for (const parcel of parcels) {
+        const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/perimeter-review`, {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ points: parcel.vertices }),
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(
+          typeof result?.detail === "string" ? result.detail : `Falha ao validar parcela ${parcel.number}.`);
+        reviews.push({ number: parcel.number, name: parcel.name, review: result as TopconReview });
+      }
+      const errors = reviews.flatMap(({ number, review }) => review.errors.map((msg) => `Parcela ${number}: ${msg}`));
+      const warnings = reviews.flatMap(({ number, review }) => review.warnings.map((msg) => `Parcela ${number}: ${msg}`));
+      const ready = errors.length === 0 && reviews.every(({ review }) => review.ready_for_ods && review.geometry);
+      setTopconReview({
+        ready_for_ods: Boolean(ready), errors, warnings,
+        vertex_count: topconBoundary.length,
+        area_ha: reviews.reduce((total, { review }) => total + (review.area_ha ?? 0), 0),
+        perimeter_m: reviews.reduce((total, { review }) => total + (review.perimeter_m ?? 0), 0),
+        geometry: ready ? reviews[0].review.geometry : null,
+        parcel_geometries: ready ? reviews.map(({ number, name, review }) => ({
+          number, name, geometry: review.geometry as Record<string, unknown>,
+        })) : [],
       });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(
-        typeof payload?.detail === "string" ? payload.detail : "Não foi possível validar o perímetro.");
-      setTopconReview(payload as TopconReview);
     } catch (error) {
       setTopconError(error instanceof Error ? error.message : "Falha na revisão do perímetro.");
     } finally {
@@ -397,6 +422,7 @@ export function PecasTecnicasWorkspace({
     setVerticalConfirmed({});
     setVerticalCalculated(null);
     setSigefParcelReview(null);
+    setSigefValidatedSignature("");
     setTopconLoading(true);
     try {
       const payload = new FormData();
