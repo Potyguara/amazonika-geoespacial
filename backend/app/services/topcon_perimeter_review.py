@@ -49,6 +49,13 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
         latitude = point.get("latitude")
         height = point.get("ellipsoidal_height_m")
         sigma_hz = point.get("sigma_hz_m")
+        sigma_lon = point.get("sigma_lon_m")
+        sigma_lat = point.get("sigma_lat_m")
+        # Dados individuais confirmados pelo RT prevalecem sobre sigma
+        # horizontal de referência, sem recorrer ao RMS dos vetores.
+        if (_finite(sigma_lon) and _finite(sigma_lat)
+                and sigma_lon >= 0 and sigma_lat >= 0):
+            sigma_hz = math.hypot(sigma_lon, sigma_lat)
         if role == "CONTROL" or name.casefold() in ("base", "estacao base", "estação base"):
             errors.append(f"Linha {index}: ponto de controle {name or 'sem nome'} não pode integrar a divisa.")
         if not name:
@@ -68,7 +75,7 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
         if not _finite(height):
             errors.append(f"Linha {index} ({name}): confirme altura elipsoidal; elevação Topcon não é substituta.")
         if not _finite(sigma_hz) or sigma_hz < 0:
-            errors.append(f"Linha {index} ({name}): precisão horizontal não confirmada.")
+            errors.append(f"Linha {index} ({name}): precisão horizontal não confirmada (informe σ Longitude e σ Latitude do vértice).")
         if not (_finite(longitude) and _finite(latitude) and -75 <= longitude <= -30 and -35 <= latitude <= 7):
             errors.append(f"Linha {index} ({name}): coordenada fora da abrangência brasileira.")
             continue
