@@ -50,6 +50,19 @@ class ConstructedMethodsTests(unittest.TestCase):
                 {"name": "B", "easting_m": 500000, "northing_m": 100000},
             ], 5, "LEFT")
 
+    def test_pa1_click_is_projected_to_parallel_not_used_as_coordinate(self):
+        from pyproj import Transformer
+        geo = Transformer.from_crs("EPSG:31976", "EPSG:4674", always_xy=True)
+        longitude, latitude = geo.transform(500050, 100080)
+        v = calculate_constructed_vertex(
+            "PA1", WITNESSES, 10, "LEFT",
+            utm_zone=22, hemisphere="N", sirgas2000_confirmed=True,
+            hint_longitude=longitude, hint_latitude=latitude,
+        )
+        self.assertAlmostEqual(v["easting_m"], 500050, places=2)
+        self.assertAlmostEqual(v["northing_m"], 100010, places=2)
+        self.assertFalse(v["ready_for_sigef"])
+
     def test_geographic_only_after_confirmation(self):
         a = calculate_constructed_vertex("PA1", WITNESSES, 5, "LEFT")
         self.assertIsNone(a["latitude"])
