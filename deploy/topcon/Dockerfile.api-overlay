@@ -1,0 +1,19 @@
+# GEO-80: candidata API a partir da imagem estável do SIGEF/Dossiê V3.
+# Build:
+# docker build -f deploy/topcon/Dockerfile.api-overlay \
+#   --build-arg BASE_IMAGE=amazonika-api-sigef-geonode:geo71-20261111 \
+#   -t amazonika-api-topcon:geo80-20261114 .
+#
+# Nenhuma reinstalação de dependências ou migração é realizada.
+ARG BASE_IMAGE=amazonika-api-sigef-geonode:geo71-20261111
+FROM ${BASE_IMAGE}
+
+COPY backend/app/services/topcon_import.py /app/app/services/topcon_import.py
+COPY backend/app/services/topcon_perimeter_review.py /app/app/services/topcon_perimeter_review.py
+COPY backend/app/services/sigef_parcel_review.py /app/app/services/sigef_parcel_review.py
+COPY backend/app/services/sigef_ods_reviewed.py /app/app/services/sigef_ods_reviewed.py
+COPY backend/app/services/vertical_datum.py /app/app/services/vertical_datum.py
+COPY backend/app/services/technical_import.py /app/app/services/technical_import.py
+COPY backend/app/api/routes/technical_pieces.py /app/app/api/routes/technical_pieces.py
+
+# O template ODS da imagem estável e o motor de Dossiê V3 são preservados.
