@@ -26,21 +26,39 @@ if docker network inspect "$NET" >/dev/null 2>&1; then
   exit 1
 fi
 
+# O trap só é instalado após verificar que nenhum recurso preexistia.
+# A limpeza opera exclusivamente sobre recursos comprovadamente criados nesta execução.
+CREATED_NET=0
+CREATED_DB=0
+CREATED_API=0
 cleanup() {
   status=$?
+  trap - EXIT
   if [[ "$status" -ne 0 ]]; then
     echo "===== LOGS DE HOMOLOGAÇÃO (falha) ====="
-    docker logs --tail 80 "$API" 2>&1 || true
-    docker logs --tail 50 "$DB" 2>&1 || true
+    if [[ "$CREATED_API" -eq 1 ]]; then
+      docker logs --tail 80 "$API" 2>&1 || true
+    fi
+    if [[ "$CREATED_DB" -eq 1 ]]; then
+      docker logs --tail 50 "$DB" 2>&1 || true
+    fi
   fi
-  echo "===== REMOVENDO APENAS RECURSOS GEO81 ====="
-  docker rm -f "$API" "$DB" >/dev/null 2>&1 || true
-  docker network rm "$NET" >/dev/null 2>&1 || true
+  echo "===== REMOVENDO SOMENTE RECURSOS CRIADOS NESTA EXECUÇÃO ====="
+  if [[ "$CREATED_API" -eq 1 ]]; then
+    docker rm -f "$API" >/dev/null 2>&1 || true
+  fi
+  if [[ "$CREATED_DB" -eq 1 ]]; then
+    docker rm -f "$DB" >/dev/null 2>&1 || true
+  fi
+  if [[ "$CREATED_NET" -eq 1 ]]; then
+    docker network rm "$NET" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
 echo "===== 2. REDE DOCKER INTERNA ====="
 docker network create --internal "$NET" >/dev/null
+CREATED_NET=1
 
 echo "===== 3. POSTGIS DESCARTÁVEL ====="
 docker run -d --name "$DB" --network "$NET" \
@@ -51,6 +69,7 @@ docker run -d --name "$DB" --network "$NET" \
   -e POSTGRES_USER=geo81 \
   -e POSTGRES_PASSWORD=geo81_local_only \
   "$DB_IMAGE" >/dev/null
+CREATED_DB=1
 
 DB_READY=0
 for ATTEMPT in {1..40}; do
@@ -76,6 +95,7 @@ docker run -d --name "$API" --network "$NET" \
   -e GOOGLE_MAP_TILES_ENABLED=false \
   -e MAPBOX_SATELLITE_ENABLED=false \
   "$API_IMAGE" >/dev/null
+CREATED_API=1
 
 API_READY=0
 for ATTEMPT in {1..40}; do
