@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from app.services.technical_import import parse_sigef_ods
 from app.services.topcon_import import parse_topcon_report, MAX_BYTES
 from app.services.topcon_perimeter_review import review_topcon_perimeter
 from app.services.sigef_parcel_review import review_sigef_parcels
+from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -93,6 +94,33 @@ def review_sigef_parcels_route(
         return review_sigef_parcels(payload.model_dump())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+class ReviewedSigefOdsInput(BaseModel):
+    identification: dict = Field(default_factory=dict)
+    parcels: list[dict] = Field(default_factory=list, max_length=50)
+    neighbors: list[dict] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/sigef/reviewed-ods")
+def export_reviewed_sigef_ods(
+    payload: ReviewedSigefOdsInput,
+    user: User = Depends(get_current_user),
+):
+    """Exporta ODS para conferência técnica, não certificação oficial."""
+    try:
+        data = build_reviewed_sigef_ods(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=data,
+        media_type="application/vnd.oasis.opendocument.spreadsheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="SIGEF_PREVALIDACAO_AMAZONIKA.ods"',
+            "Cache-Control": "no-store",
+            "X-Sigef-Validation": "PREVALIDACAO_LOCAL",
+        },
+    )
 
 
 @router.post("/import-sigef-ods")
