@@ -42,9 +42,9 @@ def http_post(path: str, body: bytes, content_type: str, cookie: str = ""):
     request = Request(BASE + path, data=body, headers=headers, method="POST")
     try:
         with urlopen(request, timeout=30) as response:
-            return response.status, dict(response.headers), response.read()
+            return response.status, {k.lower(): v for k, v in response.headers.items()}, response.read()
     except HTTPError as exc:
-        return exc.code, dict(exc.headers), exc.read()
+        return exc.code, {k.lower(): v for k, v in exc.headers.items()}, exc.read()
 
 
 def json_post(path: str, payload: dict, cookie: str = ""):
@@ -107,7 +107,7 @@ def main():
     )
     check(code == 200, f"login: HTTP {code}, resposta {result}")
     session_cookie = SimpleCookie()
-    session_cookie.load(headers.get("Set-Cookie", ""))
+    session_cookie.load(headers.get("set-cookie", ""))
     check("amazonika_session" in session_cookie, "cookie de sessão ausente")
     cookie = "amazonika_session=" + session_cookie["amazonika_session"].value
     print("2/7 Login real e cookie de sessão: HTTP 200")
@@ -187,7 +187,7 @@ def main():
     )
     check(code == 200, f"exportação ODS: HTTP {code} {raw[:500]!r}")
     check(raw[:2] == b"PK", "download não é ODS/ZIP")
-    check(headers.get("X-Sigef-Validation") == "PREVALIDACAO_LOCAL",
+    check(headers.get("x-sigef-validation") == "PREVALIDACAO_LOCAL",
           "ODS indevidamente rotulada como certificada")
     parsed = parse_sigef_ods(raw)
     check(parsed["vertex_count"] == 6, "ODS tem contagem incorreta de vértices")
