@@ -626,11 +626,12 @@ export function PecasTecnicasWorkspace({
                       <h4>2. Selecionar, ordenar e validar vértices de divisa</h4>
                       <p>Selecione apenas pontos integrantes do limite, informe os dados técnicos
                         confirmados e organize o percurso horário a partir do vértice mais ao norte.
-                        A elevação Topcon nunca será convertida automaticamente em altura elipsoidal.</p>
+                        A elevação Topcon nunca será convertida automaticamente em altura elipsoidal.
+                         Atribua número e denominação a cada vértice; os pontos serão agrupados por parcela.</p>
                       <div style={{ overflowX: "auto" }}>
                         <table>
                           <thead><tr><th>Selecionar</th><th>Ponto</th><th>Código SIGEF</th>
-                            <th>Altura elipsoidal (m)</th><th>Método</th><th>Tipo limite</th>
+                            <th>Parcela nº</th><th>Denominação da parcela</th><th>Altura elipsoidal (m)</th><th>Método</th><th>Tipo limite</th>
                             <th>Confrontante seguinte</th><th>Ordem</th></tr></thead>
                           <tbody>
                             {topconPreview.points.filter((point) => point.point_role !== "CONTROL")
@@ -642,9 +643,11 @@ export function PecasTecnicasWorkspace({
                                     checked={Boolean(selected)} onChange={(event) => {
                                       setTopconReview(null);
                                       setSigefParcelReview(null);
+                                       setSigefValidatedSignature("");
                                       setTopconBoundary((current) => event.target.checked
                                         ? [...current, { ...point, point_role: "BOUNDARY",
-                                          sigef_vertex_code: "", ellipsoidal_height_m: null,
+                                          sigef_vertex_code: "", parcel_number: "1",
+                                           parcel_name: data.title || "Parcela 1", ellipsoidal_height_m: null,
                                           sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
                                           height_reference_confirmed: false,
                                           confrontant_cns: "", confrontant_registration: "",
@@ -655,7 +658,13 @@ export function PecasTecnicasWorkspace({
                                   <td><input aria-label={`Código SIGEF ${point.name}`} disabled={!selected}
                                     value={selected?.sigef_vertex_code ?? ""}
                                     onChange={(event) => updateBoundaryPoint(index, { sigef_vertex_code: event.target.value })} /></td>
-                                  <td><input aria-label={`Altura elipsoidal ${point.name}`} disabled={!selected}
+                                  <td><input aria-label={`Parcela do ponto ${point.name}`} disabled={!selected}
+                                     value={selected?.parcel_number ?? ""}
+                                     onChange={(event) => updateBoundaryPoint(index, { parcel_number: event.target.value })} /></td>
+                                   <td><input aria-label={`Denominação da parcela ${point.name}`} disabled={!selected}
+                                     value={selected?.parcel_name ?? ""}
+                                     onChange={(event) => updateBoundaryPoint(index, { parcel_name: event.target.value })} /></td>
+                                   <td><input aria-label={`Altura elipsoidal ${point.name}`} disabled={!selected}
                                     inputMode="decimal" placeholder="Confirmar h"
                                     value={selected?.ellipsoidal_height_m ?? ""}
                                     onChange={(event) => {
@@ -808,7 +817,7 @@ export function PecasTecnicasWorkspace({
                           <div className="pecas-card" aria-label="Revisão preliminar de identificação SIGEF">
                             <h4>3. Identificação e situação jurídica — pré-validação SIGEF</h4>
                             <p>Preencha os dados do titular e imóvel nos campos gerais acima.
-                              Informe aqui os municípios e a situação jurídica para testar uma parcela.
+                              Informe aqui os municípios e a situação jurídica para testar todas as parcelas.
                               Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
                             <label className="pecas-field"><span>Municípios (separados por ponto e vírgula)</span>
                               <input value={sigefMunicipalities} placeholder="Macapá-AP; Santana-AP"
@@ -848,7 +857,8 @@ export function PecasTecnicasWorkspace({
                                 Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
                               {sigefParcelReview.status === "PREVALIDATED" && <div>
                                 <button type="button" className="pecas-primary"
-                                  disabled={reviewedOdsBusy} onClick={() => void downloadReviewedOds()}>
+                                  disabled={reviewedOdsBusy || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
+                                  onClick={() => void downloadReviewedOds()}>
                                   {reviewedOdsBusy ? "Gerando ODS..." : "Gerar ODS SIGEF revisada"}
                                 </button>
                                 {reviewedOdsError && <p className="pecas-warning" role="alert">{reviewedOdsError}</p>}
