@@ -253,6 +253,50 @@ export function PecasTecnicasWorkspace({
     parcels: Array<{ number: string; area_ha: number }>;
   } | null>(null);
   const [sigefParcelBusy, setSigefParcelBusy] = useState(false);
+  const [reviewedOdsBusy, setReviewedOdsBusy] = useState(false);
+  const [reviewedOdsError, setReviewedOdsError] = useState("");
+  const [reviewedOdsNotice, setReviewedOdsNotice] = useState("");
+  const makeSigefIdentity = () => ({
+    holder_name: data.owner, holder_document: data.cpf,
+    property_name: data.title, service_nature: "Particular",
+    area_nature: "Particular", situation: sigefSituation,
+    cns: sigefCns, registration: sigefRegistration,
+    municipalities: sigefMunicipalities.split(/[;,]/).map((item) => item.trim()).filter(Boolean),
+  });
+  const downloadReviewedOds = async () => {
+    if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
+    setReviewedOdsBusy(true);
+    setReviewedOdsError("");
+    setReviewedOdsNotice("");
+    try {
+      const response = await fetch(`${getApiUrl()}/technical-pieces/sigef/reviewed-ods`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identification: makeSigefIdentity(),
+          parcels: [{
+            number: "1", name: data.title || "Parcela 1",
+            vertices: topconBoundary,
+          }],
+          neighbors: [],
+        }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(typeof error?.detail === "string"
+          ? error.detail : "Não foi possível gerar a ODS revisada.");
+      }
+      const blob = await response.blob();
+      if (blob.size < 100) throw new Error("A planilha gerada está vazia ou incompleta.");
+      downloadBlob(blob, `SIGEF-PREVALIDACAO-${fileSlug(data.title)}.ods`);
+      setReviewedOdsNotice("ODS gerada para conferência técnica; não certificada pelo SIGEF.");
+    } catch (error) {
+      setReviewedOdsError(error instanceof Error ? error.message : "Falha no download ODS.");
+    } finally {
+      setReviewedOdsBusy(false);
+    }
+  };
+
   const validateSigefParcel = async () => {
     if (!topconReview?.ready_for_ods || !topconReview.geometry) return;
     setSigefParcelBusy(true);
@@ -263,12 +307,7 @@ export function PecasTecnicasWorkspace({
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          identification: {
-            holder_name: data.owner, holder_document: data.cpf,
-            property_name: data.title, situation: sigefSituation,
-            cns: sigefCns, registration: sigefRegistration,
-            municipalities: sigefMunicipalities.split(/[;,]/).map((v) => v.trim()).filter(Boolean),
-          },
+          identification: makeSigefIdentity(),
           parcels: [{ number: "1", name: data.title || "Parcela 1",
             geometry: topconReview.geometry, parcelling_type: "SEM_PARCELAMENTO" }],
           neighbors: [],
