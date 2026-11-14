@@ -285,9 +285,13 @@ export function PecasTecnicasWorkspace({
     municipalities: sigefMunicipalities.split(/[;,]/).map((item) => item.trim()).filter(Boolean),
   });
   const parcelsForOds = () => groupTopconParcels(topconBoundary, data.title);
-  const sigefSignature = () => JSON.stringify({
-    identification: makeSigefIdentity(), parcels: parcelsForOds(),
-  });
+  const sigefSignature = () => {
+    try {
+      return JSON.stringify({ identification: makeSigefIdentity(), parcels: parcelsForOds() });
+    } catch {
+      return "";
+    }
+  };
   const downloadReviewedOds = async () => {
     if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
     if (!sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()) {
