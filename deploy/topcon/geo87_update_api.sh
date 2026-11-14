@@ -26,7 +26,7 @@ docker network inspect "$NET" >/dev/null
 test "$(docker network inspect "$NET" --format '{{index .Labels "amazonika.geo83.homolog"}}')" = 1
 docker image inspect "$OLD" >/dev/null
 
-echo "===== 1. COMPILAR IMPORTADOR GEO87 ====="
+echo "===== 1. CONSTRUIR OVERLAY API GEO87 ====="
 docker build -f deploy/topcon/Dockerfile.api-geo87 \
   --build-arg BASE_API_IMAGE="$OLD" -t "$NEW" .
 
@@ -50,7 +50,7 @@ start_api() {
     "$image" >/dev/null
 }
 rollback() {
-  echo "Falha na nova API. Restaurando somente API GEO80..."
+  echo "Falha na nova API. Restaurando somente API GEO85..."
   docker logs --tail 80 "$API" 2>&1 || true
   docker rm -f "$API" >/dev/null 2>&1 || true
   start_api "$OLD" || true
@@ -69,9 +69,9 @@ done
 test "$READY" = 1
 curl -fsS --max-time 8 http://127.0.0.1:13083/ready
 echo
-trap - ERR
 echo "===== 4. VALIDAR ROTA PA2 ====="
 docker exec "$API" sh -c 'curl -fsS http://127.0.0.1:8000/openapi.json | grep -q "topcon/pa2-intersection"'
+trap - ERR
 echo "===== 5. CONFERIR AMBIENTE OFICIAL ====="
 curl -fsS http://127.0.0.1:18000/ready
 echo
