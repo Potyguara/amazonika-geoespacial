@@ -254,6 +254,10 @@ export function PecasTecnicasWorkspace({
   const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
   const [pa2Mode, setPa2Mode] = useState(false);
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8">("PA2");
+  const [constructionDistance, setConstructionDistance] = useState("");
+  const [constructionSide, setConstructionSide] = useState<"LEFT" | "RIGHT" | "FORWARD" | "BACKWARD">("LEFT");
+  const [mapHint, setMapHint] = useState<{ longitude: number; latitude: number } | null>(null);
   const [pa2Witnesses, setPa2Witnesses] = useState<string[]>([]);
   const [pa2InsertAfter, setPa2InsertAfter] = useState("");
   const [pa2ConfirmedCrs, setPa2ConfirmedCrs] = useState(false);
@@ -261,7 +265,7 @@ export function PecasTecnicasWorkspace({
     status: string; method: string; vertex_type: string;
     easting_m: number; northing_m: number;
     latitude: number | null; longitude: number | null;
-    angle_deg_acute: number; height_m: number | null;
+    angle_deg_acute?: number; height_m: number | null;
     sigma_e_m: number | null; sigma_n_m: number | null; sigma_h_m: number | null;
     warnings: string[]; ready_for_sigef: boolean;
   } | null>(null);
@@ -408,16 +412,20 @@ export function PecasTecnicasWorkspace({
   const pickPa2Witness = (name: string) => {
     setPa2Result(null);
     setPa2Error("");
+    const limit = constructionMethod === "PA2" ? 4 : 2;
     setPa2Witnesses((old) => old.includes(name) ? old.filter((n) => n !== name)
-      : old.length >= 4 ? [name] : [...old, name]);
+      : old.length >= limit ? [name] : [...old, name]);
   };
   const calculatePa2 = async () => {
-    if (!topconPreview || pa2Witnesses.length !== 4) return;
+    if (!topconPreview || !verticalCalculated ||
+        pa2Witnesses.length !== (constructionMethod === "PA2" ? 4 : 2)) return;
     setPa2Busy(true); setPa2Error(""); setPa2Result(null);
     try {
       const witnesses = pa2Witnesses.map((name) => topconPreview.points.find((p) => p.name === name));
       if (witnesses.some((point) => !point)) throw new Error("Marco de apoio não encontrado no relatório.");
-      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/pa2-intersection`, {
+      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/${
+        constructionMethod === "PA2" ? "pa2-intersection" : "constructed-vertex"
+      }`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -427,6 +435,10 @@ export function PecasTecnicasWorkspace({
           utm_zone: topconPreview.project.utm_zone,
           hemisphere: topconPreview.project.hemisphere,
           sirgas2000_confirmed: pa2ConfirmedCrs,
+          ...(constructionMethod === "PA2" ? {} : {
+            method: constructionMethod, distance_m: Number(constructionDistance),
+            side: constructionSide,
+          }),
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -448,6 +460,10 @@ export function PecasTecnicasWorkspace({
     const at = topconBoundary.findIndex((p) => p.name === pa2InsertAfter);
     if (at < 0) { setPa2Error("Selecione o segmento de limite onde inserir V."); return; }
     const previous = topconBoundary[at];
+    if (constructionMethod === "PT8") {
+      setPa2Error("PT8 exige vértice do tipo M ou P; a criação automática como V está bloqueada.");
+      return;
+    }
     const used = new Set([...topconPreview.points.map((p) => p.name),
       ...topconBoundary.map((p) => p.name)]);
     let suffix = 1;
@@ -462,7 +478,7 @@ export function PecasTecnicasWorkspace({
       sigma_hz_m: null, sigma_u_m: null,
       sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
       height_reference_confirmed: false,
-      sigef_vertex_code: "", sigef_method: "PA2", boundary_type: previous.boundary_type,
+      sigef_vertex_code: "", sigef_method: constructionMethod, boundary_type: previous.boundary_type,
       confrontant: previous.confrontant, confrontant_cns: previous.confrontant_cns,
       confrontant_registration: previous.confrontant_registration,
       point_role: "BOUNDARY",
@@ -535,7 +551,7 @@ export function PecasTecnicasWorkspace({
   const importTopcon = async (file: File) => {
     setTopconError("");
     setTopconPreview(null);
-    setPa2Mode(false); setPa2Result(null); setPa2Witnesses([]);
+    setPa2Mode(false); setPa2Result(null); setPa2Witnesses([]); setMapHint(null);
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setTopconReview(null);
@@ -874,56 +890,6 @@ export function PecasTecnicasWorkspace({
                           </tbody>
                         </table>
                       </div>
-                      <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
-                        <h4>Precisará criar vértices V (interseção de retas PA2)?</h4>
-                        <p>Se os limites exigirem vértices virtuais, ative o mapa de apoio e indique
-                          quatro marcos testemunhos: A1 e A2 definem a primeira reta; B1 e B2
-                          definem a segunda. A posição V será calculada na interseção, não por
-                          uma escolha visual imprecisa de coordenadas.</p>
-                        <label className="pecas-check"><input type="checkbox" checked={pa2Mode}
-                          onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
-                          Criar vértice virtual com duas retas de apoio (PA2)</label>
-                        {pa2Mode && <>
-                          <p>Use o mapa à direita para clicar os testemunhos em sequência.
-                            Se necessário, clique novamente no nome para desmarcar.</p>
-                          <p><strong>Reta A:</strong> {pa2Witnesses[0] || "—"} até {pa2Witnesses[1] || "—"}
-                            {" · "}<strong>Reta B:</strong> {pa2Witnesses[2] || "—"} até {pa2Witnesses[3] || "—"}</p>
-                          <label className="pecas-check">
-                            <input type="checkbox" checked={pa2ConfirmedCrs}
-                              onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPa2Result(null); }} />
-                            Confirmo que os quatro marcos estão no mesmo referencial SIRGAS2000,
-                            na zona e hemisfério indicados pelo processamento.
-                          </label>
-                          <button type="button" className="pecas-primary" disabled={pa2Busy || pa2Witnesses.length !== 4}
-                            onClick={() => void calculatePa2()}>
-                            {pa2Busy ? "Calculando..." : "Calcular interseção PA2"}
-                          </button>
-                          {pa2Result && <div role="status">
-                            <p><strong>V estimado:</strong> E {pa2Result.easting_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
-                              {" · "}N {pa2Result.northing_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
-                              {" · "}Ângulo agudo {pa2Result.angle_deg_acute.toLocaleString("pt-BR")}°</p>
-                            {pa2Result.warnings.map((warning, i) => <p key={i} className="pecas-note">{warning}</p>)}
-                            <label className="pecas-field">
-                              <span>Inserir V após qual vértice de limite?</span>
-                              <select value={pa2InsertAfter} onChange={(event) => setPa2InsertAfter(event.target.value)}>
-                                <option value="">Selecione o segmento do perímetro</option>
-                                {topconBoundary.map((point) => <option key={point.name} value={point.name}>
-                                  Após {point.name} — parcela {point.parcel_number}
-                                </option>)}
-                              </select>
-                            </label>
-                            <button type="button" className="pecas-secondary"
-                              disabled={!pa2ConfirmedCrs || !pa2InsertAfter || !Number.isFinite(pa2Result.latitude)}
-                              onClick={addProvisionalPa2}>
-                              Adicionar V provisório e renomear na tabela
-                            </button>
-                            <p className="pecas-note">h e sigmas não são estimados sem método altimétrico,
-                              matriz de covariância e revisão do responsável técnico.
-                              O vértice permanecerá com pendências de exportação.</p>
-                          </div>}
-                          {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
-                        </>}
-                      </div>
                       <div className="pecas-card" aria-label="Precisões SIGEF">
                         <h4>Precisões e referências dos confrontantes</h4>
                         <p><strong>Revisão assistida:</strong> {topconBoundary.filter((p) =>
@@ -1069,6 +1035,57 @@ export function PecasTecnicasWorkspace({
                         <p>Consulte o fator no serviço hgeoHNOR2020 do IBGE e transcreva-o
                           para cada ponto. O sistema ainda não consulta automaticamente esse serviço.</p>
                       </div>
+                      <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
+                        <h4>Precisará criar vértices V (interseção de retas PA2)?</h4>
+                        <p>Se os limites exigirem vértices virtuais, ative o mapa de apoio e indique
+                          quatro marcos testemunhos: A1 e A2 definem a primeira reta; B1 e B2
+                          definem a segunda. A posição V será calculada na interseção, não por
+                          uma escolha visual imprecisa de coordenadas.</p>
+                        <label className="pecas-check"><input type="checkbox" checked={pa2Mode}
+                          onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
+                          Criar vértice virtual com duas retas de apoio (PA2)</label>
+                        {pa2Mode && <>
+                          <p>Use o mapa à direita para clicar os testemunhos em sequência.
+                            Se necessário, clique novamente no nome para desmarcar.</p>
+                          <p><strong>Reta A:</strong> {pa2Witnesses[0] || "—"} até {pa2Witnesses[1] || "—"}
+                            {" · "}<strong>Reta B:</strong> {pa2Witnesses[2] || "—"} até {pa2Witnesses[3] || "—"}</p>
+                          <label className="pecas-check">
+                            <input type="checkbox" checked={pa2ConfirmedCrs}
+                              onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPa2Result(null); }} />
+                            Confirmo que os quatro marcos estão no mesmo referencial SIRGAS2000,
+                            na zona e hemisfério indicados pelo processamento.
+                          </label>
+                          <button type="button" className="pecas-primary" disabled={pa2Busy || pa2Witnesses.length !== 4}
+                            onClick={() => void calculatePa2()}>
+                            {pa2Busy ? "Calculando..." : "Calcular interseção PA2"}
+                          </button>
+                          {pa2Result && <div role="status">
+                            <p><strong>V estimado:</strong> E {pa2Result.easting_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
+                              {" · "}N {pa2Result.northing_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
+                              {" · "}Ângulo agudo {pa2Result.angle_deg_acute.toLocaleString("pt-BR")}°</p>
+                            {pa2Result.warnings.map((warning, i) => <p key={i} className="pecas-note">{warning}</p>)}
+                            <label className="pecas-field">
+                              <span>Inserir V após qual vértice de limite?</span>
+                              <select value={pa2InsertAfter} onChange={(event) => setPa2InsertAfter(event.target.value)}>
+                                <option value="">Selecione o segmento do perímetro</option>
+                                {topconBoundary.map((point) => <option key={point.name} value={point.name}>
+                                  Após {point.name} — parcela {point.parcel_number}
+                                </option>)}
+                              </select>
+                            </label>
+                            <button type="button" className="pecas-secondary"
+                              disabled={!pa2ConfirmedCrs || !pa2InsertAfter || !Number.isFinite(pa2Result.latitude)}
+                              onClick={addProvisionalPa2}>
+                              Adicionar V provisório e renomear na tabela
+                            </button>
+                            <p className="pecas-note">h e sigmas não são estimados sem método altimétrico,
+                              matriz de covariância e revisão do responsável técnico.
+                              O vértice permanecerá com pendências de exportação.</p>
+                          </div>}
+                          {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
+                        </>}
+                      </div>
+
                       <button type="button" className="pecas-primary"
                         disabled={topconReviewBusy || topconBoundary.length < 3}
                         onClick={() => void validateTopconBoundary()}>
