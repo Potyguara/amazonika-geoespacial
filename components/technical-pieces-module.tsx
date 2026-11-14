@@ -27,9 +27,10 @@ export type TechnicalPieceSnapshot = {
 type Props = {
   onOpen: (piece: { id: string; title: string; snapshot: TechnicalPieceSnapshot }) => void;
   revision?: number;
+  onImportTopcon?: () => void;
 };
 
-export function TechnicalPiecesModule({ onOpen, revision = 0 }: Props) {
+export function TechnicalPiecesModule({ onOpen, revision = 0, onImportTopcon }: Props) {
   const [items, setItems] = useState<SavedTechnicalPiece[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -103,7 +104,12 @@ export function TechnicalPiecesModule({ onOpen, revision = 0 }: Props) {
   return <section className="pecas-saved-list">
     <header className="pecas-rt-heading">
       <div><h2>Peças Técnicas</h2><p>Rascunhos salvos, disponíveis para continuar a edição e gerar novas versões.</p></div>
-      <button className="pecas-secondary" type="button" onClick={() => void load()}>Atualizar lista</button>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {onImportTopcon && <button type="button" className="pecas-primary" onClick={onImportTopcon}>
+          Importar relatório TOPCON Tools
+        </button>}
+        <button className="pecas-secondary" type="button" onClick={() => void load()}>Atualizar lista</button>
+      </div>
     </header>
     {loading && <p>Carregando peças salvas…</p>}
     {error && <p className="pecas-warning" role="alert">{error}</p>}
