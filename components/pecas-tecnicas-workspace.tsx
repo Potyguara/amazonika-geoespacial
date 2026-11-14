@@ -81,7 +81,7 @@ type TopconPoint = {
   sigma_u_m: number | null;
   point_role: "CONTROL" | "UNCLASSIFIED";
 };
-type TopconBoundaryPoint = TopconPoint & {
+type TopconBoundaryPoint = Omit<TopconPoint, "point_role"> & {
   sigef_vertex_code: string;
   sigef_method: string;
   boundary_type: string;
