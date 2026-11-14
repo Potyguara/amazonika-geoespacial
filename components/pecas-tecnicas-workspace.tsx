@@ -83,7 +83,8 @@ type TopconPoint = {
   point_role: "CONTROL" | "UNCLASSIFIED";
   ellipsoidal_height_reported_m?: number | null;
 };
-export type TopconBoundaryPoint = Omit<TopconPoint, "point_role"> & {
+export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_reported_m"> & {
+  elevation_reported_m: number | null;
   sigef_vertex_code: string;
   sigef_method: string;
   boundary_type: string;
@@ -456,7 +457,7 @@ export function PecasTecnicasWorkspace({
       ...previous, name,
       northing_m: pa2Result.northing_m, easting_m: pa2Result.easting_m,
       latitude: pa2Result.latitude, longitude: pa2Result.longitude,
-      elevation_reported_m: 0, ellipsoidal_height_reported_m: null,
+      elevation_reported_m: null, ellipsoidal_height_reported_m: null,
       ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
       sigma_hz_m: null, sigma_u_m: null,
       sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
