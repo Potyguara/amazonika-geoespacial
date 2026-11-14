@@ -216,7 +216,7 @@ export function PecasTecnicasWorkspace({
             holder_name: data.owner, holder_document: data.cpf,
             property_name: data.title, situation: sigefSituation,
             cns: sigefCns, registration: sigefRegistration,
-            municipalities: sigefMunicipalities.split(/[;,\\n]/).map((v) => v.trim()).filter(Boolean),
+            municipalities: sigefMunicipalities.split(/[;,]/).map((v) => v.trim()).filter(Boolean),
           },
           parcels: [{ number: "1", name: data.title || "Parcela 1",
             geometry: topconReview.geometry, parcelling_type: "SEM_PARCELAMENTO" }],
