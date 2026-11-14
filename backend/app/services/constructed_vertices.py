@@ -92,8 +92,8 @@ def calculate_constructed_vertex(method: str, witnesses: list[dict],
         ]
         detail = "PA1 determina linha paralela, não toda a divisa sem demais referências."
     else:
-        if distance < 0:
-            raise ValueError("A distância medida PT8 não pode ser negativa.")
+        if distance <= 0:
+            raise ValueError("A distância medida PT8 deve ser maior que zero.")
         if side not in ("FORWARD", "BACKWARD"):
             raise ValueError("Defina o sentido a partir do marco inicial.")
         sign = 1 if side == "FORWARD" else -1
