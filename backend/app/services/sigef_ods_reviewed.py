@@ -105,6 +105,8 @@ def _write_perimeter(sheet, parcel: dict) -> None:
         # Sigma horizontal única não substitui incertezas individuais por eixo.
         sigma_lon = _required_number(vertex.get("sigma_lon_m"), "sigma longitude", strictly_positive=True)
         sigma_lat = _required_number(vertex.get("sigma_lat_m"), "sigma latitude", strictly_positive=True)
+        if vertex.get("height_reference_confirmed") is not True:
+            raise ValueError(f"{name}: confirme o referencial elipsoidal da altura h antes de exportar.")
         height = _required_number(vertex.get("ellipsoidal_height_m"), "altura elipsoidal", nonnegative=False)
         sigma_h = _required_number(vertex.get("sigma_h_m"), "sigma altura", strictly_positive=True)
         values = [
