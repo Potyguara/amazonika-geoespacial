@@ -33,7 +33,9 @@ def calculate_constructed_vertex(method: str, witnesses: list[dict],
                                  side: str | None = None,
                                  utm_zone: int | None = None,
                                  hemisphere: str | None = None,
-                                 sirgas2000_confirmed: bool = False) -> dict:
+                                 sirgas2000_confirmed: bool = False,
+                                 hint_longitude: float | None = None,
+                                 hint_latitude: float | None = None) -> dict:
     if method not in ("PA1", "PT8"):
         raise ValueError("Método admitido nesta rota: PA1 ou PT8.")
     if len(witnesses) != 2:
@@ -62,6 +64,28 @@ def calculate_constructed_vertex(method: str, witnesses: list[dict],
         sign = 1 if side == "LEFT" else -1
         e = ax - sign * dy / length * distance
         n = ay + sign * dx / length * distance
+        # A posição visual escolhe o ponto ao longo da paralela.
+        # A coordenada de clique é projetada no alinhamento deslocado,
+        # nunca utilizada diretamente como vértice certificado.
+        if hint_longitude is not None and hint_latitude is not None:
+            if not sirgas2000_confirmed or hemisphere not in ("N", "S") or not isinstance(utm_zone, int):
+                raise ValueError("Confirme SIRGAS2000 para orientar a paralela com clique.")
+            if hemisphere == "N" and 18 <= utm_zone <= 22:
+                epsg = 31954 + utm_zone
+            elif hemisphere == "S" and 18 <= utm_zone <= 25:
+                epsg = 31960 + utm_zone
+            else:
+                raise ValueError("Zona UTM não admitida.")
+            he, hn = Transformer.from_crs(
+                "EPSG:4674", f"EPSG:{epsg}", always_xy=True,
+            ).transform(hint_longitude, hint_latitude)
+            if not all(math.isfinite(v) for v in (he, hn)):
+                raise ValueError("Clique fora da faixa de coordenadas suportadas.")
+            along = ((he - e) * dx + (hn - n) * dy) / (length * length)
+            if abs(along) > 100:
+                raise ValueError("Clique distante demais dos marcos de referência.")
+            e += along * dx
+            n += along * dy
         line_end = [
             bx - sign * dy / length * distance,
             by + sign * dx / length * distance,
@@ -93,6 +117,7 @@ def calculate_constructed_vertex(method: str, witnesses: list[dict],
         "witnesses": names,
         "warnings": [
             detail,
+            "PA1: clique projetado na reta paralela como referência visual preliminar." if method == "PA1" and hint_longitude is not None else "Coordenada obtida por geometria analítica.",
             "O clique visual não é observação topográfica nem define precisão posicional.",
             "h e precisões finais requerem procedimento documentado e validação do responsável técnico.",
         ],
