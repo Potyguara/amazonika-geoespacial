@@ -89,6 +89,9 @@ def _write_perimeter(sheet, parcel: dict) -> None:
     if len(rows) < 12:
         raise ValueError("Modelo SIGEF sem linha de dados.")
     template_row = rows[11]
+    # A linha-modelo da ODS oficial pode representar várias linhas repetidas.
+    # Uma linha por vértice: remover a repetição herdada antes de cloná-la.
+    template_row.attrib.pop(TABLE + "number-rows-repeated", None)
     template_index = list(sheet).index(template_row)
     sheet.remove(template_row)
     for index, vertex in enumerate(vertices):
