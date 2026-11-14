@@ -186,6 +186,9 @@ type Props = {
   onRenamePolygon: (id: string, name: string) => void;
   onRenameVertex: (id: string, index: number, name: string) => void;
   onConfrontant: (id: string, index: number, value: string) => void;
+  onAdoptTopconParcels: (parcels: Array<{
+    number: string; name: string; vertices: TopconBoundaryPoint[];
+  }>) => void;
   memorialText: string;
   memorialLoading: boolean;
   externalError?: string | null;
@@ -233,7 +236,7 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function PecasTecnicasWorkspace({
   open, onClose, data, onDataChange, polygons, importedMetadata, selectedIds, rasterKey, onSelect,
-  onRenamePolygon, onRenameVertex, onConfrontant, memorialText,
+  onRenamePolygon, onRenameVertex, onConfrontant, onAdoptTopconParcels, memorialText,
   memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
   rtProfile, rtLoading, rtError, onRtChange, onRtReload,
@@ -557,6 +560,24 @@ export function PecasTecnicasWorkspace({
       setTopconError(error instanceof Error ? error.message : "Falha ao ler relatório TOPCON.");
     } finally {
       setTopconLoading(false);
+    }
+  };
+  const adoptTopconGeometry = () => {
+    setTopconError("");
+    try {
+      const parcels = parcelsForOds();
+      if (!parcels.length) throw new Error("Selecione pelo menos três pontos de limite.");
+      if (parcels.some((p) => p.vertices.length < 3)) {
+        throw new Error("Cada parcela precisa de pelo menos três vértices.");
+      }
+      if (!window.confirm(
+        "Aplicar os perímetros TOPCON como rascunhos cartográficos na Planta e Memorial? " +
+        "A aprovação geométrica e SIGEF permanece pendente e precisará da revisão do RT."
+      )) return;
+      onAdoptTopconParcels(parcels);
+      setStage(1);
+    } catch (error) {
+      setTopconError(error instanceof Error ? error.message : "Não foi possível transferir a geometria.");
     }
   };
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -1118,6 +1139,14 @@ export function PecasTecnicasWorkspace({
                             </div>}
                           </div>
                         )}
+                        <button type="button" className="pecas-primary"
+                          disabled={!topconBoundary.length}
+                          onClick={adoptTopconGeometry}>
+                          Aplicar poligonal ao mapa e avançar para Planta/Memorial (rascunho)
+                        </button>
+                        <p className="pecas-note">A transferência exige pelo menos três vértices
+                          por parcela. Ela cria polígonos editáveis apenas após sua confirmação,
+                          sem declarar que o processamento está apto ao SIGEF.</p>
                         <p>Este teste não gera ODS certificável nem modifica a geometria salva.
                           A próxima etapa será vincular o perímetro revisado ao modelo SIGEF, à planta e ao memorial.</p>
                       </div>}
