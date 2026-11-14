@@ -508,6 +508,31 @@ export function PecasTecnicasWorkspace({
   pdfCallbackRef.current = onBuildPdf;
 
   const chosen = polygons.filter((polygon) => selectedIds.includes(polygon.id));
+  // Prévia cartográfica não substitui geometrias do mapa nem autoriza a ODS.
+  // A sequência reflete o ordenamento atual do editor, inclusive erros a corrigir.
+  const previewTopconGeometry = (() => {
+    const groups = new globalThis.Map<string, Array<[number, number]>>();
+    for (const point of topconBoundary) {
+      if (!Number.isFinite(point.longitude) || !Number.isFinite(point.latitude)) continue;
+      const coordinates = groups.get(point.parcel_number) ?? [];
+      coordinates.push([point.longitude as number, point.latitude as number]);
+      groups.set(point.parcel_number, coordinates);
+    }
+    const features = [...groups.entries()].filter(([, coords]) => coords.length >= 3)
+      .map(([number, coords]) => ({
+        type: "Feature" as const, properties: { parcel_number: number },
+        geometry: { type: "Polygon" as const, coordinates: [[...coords, coords[0]]] },
+      }));
+    return features.length ? { type: "FeatureCollection", features } : null;
+  })();
+  const displaySituationGeometry = previewTopconGeometry ?? situationGeometry;
+  const displaySituationKey = previewTopconGeometry
+    ? JSON.stringify(previewTopconGeometry) : situationKey;
+  const displayVertexNames = previewTopconGeometry
+    ? [...new Set(topconBoundary.map((point) => point.parcel_number))]
+      .map((number) => topconBoundary.filter((point) => point.parcel_number === number)
+        .map((point) => point.sigef_vertex_code || point.name))
+    : chosen.map((polygon) => polygon.vertices);
   const commonKey = JSON.stringify({
     selected: selectedIds,
     polygons: chosen,
@@ -1039,11 +1064,12 @@ export function PecasTecnicasWorkspace({
               )}
             </div>
             <SituationMapPreview
-              geometry={situationGeometry}
-              geometryKey={situationKey}
-              saved={situationSaved}
+              geometry={displaySituationGeometry}
+              geometryKey={displaySituationKey}
+              saved={previewTopconGeometry ? null : situationSaved}
               onSave={onSaveSituation}
-              vertexNames={chosen.map((polygon) => polygon.vertices)}
+              vertexNames={displayVertexNames}
+              showVertices={Boolean(previewTopconGeometry)}
             />
           </div>
         )}
