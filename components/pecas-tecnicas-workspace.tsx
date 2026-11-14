@@ -94,6 +94,8 @@ type TopconBoundaryPoint = Omit<TopconPoint, "point_role"> & {
   confrontant_registration: string;
   height_reference_confirmed: boolean;
   point_role: "BOUNDARY";
+  parcel_number: string;
+  parcel_name: string;
 };
 type TopconReview = {
   ready_for_ods: boolean;
@@ -103,6 +105,7 @@ type TopconReview = {
   area_ha: number | null;
   perimeter_m: number | null;
   geometry: Record<string, unknown> | null;
+  parcel_geometries?: Array<{ number: string; name: string; geometry: Record<string, unknown> }>;
 };
 
 type TopconPreview = {
@@ -122,6 +125,23 @@ type TopconPreview = {
   checks: { errors: string[]; warnings: string[] };
   ready_for_sigef: false;
 };
+
+function groupTopconParcels(points: TopconBoundaryPoint[], fallback: string) {
+  const groups = new Map<string, { number: string; name: string; vertices: TopconBoundaryPoint[] }>();
+  for (const point of points) {
+    const number = point.parcel_number.trim();
+    if (!number) throw new Error(`Ponto ${point.name}: informe o número da parcela.`);
+    const name = point.parcel_name.trim() || fallback.trim() || `Parcela ${number}`;
+    const parcel = groups.get(number);
+    if (parcel && parcel.name !== name) {
+      throw new Error(`Parcela ${number}: denominações divergentes entre os vértices.`);
+    }
+    if (parcel) parcel.vertices.push(point);
+    else groups.set(number, { number, name, vertices: [point] });
+  }
+  if (groups.size > 50) throw new Error("Máximo de 50 parcelas por exportação.");
+  return [...groups.values()];
+}
 
 type Props = {
   open: boolean;
@@ -253,6 +273,7 @@ export function PecasTecnicasWorkspace({
     parcels: Array<{ number: string; area_ha: number }>;
   } | null>(null);
   const [sigefParcelBusy, setSigefParcelBusy] = useState(false);
+  const [sigefValidatedSignature, setSigefValidatedSignature] = useState("");
   const [reviewedOdsBusy, setReviewedOdsBusy] = useState(false);
   const [reviewedOdsError, setReviewedOdsError] = useState("");
   const [reviewedOdsNotice, setReviewedOdsNotice] = useState("");
@@ -263,8 +284,16 @@ export function PecasTecnicasWorkspace({
     cns: sigefCns, registration: sigefRegistration,
     municipalities: sigefMunicipalities.split(/[;,]/).map((item) => item.trim()).filter(Boolean),
   });
+  const parcelsForOds = () => groupTopconParcels(topconBoundary, data.title);
+  const sigefSignature = () => JSON.stringify({
+    identification: makeSigefIdentity(), parcels: parcelsForOds(),
+  });
   const downloadReviewedOds = async () => {
     if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
+    if (!sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()) {
+      setReviewedOdsError("Dados alterados: refaça a pré-validação SIGEF antes da exportação.");
+      return;
+    }
     setReviewedOdsBusy(true);
     setReviewedOdsError("");
     setReviewedOdsNotice("");
@@ -274,10 +303,7 @@ export function PecasTecnicasWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           identification: makeSigefIdentity(),
-          parcels: [{
-            number: "1", name: data.title || "Parcela 1",
-            vertices: topconBoundary,
-          }],
+          parcels: parcelsForOds(),
           neighbors: [],
         }),
       });
