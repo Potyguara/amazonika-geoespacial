@@ -21,7 +21,7 @@ docker network inspect "$NET" >/dev/null
 echo "===== 1. VALIDAR TYPESCRIPT GEO88 ====="
 node_modules/.bin/tsc --noEmit --incremental false --pretty false
 
-echo "===== 2. BUILD GEO84 ====="
+echo "===== 2. BUILD GEO88 ====="
 docker build --file deploy/topcon/Dockerfile.web-candidate \
   --build-arg BASE_WEB_IMAGE=amazonika-web-candidato:geo44-20261111 \
   --build-arg NEXT_PUBLIC_API_URL=/api/v1 \
