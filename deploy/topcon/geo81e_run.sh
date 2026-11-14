@@ -114,6 +114,8 @@ fi
 echo "===== 5. TESTES HTTP REAIS COM SESSÃO TEMPORÁRIA ====="
 docker run --rm --network "$NET" --memory 512m --cpus 0.5 \
   --volume "$SCRIPT:/tmp/geo81_http_smoke.py:ro" \
+  --env PYTHONPATH=/app \
+  --workdir /app \
   --env GEO81_API_URL=http://amazonika-geo81-api:8000 \
   --env DATABASE_URL="postgresql+psycopg://geo81:geo81_local_only@amazonika-geo81-db:5432/geo81_test" \
   --entrypoint python "$API_IMAGE" -B /tmp/geo81_http_smoke.py
