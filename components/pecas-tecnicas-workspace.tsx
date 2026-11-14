@@ -659,8 +659,15 @@ export function PecasTecnicasWorkspace({
                       <h4>2. Selecionar, ordenar e validar vértices de divisa</h4>
                       <p>Selecione apenas pontos integrantes do limite, informe os dados técnicos
                         confirmados e organize o percurso horário a partir do vértice mais ao norte.
-                        A elevação Topcon nunca será convertida automaticamente em altura elipsoidal.
-                         Atribua número e denominação a cada vértice; os pontos serão agrupados por parcela.</p>
+                        A elevação TOPCON não é interpretada automaticamente como altura SIRGAS2000.
+                        Atribua número e denominação aos vértices de cada parcela.</p>
+                      <p><strong>Altura do relatório:</strong> o campo "Alt Elip WGS84" é
+                        carregado como valor informado e editável. É necessário conferir
+                        o referencial SIRGAS2000 e a época das coordenadas antes de
+                        confirmar "h" para uso no SIGEF.</p>
+                      <p><strong>Método e limite:</strong> selecione os códigos segundo o método
+                        efetivamente aplicado e o tipo de divisa constatado em campo;
+                        o relatório não identifica automaticamente essas classificações.</p>
                       <div style={{ overflowX: "auto" }}>
                         <table>
                           <thead><tr><th>Selecionar</th><th>Ponto</th><th>Código SIGEF</th>
@@ -706,12 +713,22 @@ export function PecasTecnicasWorkspace({
                                       updateBoundaryPoint(index, { ellipsoidal_height_m:
                                         value === "" ? null : Number(value) });
                                     }} /></td>
-                                  <td><input aria-label={`Método ${point.name}`} disabled={!selected}
+                                  <td><select aria-label={`Método ${point.name}`} disabled={!selected}
                                     value={selected?.sigef_method ?? ""}
-                                    onChange={(event) => updateBoundaryPoint(index, { sigef_method: event.target.value })} /></td>
-                                  <td><input aria-label={`Tipo de limite ${point.name}`} disabled={!selected}
+                                    onChange={(event) => updateBoundaryPoint(index, { sigef_method: event.target.value })}>
+                                    <option value="">Selecione o método</option>
+                                    {SIGEF_POSITION_METHODS.map(([code, label]) => <option key={code} value={code}>
+                                      {code} — {label}
+                                    </option>)}
+                                  </select></td>
+                                  <td><select aria-label={`Tipo de limite ${point.name}`} disabled={!selected}
                                     value={selected?.boundary_type ?? ""}
-                                    onChange={(event) => updateBoundaryPoint(index, { boundary_type: event.target.value })} /></td>
+                                    onChange={(event) => updateBoundaryPoint(index, { boundary_type: event.target.value })}>
+                                    <option value="">Selecione o limite</option>
+                                    {SIGEF_BOUNDARY_TYPES.map(([code, label]) => <option key={code} value={code}>
+                                      {code} — {label}
+                                    </option>)}
+                                  </select></td>
                                   <td><input aria-label={`Confrontante ${point.name}`} disabled={!selected}
                                     value={selected?.confrontant ?? ""}
                                     onChange={(event) => updateBoundaryPoint(index, { confrontant: event.target.value })} /></td>
@@ -728,6 +745,25 @@ export function PecasTecnicasWorkspace({
                       </div>
                       <div className="pecas-card" aria-label="Precisões SIGEF">
                         <h4>Precisões e referências dos confrontantes</h4>
+                        <p><strong>Dados do TOPCON — vetores GNSS:</strong> os RMS horizontal e
+                          vertical e σX/Y/Z são apresentados abaixo para conferência.
+                          Não equivalem automaticamente aos sigmas das coordenadas ajustadas
+                          de cada vértice exigidos pela ODS.</p>
+                        {Boolean(topconPreview.observations?.length) && <div style={{ overflowX: "auto" }}>
+                          <table>
+                            <thead><tr><th>Vetor</th><th>RMS horizontal</th><th>RMS vertical</th>
+                              <th>σX</th><th>σY</th><th>σZ</th><th>Solução</th></tr></thead>
+                            <tbody>{topconPreview.observations?.map((obs) => <tr key={obs.baseline}>
+                              <td>{obs.baseline}</td>
+                              <td>{obs.horizontal_rms_m.toLocaleString("pt-BR")} m</td>
+                              <td>{obs.vertical_rms_m.toLocaleString("pt-BR")} m</td>
+                              <td>{obs.sigma_x_m.toLocaleString("pt-BR")} m</td>
+                              <td>{obs.sigma_y_m.toLocaleString("pt-BR")} m</td>
+                              <td>{obs.sigma_z_m.toLocaleString("pt-BR")} m</td>
+                              <td>{obs.solution_type}</td>
+                            </tr>)}</tbody>
+                          </table>
+                        </div>
                         <p>O sigma horizontal Topcon não substitui automaticamente as precisões
                           separadas de longitude e latitude exigidas na ODS. Informe os valores
                           confirmados pelo processamento e confirme a referência de h.</p>
