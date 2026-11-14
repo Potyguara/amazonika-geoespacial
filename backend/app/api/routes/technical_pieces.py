@@ -18,6 +18,7 @@ from app.services.sigef_parcel_review import review_sigef_parcels
 from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
 from app.services.vertical_datum import convert_altitudes
 from app.services.pa2_intersection import intersect_pa2
+from app.services.constructed_vertices import calculate_constructed_vertex
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -100,6 +101,28 @@ def calculate_pa2_intersection(
             hemisphere=payload.hemisphere,
             sirgas2000_confirmed=payload.sirgas2000_confirmed,
         )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class ConstructedVertexInput(BaseModel):
+    method: str
+    witnesses: list[dict] = Field(min_length=2, max_length=2)
+    distance_m: float
+    side: str
+    utm_zone: int | None = None
+    hemisphere: str | None = None
+    sirgas2000_confirmed: bool = False
+
+
+@router.post("/topcon/constructed-vertex")
+def calculate_constructed_vertex_route(
+    payload: ConstructedVertexInput,
+    user: User = Depends(get_current_user),
+):
+    """Pré-cálculo PA1/PT8. Nunca presume h, precisões ou certificação."""
+    try:
+        return calculate_constructed_vertex(**payload.model_dump())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
