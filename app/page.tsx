@@ -216,6 +216,7 @@ export default function Home() {
   >("map");
   const [sigefCurrent, setSigefCurrent] = useState<SourceVersion | null>(null);
   const [pieceRevision, setPieceRevision] = useState(0);
+  const [startTopconNonce, setStartTopconNonce] = useState(0);
   const [restorePiece, setRestorePiece] = useState<{
     id: string; snapshot: TechnicalPieceSnapshot; nonce: number;
   } | null>(null);
@@ -1289,6 +1290,7 @@ export default function Home() {
                 )}
                 <GeoMap
                   restorePiece={restorePiece}
+                  startTopconNonce={startTopconNonce}
                   onPieceSaved={() => setPieceRevision((value) => value + 1)}
                   analysisId={analysis?.status === "COMPLETED" ? analysis.analysis_id : null}
                   incraUf={incraUf}
@@ -1462,6 +1464,11 @@ export default function Home() {
         {activeView === "analyses" && <AnalysesModule />}
         {activeView === "pieces" && (
           <TechnicalPiecesModule revision={pieceRevision}
+            onImportTopcon={() => {
+              setActiveView("map");
+              setAnalysisSessionOpen(false);
+              setStartTopconNonce((value) => value + 1);
+            }}
             onOpen={(piece) => {
               setRestorePiece((previous) => ({
                 id: piece.id,
