@@ -81,6 +81,23 @@ type TopconPoint = {
   sigma_u_m: number | null;
   point_role: "CONTROL" | "UNCLASSIFIED";
 };
+type TopconBoundaryPoint = TopconPoint & {
+  sigef_vertex_code: string;
+  sigef_method: string;
+  boundary_type: string;
+  confrontant: string;
+  ellipsoidal_height_m: number | null;
+  point_role: "BOUNDARY";
+};
+type TopconReview = {
+  ready_for_ods: boolean;
+  errors: string[];
+  warnings: string[];
+  vertex_count: number;
+  area_ha: number | null;
+  perimeter_m: number | null;
+};
+
 type TopconPreview = {
   source: "TOPCON_TOOLS";
   filename: string;
@@ -172,9 +189,49 @@ export function PecasTecnicasWorkspace({
   const [topconPreview, setTopconPreview] = useState<TopconPreview | null>(null);
   const [topconLoading, setTopconLoading] = useState(false);
   const [topconError, setTopconError] = useState("");
+  const [topconBoundary, setTopconBoundary] = useState<TopconBoundaryPoint[]>([]);
+  const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
+  const [topconReviewBusy, setTopconReviewBusy] = useState(false);
+  const updateBoundaryPoint = (index: number, patch: Partial<TopconBoundaryPoint>) => {
+    setTopconReview(null);
+    setTopconBoundary((current) => current.map((point, i) =>
+      i === index ? { ...point, ...patch } : point));
+  };
+  const moveBoundaryPoint = (index: number, offset: number) => {
+    setTopconReview(null);
+    setTopconBoundary((current) => {
+      const dest = index + offset;
+      if (dest < 0 || dest >= current.length) return current;
+      const next = [...current];
+      [next[index], next[dest]] = [next[dest], next[index]];
+      return next;
+    });
+  };
+  const validateTopconBoundary = async () => {
+    setTopconReviewBusy(true);
+    setTopconError("");
+    setTopconReview(null);
+    try {
+      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/perimeter-review`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ points: topconBoundary }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(
+        typeof payload?.detail === "string" ? payload.detail : "Não foi possível validar o perímetro.");
+      setTopconReview(payload as TopconReview);
+    } catch (error) {
+      setTopconError(error instanceof Error ? error.message : "Falha na revisão do perímetro.");
+    } finally {
+      setTopconReviewBusy(false);
+    }
+  };
   const importTopcon = async (file: File) => {
     setTopconError("");
     setTopconPreview(null);
+    setTopconBoundary([]);
+    setTopconReview(null);
     setTopconLoading(true);
     try {
       const payload = new FormData();
@@ -373,6 +430,82 @@ export function PecasTecnicasWorkspace({
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                    <div className="pecas-card" aria-label="Revisão de perímetro TOPCON">
+                      <h4>2. Selecionar, ordenar e validar vértices de divisa</h4>
+                      <p>Selecione apenas pontos integrantes do limite, informe os dados técnicos
+                        confirmados e organize o percurso horário a partir do vértice mais ao norte.
+                        A elevação Topcon nunca será convertida automaticamente em altura elipsoidal.</p>
+                      <div style={{ overflowX: "auto" }}>
+                        <table>
+                          <thead><tr><th>Selecionar</th><th>Ponto</th><th>Código SIGEF</th>
+                            <th>Altura elipsoidal (m)</th><th>Método</th><th>Tipo limite</th>
+                            <th>Confrontante seguinte</th><th>Ordem</th></tr></thead>
+                          <tbody>
+                            {topconPreview.points.filter((point) => point.point_role !== "CONTROL")
+                              .map((point) => {
+                                const index = topconBoundary.findIndex((selected) => selected.name === point.name);
+                                const selected = index >= 0 ? topconBoundary[index] : null;
+                                return <tr key={point.name}>
+                                  <td><input type="checkbox" aria-label={`Incluir ${point.name} no perímetro`}
+                                    checked={Boolean(selected)} onChange={(event) => {
+                                      setTopconReview(null);
+                                      setTopconBoundary((current) => event.target.checked
+                                        ? [...current, { ...point, point_role: "BOUNDARY",
+                                          sigef_vertex_code: "", ellipsoidal_height_m: null,
+                                          sigef_method: "", boundary_type: "", confrontant: "" }]
+                                        : current.filter((item) => item.name !== point.name));
+                                    }} /></td>
+                                  <td>{point.name}</td>
+                                  <td><input aria-label={`Código SIGEF ${point.name}`} disabled={!selected}
+                                    value={selected?.sigef_vertex_code ?? ""}
+                                    onChange={(event) => updateBoundaryPoint(index, { sigef_vertex_code: event.target.value })} /></td>
+                                  <td><input aria-label={`Altura elipsoidal ${point.name}`} disabled={!selected}
+                                    inputMode="decimal" placeholder="Confirmar h"
+                                    value={selected?.ellipsoidal_height_m ?? ""}
+                                    onChange={(event) => {
+                                      const value = event.target.value.trim().replace(",", ".");
+                                      updateBoundaryPoint(index, { ellipsoidal_height_m:
+                                        value === "" ? null : Number(value) });
+                                    }} /></td>
+                                  <td><input aria-label={`Método ${point.name}`} disabled={!selected}
+                                    value={selected?.sigef_method ?? ""}
+                                    onChange={(event) => updateBoundaryPoint(index, { sigef_method: event.target.value })} /></td>
+                                  <td><input aria-label={`Tipo de limite ${point.name}`} disabled={!selected}
+                                    value={selected?.boundary_type ?? ""}
+                                    onChange={(event) => updateBoundaryPoint(index, { boundary_type: event.target.value })} /></td>
+                                  <td><input aria-label={`Confrontante ${point.name}`} disabled={!selected}
+                                    value={selected?.confrontant ?? ""}
+                                    onChange={(event) => updateBoundaryPoint(index, { confrontant: event.target.value })} /></td>
+                                  <td>{selected && <span>
+                                    {index + 1} <button type="button" disabled={index === 0}
+                                      onClick={() => moveBoundaryPoint(index, -1)}>↑</button>
+                                    <button type="button" disabled={index === topconBoundary.length - 1}
+                                      onClick={() => moveBoundaryPoint(index, 1)}>↓</button>
+                                  </span>}</td>
+                                </tr>;
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <button type="button" className="pecas-primary"
+                        disabled={topconReviewBusy || topconBoundary.length < 3}
+                        onClick={() => void validateTopconBoundary()}>
+                        {topconReviewBusy ? "Validando perímetro..." : "Validar perímetro TOPCON"}
+                      </button>
+                      {topconReview && <div role="status">
+                        <p><strong>{topconReview.ready_for_ods
+                          ? "Pré-validação aprovada" : "Pré-validação com pendências"}</strong>
+                          {" · "}{topconReview.vertex_count} vértices
+                          {" · "}{topconReview.area_ha?.toLocaleString("pt-BR") ?? "—"} ha
+                          {" · "}{topconReview.perimeter_m?.toLocaleString("pt-BR") ?? "—"} m</p>
+                        {topconReview.errors.map((message, index) =>
+                          <p key={index} className="pecas-warning" role="alert">{message}</p>)}
+                        {topconReview.warnings.map((message, index) =>
+                          <p key={index} className="pecas-note">{message}</p>)}
+                        <p>Este teste não gera ODS certificável nem modifica a geometria salva.
+                          A próxima etapa será vincular o perímetro revisado ao modelo SIGEF, à planta e ao memorial.</p>
+                      </div>}
                     </div>
                     {topconPreview.solution.length > 0 && (
                       <details>
