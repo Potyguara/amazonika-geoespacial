@@ -16,6 +16,7 @@ def vertex(name, lon, lat):
         "sigef_vertex_code": name,
         "longitude": lon, "latitude": lat,
         "ellipsoidal_height_m": -2.1,
+        "height_reference_confirmed": True,
         "sigma_hz_m": 0.018,
         "sigma_lon_m": 0.01, "sigma_lat_m": 0.01, "sigma_h_m": 0.025,
         "sigef_method": "PG1", "boundary_type": "LA6",
@@ -82,6 +83,12 @@ class ReviewedSigefOdsTests(unittest.TestCase):
             parsed["features"][0]["properties"]["sigef_vertex_details"][0]["altitude_m"],
             -2.1,
         )
+
+    def test_blocks_unconfirmed_height_reference(self):
+        case = payload()
+        case["parcels"][0]["vertices"][0]["height_reference_confirmed"] = False
+        with self.assertRaisesRegex(ValueError, "referencial elipsoidal"):
+            build_reviewed_sigef_ods(case)
 
     def test_blocks_missing_height_and_sigma(self):
         case = payload()
