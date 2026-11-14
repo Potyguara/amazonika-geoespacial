@@ -17,6 +17,7 @@ from app.services.topcon_perimeter_review import review_topcon_perimeter
 from app.services.sigef_parcel_review import review_sigef_parcels
 from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
 from app.services.vertical_datum import convert_altitudes
+from app.services.pa2_intersection import intersect_pa2
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -77,6 +78,22 @@ def review_topcon_perimeter_route(
 ):
     """Revisão técnica de perímetro; não cria ODS nem altera peças salvas."""
     return review_topcon_perimeter(payload.points)
+
+
+class Pa2IntersectionInput(BaseModel):
+    witnesses: list[dict] = Field(min_length=4, max_length=4)
+
+
+@router.post("/topcon/pa2-intersection")
+def calculate_pa2_intersection(
+    payload: Pa2IntersectionInput,
+    user: User = Depends(get_current_user),
+):
+    """Interseção de retas com quatro testemunhos; não confirma h ou precisão."""
+    try:
+        return intersect_pa2(payload.witnesses)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 class SigefParcelReviewInput(BaseModel):
