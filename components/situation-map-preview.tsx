@@ -34,6 +34,7 @@ type Props = {
   onSave: (snapshot: SituationSnapshot) => void;
   vertexNames?: string[][];
   showVertices?: boolean;
+  previewBasemap?: "osm" | "satellite";
 };
 
 const polygonStyle = new Style({
@@ -41,14 +42,16 @@ const polygonStyle = new Style({
   stroke: new Stroke({ color: "#00b782", width: 3 }),
 });
 
-export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vertexNames = [], showVertices = false }: Props) {
+export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vertexNames = [], showVertices = false, previewBasemap = "satellite" }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const vertexSourceRef = useRef(new VectorSource());
   const vertexNamesKey = JSON.stringify(vertexNames);
-  const [basemap, setBasemap] = useState<"osm" | "satellite" | "google" | "mapbox">(saved?.basemap ?? "satellite");
+  const [basemap, setBasemap] = useState<"osm" | "satellite" | "google" | "mapbox">(saved?.basemap ?? previewBasemap);
   const [situationLabels, setSituationLabels] = useState<boolean>(saved?.show_vertex_labels ?? showVertices);
+  useEffect(() => { if (!saved) setBasemap(previewBasemap); }, [previewBasemap, saved]);
+  useEffect(() => { setSituationLabels(showVertices); }, [showVertices]);
   const [busy, setBusy] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
   const [mapboxAvailable, setMapboxAvailable] = useState(false);
