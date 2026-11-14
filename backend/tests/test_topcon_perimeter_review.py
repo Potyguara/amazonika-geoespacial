@@ -32,6 +32,25 @@ class TopconPerimeterReviewTests(unittest.TestCase):
                          result["geometry"]["coordinates"][0][-1])
         self.assertGreater(result["area_ha"], 0)
 
+    def test_confirmed_individual_sigmas_enable_horizontal_review(self):
+        points = [dict(p) for p in VALID]
+        for point in points:
+            point["sigma_hz_m"] = None
+            point["sigma_lon_m"] = 0.015
+            point["sigma_lat_m"] = 0.020
+        result = review_topcon_perimeter(points)
+        self.assertTrue(result["ready_for_ods"], result["errors"])
+        self.assertAlmostEqual(result["vertices"][0]["sigma_hz_m"], 0.025)
+
+    def test_missing_point_sigmas_does_not_fallback_to_vector_rms(self):
+        points = [dict(p) for p in VALID]
+        for point in points:
+            point["sigma_hz_m"] = None
+            point["horizontal_rms_m"] = 0.002
+        result = review_topcon_perimeter(points)
+        self.assertFalse(result["ready_for_ods"])
+        self.assertTrue(any("precisão horizontal" in err for err in result["errors"]))
+
     def test_control_point_rejected(self):
         points = [dict(p) for p in VALID]
         points[0]["point_role"] = "CONTROL"
