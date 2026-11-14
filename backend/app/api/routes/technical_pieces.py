@@ -110,6 +110,8 @@ class ConstructedVertexInput(BaseModel):
     witnesses: list[dict] = Field(min_length=2, max_length=2)
     distance_m: float
     side: str
+    hint_longitude: float | None = None
+    hint_latitude: float | None = None
     utm_zone: int | None = None
     hemisphere: str | None = None
     sirgas2000_confirmed: bool = False
