@@ -29,7 +29,7 @@ import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
 import { LayerAttributeSearch, type LayerSearchResult } from "@/components/layer-attribute-search";
-import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile } from "@/components/pecas-tecnicas-workspace";
+import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile, type TopconBoundaryPoint } from "@/components/pecas-tecnicas-workspace";
 import type { SituationSnapshot } from "@/components/situation-map-preview";
 import type { TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
 import { parseManualCoordinates, type ManualCoordinateMode } from "@/lib/geospatial-tools";
@@ -671,6 +671,62 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         "A captura do raster foi bloqueada pelo provedor de imagens ou pelo navegador. " +
         "Selecione uma base autorizada para exportação e tente novamente."
       );
+    }
+  };
+
+  const adoptTopconParcels = (parcels: Array<{
+    number: string; name: string; vertices: TopconBoundaryPoint[];
+  }>) => {
+    const candidates: Feature[] = [];
+    const ids: string[] = [];
+    for (const parcel of parcels) {
+      const vertices = parcel.vertices;
+      if (vertices.length < 3) {
+        throw new Error("Parcela " + parcel.number + ": informe ao menos três vértices.");
+      }
+      const xy = vertices.map((point) => {
+        if (!Number.isFinite(point.longitude) || !Number.isFinite(point.latitude)) {
+          throw new Error("Parcela " + parcel.number + ": ponto " + point.name + " sem coordenadas.");
+        }
+        return fromLonLat([point.longitude as number, point.latitude as number]);
+      });
+      if (new Set(xy.map((pair) => pair.join(","))).size < 3) {
+        throw new Error("Parcela " + parcel.number + ": menos de três coordenadas distintas.");
+      }
+      const polygon = new Polygon([[...xy, xy[0]]]);
+      if (!(getArea(polygon, { projection: "EPSG:3857" }) > 0.001)) {
+        throw new Error("Parcela " + parcel.number + ": geometria sem área válida.");
+      }
+      const id = "TOPCON-" + Date.now() + "-" + parcel.number.replace(/[^a-zA-Z0-9_-]/g, "");
+      const feature = new Feature({ geometry: polygon });
+      feature.set("workPolygonId", id, true);
+      feature.set("workPolygonName", parcel.name, true);
+      feature.set("vertexNames", vertices.map((p) => p.sigef_vertex_code || p.name), true);
+      feature.set("confrontants", vertices.map((p) => p.confrontant || ""), true);
+      feature.set("altitudes", vertices.map((p) =>
+        p.ellipsoidal_height_m === null ? "" : String(p.ellipsoidal_height_m)), true);
+      feature.set("sigef_vertex_details", vertices.map((p) => ({
+        name: p.name, sigef_vertex_code: p.sigef_vertex_code,
+        sigef_method: p.sigef_method, boundary_type: p.boundary_type,
+        sigma_lon_m: p.sigma_lon_m, sigma_lat_m: p.sigma_lat_m,
+        sigma_h_m: p.sigma_h_m, height_reference_confirmed: p.height_reference_confirmed,
+        parcel_number: p.parcel_number,
+      })), true);
+      ids.push(id);
+      candidates.push(feature);
+    }
+    sourceRef.current.addFeatures(candidates);
+    syncPolygonRegistry();
+    setSelectedPolygonIds(ids);
+    setSituationSnapshot(null);
+    refreshVertexLabels();
+    emitGeometry();
+    const map = mapRef.current;
+    if (map) {
+      const newSource = new VectorSource({ features: candidates });
+      map.getView().fit(newSource.getExtent(), {
+        padding: [60, 70, 60, 70], maxZoom: 17, duration: 300,
+      });
     }
   };
 
@@ -3091,6 +3147,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           checked ? [...new Set([...current, id])] : current.filter((item) => item !== id)
         )}
         onRenamePolygon={setPolygonName}
+        onAdoptTopconParcels={adoptTopconParcels}
         onRenameVertex={renameVertex}
         onConfrontant={(id, index, value) => updateParcelVertexData(id, index, "confrontants", value)}
         memorialText={memorialText}
