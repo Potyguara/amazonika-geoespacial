@@ -79,7 +79,7 @@ def check(condition: bool, message: str):
 
 def main():
     # Usuário, senha e permissões só existem no banco descartável geo81_test.
-    email = f"geo81-{secrets.token_hex(8)}@example.invalid"
+    email = f"geo81-{secrets.token_hex(8)}@example.com"
     password = secrets.token_urlsafe(32)
     with SessionLocal() as session:
         permission = Permission(
