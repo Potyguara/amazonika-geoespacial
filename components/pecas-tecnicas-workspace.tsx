@@ -80,6 +80,7 @@ type TopconPoint = {
   sigma_hz_m: number | null;
   sigma_u_m: number | null;
   point_role: "CONTROL" | "UNCLASSIFIED";
+  ellipsoidal_height_reported_m?: number | null;
 };
 type TopconBoundaryPoint = Omit<TopconPoint, "point_role"> & {
   sigef_vertex_code: string;
@@ -114,6 +115,8 @@ type TopconPreview = {
   project: Record<string, string | number | null>;
   points: TopconPoint[];
   point_count: number;
+  observations?: Array<{ baseline: string; horizontal_rms_m: number; vertical_rms_m: number;
+    sigma_x_m: number; sigma_y_m: number; sigma_z_m: number; solution_type: string }>;
   solution: Array<{
     baseline: string; distance_m: number; solution_type: string;
     orbit: string; pdop: number; hdop: number; vdop: number;
@@ -125,6 +128,32 @@ type TopconPreview = {
   checks: { errors: string[]; warnings: string[] };
   ready_for_sigef: false;
 };
+
+const SIGEF_POSITION_METHODS = [
+  ["PG1", "Relativo estático"], ["PG2", "Relativo estático-rápido"],
+  ["PG3", "Relativo semicinemático"], ["PG4", "Relativo cinemático"],
+  ["PG5", "Relativo a partir de códigos"], ["PG6", "RTK convencional / RTPPP"],
+  ["PG7", "RTK em rede"], ["PG8", "DGPS"],
+  ["PG9", "Posicionamento por Ponto Preciso"], ["PT1", "Poligonação"],
+  ["PT2", "Triangulação"], ["PT3", "Trilateração"],
+  ["PT4", "Triangulateração"], ["PT5", "Irradiação"],
+  ["PT6", "Interseção linear"], ["PT7", "Interseção angular"],
+  ["PT8", "Alinhamento"], ["PT9", "Estação livre"],
+  ["PA1", "Paralela"], ["PA2", "Interseção de retas"],
+  ["PA3", "Projeção técnica"], ["PS1", "Aerofotogrametria"],
+  ["PS2", "Radar aerotransportado"], ["PS3", "Laser scanner aerotransportado"],
+  ["PS4", "Sensores orbitais"], ["PB1", "Base cartográfica com precisão conhecida"],
+  ["PB2", "Base cartográfica sem precisão conhecida"],
+] as const;
+const SIGEF_BOUNDARY_TYPES = [
+  ["LA1", "Cerca"], ["LA2", "Muro"], ["LA3", "Estrada"],
+  ["LA4", "Vala"], ["LA5", "Canal"], ["LA6", "Linha ideal"],
+  ["LA7", "Limite artificial não tipificado"],
+  ["LN1", "Corpo d'água ou curso d'água"],
+  ["LN2", "Linha de cumeada"], ["LN3", "Grota"],
+  ["LN4", "Crista de encosta"], ["LN5", "Pé de encosta"],
+  ["LN6", "Limite natural não tipificado"],
+] as const;
 
 function groupTopconParcels(points: TopconBoundaryPoint[], fallback: string) {
   const groups = new globalThis.Map<string, { number: string; name: string; vertices: TopconBoundaryPoint[] }>();
@@ -651,7 +680,8 @@ export function PecasTecnicasWorkspace({
                                       setTopconBoundary((current) => event.target.checked
                                         ? [...current, { ...point, point_role: "BOUNDARY",
                                           sigef_vertex_code: "", parcel_number: "1",
-                                           parcel_name: data.title || "Parcela 1", ellipsoidal_height_m: null,
+                                           parcel_name: data.title || "Parcela 1",
+                                           ellipsoidal_height_m: point.ellipsoidal_height_reported_m ?? null,
                                           sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
                                           height_reference_confirmed: false,
                                           confrontant_cns: "", confrontant_registration: "",
