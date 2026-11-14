@@ -1,0 +1,4 @@
+ARG BASE_API_IMAGE=amazonika-api-topcon:geo85-20261114
+FROM ${BASE_API_IMAGE}
+COPY backend/app/services/pa2_intersection.py /app/app/services/pa2_intersection.py
+COPY backend/app/api/routes/technical_pieces.py /app/app/api/routes/technical_pieces.py
