@@ -69,7 +69,8 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick }: Props)
     });
     mapRef.current = map;
     const handler = (event: { pixel: number[] }) => {
-      const feature = map.forEachFeatureAtPixel(event.pixel, (candidate) => candidate, {
+      const feature = map.forEachFeatureAtPixel(event.pixel, (candidate) =>
+        typeof candidate.get("pointName") === "string" ? candidate : undefined, {
         hitTolerance: 12,
       });
       if (feature && typeof feature.get("pointName") === "string") {
