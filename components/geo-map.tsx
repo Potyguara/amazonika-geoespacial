@@ -704,7 +704,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       feature.set("vertexNames", vertices.map((p) => p.sigef_vertex_code || p.name), true);
       feature.set("confrontants", vertices.map((p) => p.confrontant || ""), true);
       feature.set("altitudes", vertices.map((p) =>
-        p.ellipsoidal_height_m === null ? "" : String(p.ellipsoidal_height_m)), true);
+        !p.height_reference_confirmed || p.ellipsoidal_height_m === null
+          ? "" : String(p.ellipsoidal_height_m)), true);
       feature.set("sigef_vertex_details", vertices.map((p) => ({
         name: p.name, sigef_vertex_code: p.sigef_vertex_code,
         sigef_method: p.sigef_method, boundary_type: p.boundary_type,
