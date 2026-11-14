@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 NET=amazonika-geo83-internal
+EDGE=amazonika-geo83-edge
 DB=amazonika-geo83-db
 API=amazonika-geo83-api
 WEB=amazonika-geo83-web
@@ -26,12 +27,17 @@ if docker network inspect "$NET" >/dev/null 2>&1; then
   echo "Rede $NET ja existe. Nada foi alterado."
   exit 1
 fi
+if docker network inspect "$EDGE" >/dev/null 2>&1; then
+  echo "Rede $EDGE ja existe. Nada foi alterado."
+  exit 1
+fi
 if ss -ltn | grep -q ':13083 '; then
   echo "Porta 13083 ocupada. Nada foi alterado."
   exit 1
 fi
 
 CREATED_NET=0
+CREATED_EDGE=0
 CREATED_DB=0
 CREATED_API=0
 CREATED_WEB=0
@@ -49,6 +55,7 @@ cleanup_on_failure() {
     [[ "$CREATED_API" == 1 ]] && docker rm -f "$API" >/dev/null 2>&1 || true
     [[ "$CREATED_DB" == 1 ]] && docker rm -f "$DB" >/dev/null 2>&1 || true
     [[ "$CREATED_NET" == 1 ]] && docker network rm "$NET" >/dev/null 2>&1 || true
+    [[ "$CREATED_EDGE" == 1 ]] && docker network rm "$EDGE" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup_on_failure EXIT
@@ -56,6 +63,8 @@ trap cleanup_on_failure EXIT
 echo "===== 2. REDE INTERNA ====="
 docker network create --internal --label "$LABEL=1" "$NET" >/dev/null
 CREATED_NET=1
+docker network create --label "$LABEL=1" "$EDGE" >/dev/null
+CREATED_EDGE=1
 
 echo "===== 3. POSTGIS DESCARTAVEL ====="
 docker run -d --name "$DB" --label "$LABEL=1" --network "$NET" \
@@ -125,22 +134,38 @@ docker run -d --name "$WEB" --label "$LABEL=1" --network "$NET" \
 CREATED_WEB=1
 
 echo "===== 7. PROXY LOCAL, SEM EXPOSICAO PUBLICA ====="
-docker run -d --name "$PROXY" --label "$LABEL=1" --network "$NET" \
+docker run -d --name "$PROXY" --label "$LABEL=1" --network "$EDGE" \
   --memory 160m --cpus 0.25 \
   -p 127.0.0.1:13083:8080 \
   -v "$PROXY_FILE:/tmp/geo83_proxy.cjs:ro" \
   --entrypoint node amazonika-web-candidato:geo44-20261111 \
   /tmp/geo83_proxy.cjs >/dev/null
 CREATED_PROXY=1
+docker network connect "$NET" "$PROXY"
 
 echo "===== 8. TESTAR URL HOMOLOG ====="
 READY=0
 for I in {1..35}; do
   CODE="$(curl --silent --max-time 4 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:13083/ || true)"
   if [[ "$CODE" == 200 ]]; then READY=1; break; fi
+  if (( I == 1 || I % 5 == 0 )); then echo "Tentativa $I: HTTP ${CODE:-sem_resposta}"; fi
   sleep 2
 done
-[[ "$READY" == 1 ]] || { echo "Frontend de homologacao nao respondeu HTTP 200"; exit 1; }
+if [[ "$READY" != 1 ]]; then
+  echo "Frontend de homologacao nao respondeu HTTP 200"
+  echo "===== DIAGNOSTICO DE PROXY ====="
+  docker exec "$PROXY" node -e '
+const http=require("http");
+for(const h of ["amazonika-geo83-web:3000","amazonika-geo83-api:8000"]){
+  const [host,port]=h.split(":");
+  http.get({hostname:host,port:Number(port),path:port==="8000"?"/ready":"/",timeout:3000},r=>{
+    console.log(h,"status",r.statusCode);
+    r.resume();
+  }).on("error",e=>console.log(h,e.message));
+}
+' || true
+  exit 1
+fi
 curl -fsS http://127.0.0.1:13083/ready
 echo
 curl -fsS http://127.0.0.1:18000/ready
