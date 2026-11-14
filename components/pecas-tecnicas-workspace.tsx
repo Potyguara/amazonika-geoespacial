@@ -127,7 +127,7 @@ type TopconPreview = {
 };
 
 function groupTopconParcels(points: TopconBoundaryPoint[], fallback: string) {
-  const groups = new Map<string, { number: string; name: string; vertices: TopconBoundaryPoint[] }>();
+  const groups = new globalThis.Map<string, { number: string; name: string; vertices: TopconBoundaryPoint[] }>();
   for (const point of points) {
     const number = point.parcel_number.trim();
     if (!number) throw new Error(`Ponto ${point.name}: informe o número da parcela.`);
