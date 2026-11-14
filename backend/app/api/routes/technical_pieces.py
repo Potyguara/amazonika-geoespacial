@@ -14,6 +14,7 @@ from app.services.auth import get_current_user, require_permission
 from app.services.technical_import import parse_sigef_ods
 from app.services.topcon_import import parse_topcon_report, MAX_BYTES
 from app.services.topcon_perimeter_review import review_topcon_perimeter
+from app.services.sigef_parcel_review import review_sigef_parcels
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -74,6 +75,24 @@ def review_topcon_perimeter_route(
 ):
     """Revisão técnica de perímetro; não cria ODS nem altera peças salvas."""
     return review_topcon_perimeter(payload.points)
+
+
+class SigefParcelReviewInput(BaseModel):
+    identification: dict = Field(default_factory=dict)
+    parcels: list[dict] = Field(default_factory=list, max_length=50)
+    neighbors: list[dict] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/sigef/parcels-review")
+def review_sigef_parcels_route(
+    payload: SigefParcelReviewInput,
+    user: User = Depends(get_current_user),
+):
+    """Validação preliminar: nunca modifica vértices nem certifica parcelas."""
+    try:
+        return review_sigef_parcels(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.post("/import-sigef-ods")
