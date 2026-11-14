@@ -82,6 +82,9 @@ def review_topcon_perimeter_route(
 
 class Pa2IntersectionInput(BaseModel):
     witnesses: list[dict] = Field(min_length=4, max_length=4)
+    utm_zone: int | None = None
+    hemisphere: str | None = None
+    sirgas2000_confirmed: bool = False
 
 
 @router.post("/topcon/pa2-intersection")
@@ -91,7 +94,12 @@ def calculate_pa2_intersection(
 ):
     """Interseção de retas com quatro testemunhos; não confirma h ou precisão."""
     try:
-        return intersect_pa2(payload.witnesses)
+        return intersect_pa2(
+            payload.witnesses,
+            utm_zone=payload.utm_zone,
+            hemisphere=payload.hemisphere,
+            sirgas2000_confirmed=payload.sirgas2000_confirmed,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
