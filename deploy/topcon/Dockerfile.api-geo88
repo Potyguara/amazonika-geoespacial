@@ -1,0 +1,4 @@
+ARG BASE_API_IMAGE=amazonika-api-topcon:geo87-20261114
+FROM ${BASE_API_IMAGE}
+COPY backend/app/services/constructed_vertices.py /app/app/services/constructed_vertices.py
+COPY backend/app/api/routes/technical_pieces.py /app/app/api/routes/technical_pieces.py
