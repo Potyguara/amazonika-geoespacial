@@ -141,7 +141,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick, method =
           intersection.longitude as number, intersection.latitude as number,
         ])),
       });
-      point.set("label", "V (pré-cálculo)");
+      point.set("label", method === "PT8" ? "P (pré-cálculo)" : "V (pré-cálculo)");
       point.set("virtual", true);
       source.addFeature(point);
     }
