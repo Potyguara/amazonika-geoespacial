@@ -763,7 +763,7 @@ export function PecasTecnicasWorkspace({
                               <td>{obs.solution_type}</td>
                             </tr>)}</tbody>
                           </table>
-                        </div>
+                        </div>}
                         <p>O sigma horizontal Topcon não substitui automaticamente as precisões
                           separadas de longitude e latitude exigidas na ODS. Informe os valores
                           confirmados pelo processamento e confirme a referência de h.</p>
