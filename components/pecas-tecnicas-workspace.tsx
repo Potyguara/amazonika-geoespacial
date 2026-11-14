@@ -631,6 +631,53 @@ export function PecasTecnicasWorkspace({
                           </tbody>
                         </table>
                       </div>
+                      <div className="pecas-card" aria-label="Precisões SIGEF">
+                        <h4>Precisões e referências dos confrontantes</h4>
+                        <p>O sigma horizontal Topcon não substitui automaticamente as precisões
+                          separadas de longitude e latitude exigidas na ODS. Informe os valores
+                          confirmados pelo processamento e confirme a referência de h.</p>
+                        <div style={{ overflowX: "auto" }}>
+                          <table>
+                            <thead><tr><th>Vértice</th><th>σ Longitude (m)</th>
+                              <th>σ Latitude (m)</th><th>σ h (m)</th><th>h confirmada</th>
+                              <th>CNS confrontante</th><th>Matrícula confrontante</th></tr></thead>
+                            <tbody>{topconBoundary.map((point, index) => <tr key={point.name}>
+                              <td>{point.sigef_vertex_code || point.name}</td>
+                              {(["sigma_lon_m", "sigma_lat_m", "sigma_h_m"] as const)
+                                .map((field) => <td key={field}>
+                                  <input aria-label={`${field} ${point.name}`} inputMode="decimal"
+                                    value={point[field] ?? ""}
+                                    onChange={(event) => {
+                                      const value = event.target.value.trim().replace(",", ".");
+                                      updateBoundaryPoint(index, {
+                                        [field]: value === "" ? null : Number(value),
+                                      });
+                                    }} />
+                                </td>)}
+                              <td><input type="checkbox" aria-label={`Confirmar h ${point.name}`}
+                                checked={point.height_reference_confirmed}
+                                onChange={(event) => {
+                                  updateBoundaryPoint(index, {
+                                    height_reference_confirmed: event.target.checked,
+                                  });
+                                  setVerticalConfirmed((old) => ({
+                                    ...old, [point.name]: event.target.checked,
+                                  }));
+                                }} /></td>
+                              <td><input aria-label={`CNS confrontante ${point.name}`}
+                                value={point.confrontant_cns}
+                                onChange={(event) => updateBoundaryPoint(index, {
+                                  confrontant_cns: event.target.value,
+                                })} /></td>
+                              <td><input aria-label={`Matrícula confrontante ${point.name}`}
+                                value={point.confrontant_registration}
+                                onChange={(event) => updateBoundaryPoint(index, {
+                                  confrontant_registration: event.target.value,
+                                })} /></td>
+                            </tr>)}</tbody>
+                          </table>
+                        </div>
+                      </div>
                       <div className="pecas-card" aria-label="Conversão altimétrica IBGE">
                         <h4>Conversão altimétrica — IBGE</h4>
                         <p>A ODS SIGEF utiliza a altura elipsoidal (h). A altitude normal ou
@@ -747,6 +794,16 @@ export function PecasTecnicasWorkspace({
                                 <p key={i} className="pecas-note">{msg}</p>)}
                               <p>A ausência de base confrontante não comprova inexistência de sobreposição.
                                 Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
+                              {sigefParcelReview.status === "PREVALIDATED" && <div>
+                                <button type="button" className="pecas-primary"
+                                  disabled={reviewedOdsBusy} onClick={() => void downloadReviewedOds()}>
+                                  {reviewedOdsBusy ? "Gerando ODS..." : "Gerar ODS SIGEF revisada"}
+                                </button>
+                                {reviewedOdsError && <p className="pecas-warning" role="alert">{reviewedOdsError}</p>}
+                                {reviewedOdsNotice && <p role="status">{reviewedOdsNotice}</p>}
+                                <p>ODS para conferência técnica. A validação oficial do SIGEF
+                                  e a verificação com parcelas certificadas continuam necessárias.</p>
+                              </div>}
                             </div>}
                           </div>
                         )}
