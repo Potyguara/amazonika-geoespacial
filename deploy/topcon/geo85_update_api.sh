@@ -33,6 +33,7 @@ docker build -f deploy/topcon/Dockerfile.api-geo85 \
 echo "===== 2. VALIDAR 5 TESTES DO PARSER SEM REDE ====="
 docker run --rm --network none --memory 512m --cpus 0.5 \
   -v "$PWD/backend/tests/test_topcon_import.py:/tmp/test_topcon_import.py:ro" \
+  -e PYTHONPATH=/app --workdir /app \
   --entrypoint python "$NEW" -B /tmp/test_topcon_import.py
 
 echo "===== 3. SUBSTITUIR SOMENTE API GEO83 ====="
