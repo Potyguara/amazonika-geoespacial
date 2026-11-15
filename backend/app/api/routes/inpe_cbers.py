@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -20,7 +21,7 @@ router = APIRouter(
     dependencies=[Depends(require_permission("analysis.execute"))],
 )
 
-STAC_ROOT = "https://data.inpe.br/bdc/stac/v1"
+STAC_ROOT = os.environ.get("INPE_STAC_ROOT", "https://data.inpe.br/bdc/stac/v1").rstrip("/")
 COLLECTIONS = {
     "ortho": "CB4A-WPM-L4-DN-1",
     "rgb": "CB4A-WPM-PCA-FUSED-1",
