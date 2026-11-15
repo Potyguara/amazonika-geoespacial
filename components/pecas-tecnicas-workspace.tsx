@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
 import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
 import { Pa2WitnessMap } from "@/components/pa2-witness-map";
+import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { getApiUrl } from "@/lib/api";
 
 export type ProfessionalDocumentProfile = {
@@ -932,6 +933,7 @@ export function PecasTecnicasWorkspace({
           <div className="pecas-data-layout">
             <div className="pecas-card">
               <h3>1. Identificação do imóvel</h3>
+              <InpeCbersSceneSearch />
               <p>As informações abaixo compõem a planta e o memorial. As correções do responsável técnico valem somente para esta peça.</p>
               <div className="pecas-card" aria-label="Pré-validação do processamento TOPCON Tools">
                 <h4>Importar processamento GNSS — TOPCON Tools</h4>
