@@ -392,7 +392,7 @@ export function PecasTecnicasWorkspace({
       }
       if (!Object.keys(next).length) throw new Error("Nenhum ID do arquivo corresponde aos vértices selecionados.");
       setVerticalFactors(old => ({ ...old, ...next }));
-      setVerticalOrigin(`IBGE ${verticalModel} — importação em lote de ${file.name}`);
+      setVerticalOrigin(`Fatores declarados como ${verticalModel} — arquivo importado ${file.name}; origem a conferir pelo RT`);
       setVerticalCalculated(null);
       setIbgeBatchNotice(`Importados ${Object.keys(next).length} fator(es) por ID. Confirme as alturas h SIRGAS2000 antes de calcular.`);
     } catch (err) {
