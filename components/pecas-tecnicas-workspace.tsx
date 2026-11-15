@@ -1226,7 +1226,7 @@ export function PecasTecnicasWorkspace({
       <header className="pecas-header geo96-header">
         <div>
           <small>AMAZÔNIKA GEOESPACIAL · PEÇAS TÉCNICAS</small>
-          <h2>{data.name || "Imóvel em elaboração"}</h2>
+          <h2>{data.title || "Imóvel em elaboração"}</h2>
           <p>Planta georreferenciada e memorial descritivo · Rascunho técnico do usuário autenticado</p>
         </div>
         <button className="pecas-return" type="button" onClick={onClose}>
