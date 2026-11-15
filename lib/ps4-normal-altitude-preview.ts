@@ -15,9 +15,8 @@ export function estimatePs4NormalAltitudes(
   virtuals:PlanPoint[],
   end:PlanPoint & {normal_height_m:number|null},
 ): Array<number|null>{
-  if(!Number.isFinite(start.normal_height_m)||
-     !Number.isFinite(end.normal_height_m)||
-     start.normal_height_m===null||end.normal_height_m===null)
+  if(start.normal_height_m===null||end.normal_height_m===null||
+     !Number.isFinite(start.normal_height_m)||!Number.isFinite(end.normal_height_m))
     return virtuals.map(()=>null);
   const path=[start,...virtuals,end];
   const segments=path.slice(1).map((p,i)=>distanceMeters(path[i],p));
