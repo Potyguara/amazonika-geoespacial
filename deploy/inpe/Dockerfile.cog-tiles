@@ -1,0 +1,12 @@
+# GEO90B experimental renderer; strictly homologation and internal-only.
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /srv
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libexpat1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir rasterio==1.4.3 Pillow==11.3.0
+COPY deploy/inpe/cog_tiles.py /srv/cog_tiles.py
+USER 65534:65534
+EXPOSE 8090
+CMD ["python", "-B", "/srv/cog_tiles.py"]
