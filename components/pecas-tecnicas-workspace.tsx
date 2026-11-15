@@ -666,7 +666,8 @@ export function PecasTecnicasWorkspace({
       setVerticalCalculated(null);
       setPa2Result(null);
     }
-    if (["sigma_lon_m", "sigma_lat_m", "sigma_h_m"].some(key => key in patch)) {
+    if (["sigma_lon_m", "sigma_lat_m", "sigma_h_m"].some(key => key in patch) &&
+        !patch.sigma_reference_confirmed) {
       patch.sigma_reference_confirmed = false;
     }
     setTopconBoundary((current) => current.map((point, i) =>
@@ -1170,6 +1171,7 @@ export function PecasTecnicasWorkspace({
                                           sigma_lon_m: point.sigma_suggestion_e_m ?? null,
                                           sigma_lat_m: point.sigma_suggestion_n_m ?? null,
                                           sigma_h_m: point.sigma_suggestion_h_m ?? null,
+                                          sigma_reference_confirmed: true,
                                         });
                                       }}>Confirmar sigmas calculados</button>
                                   </div>}
