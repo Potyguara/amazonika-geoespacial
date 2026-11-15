@@ -712,17 +712,33 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       feature.set("altitudes", vertices.map((p) =>
         !p.height_reference_confirmed || p.ellipsoidal_height_m === null
           ? "" : String(p.ellipsoidal_height_m)), true);
+      feature.set("technical_piece_status",
+        vertices.some(p => p.sigef_method === "PS4" && p.derived_calculation?.accuracy_verified !== true)
+        ? "PRELIMINAR_NAO_CERTIFICADA" : "EM_REVISAO", true);
       feature.set("sigef_vertex_details", vertices.map((p) => ({
         name: p.name, sigef_vertex_code: p.sigef_vertex_code,
         sigef_method: p.sigef_method, boundary_type: p.boundary_type,
         sigma_lon_m: p.sigma_lon_m, sigma_lat_m: p.sigma_lat_m,
         sigma_h_m: p.sigma_h_m, height_reference_confirmed: p.height_reference_confirmed,
         parcel_number: p.parcel_number,
+        preliminary_ps4: p.sigef_method === "PS4",
+        accuracy_verified: p.derived_calculation?.accuracy_verified === true,
       })), true);
       ids.push(id);
       candidates.push(feature);
     }
+    // Evita acumular a antiga parcela TOPCON sobre o traçado M–V revisado.
+    // Apenas geometrias de trabalho TOPCON são substituídas, nunca camadas SIGEF oficiais.
+    const incomingNumbers = new Set(parcels.map(p => p.number));
+    for (const existing of polygonFeatures()) {
+      const id = String(existing.get("workPolygonId") ?? "");
+      const match = /^TOPCON-\\d+-(.+)$/.exec(id);
+      if (match && incomingNumbers.has(match[1])) sourceRef.current.removeFeature(existing);
+    }
     sourceRef.current.addFeatures(candidates);
+    setMemorialText("");
+    setEditedMemorial(null);
+    setLastGeneratedPdfId(null);
     syncPolygonRegistry();
     setSelectedPolygonIds(ids);
     setSituationSnapshot(null);
