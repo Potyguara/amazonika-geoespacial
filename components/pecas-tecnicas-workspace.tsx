@@ -309,7 +309,6 @@ export function PecasTecnicasWorkspace({
   const [stage, setStage] = useState(0);
   const [premiumStep, setPremiumStep] = useState(0);
   const [workflowNotice, setWorkflowNotice] = useState("");
-  const [sigmaAdvancedOpen, setSigmaAdvancedOpen] = useState(false);
   const jumpToWorkflow = (index: number) => {
     const item = premiumSteps[index];
     setPremiumStep(index);
@@ -1362,7 +1361,11 @@ export function PecasTecnicasWorkspace({
                       </table>
                     </div>
                     <div id="geo96-vertices" className="pecas-card geo96-task-card" aria-label="Revisão de perímetro TOPCON">
-                      <h4>2. Selecionar, ordenar e validar vértices de divisa</h4>
+                      <div className="geo96-task-eyebrow">02 · SELEÇÃO DOS VÉRTICES</div>
+                      <h4>Vértices do divisor</h4>
+                      <p className="geo96-helper">Revise os códigos SIGEF, escolha os marcos integrantes
+                        do perímetro e ajuste a sequência antes de prosseguir. As coordenadas
+                        importadas não são sobrescritas por esta visualização.</p>
                       <p>Selecione apenas pontos integrantes do limite, informe os dados técnicos
                         confirmados e organize o percurso horário a partir do vértice mais ao norte.
                         A elevação TOPCON não é interpretada automaticamente como altura SIRGAS2000.
@@ -1459,7 +1462,13 @@ export function PecasTecnicasWorkspace({
                         </table>
                       </div>
                       <div id="geo96-sigmas" className="pecas-card geo96-task-card" aria-label="Precisões SIGEF">
-                        <h4>Precisões para certificação SIGEF — etapa opcional na planta preliminar</h4>
+                        <h4>Precisões e confrontantes · conferência opcional</h4>
+                        <p className="geo96-sigma-principle" role="note">
+                          <Check size={16}/> O sistema preserva os valores efetivamente extraídos do TOPCON.
+                          Os campos de σ Longitude e σ Latitude permanecem facultativos durante a elaboração
+                          preliminar. A exportação SIGEF exige os dados técnicos previstos pelo seu esquema,
+                          sem atribuir valores inexistentes nem confundir RMS de vetores com σ de coordenadas.
+                        </p>
                         <p className="pecas-note">As precisões individuais σE/σN são necessárias à pré-validação
                           oficial, mas <strong>não são exigidas para desenhar, fechar e salvar a poligonal preliminar PS4</strong>.
                           Não preencha valores estimados nem reaproveite os RMS das linhas de base.</p>
@@ -1613,7 +1622,7 @@ export function PecasTecnicasWorkspace({
                          </details>
                       </div>
                        
-                      <div className="pecas-card" aria-label="Conversão altimétrica IBGE">
+                      <div id="geo96-altimetry" className="pecas-card geo96-task-card" aria-label="Conversão altimétrica IBGE">
                         <h4>Conversão altimétrica — IBGE</h4>
                         <p>A ODS SIGEF utiliza a altura elipsoidal (h). A altitude normal ou
                           ortométrica é complementar e depende do fator do modelo escolhido.
@@ -1942,7 +1951,7 @@ export function PecasTecnicasWorkspace({
                   ps4Draft={ps4Draft}
                   ps4ClosureGeometry={ps4PreviewGeometry}
                  />
-                 {ps4Draft.length > 0 && <div className="pecas-card" aria-label="Resumo de restituição PS4 provisória">
+                 {ps4Draft.length > 0 && <div id="geo96-ps4" className="pecas-card geo96-task-card" aria-label="Resumo de restituição PS4 provisória">
                    <h4>Restituição PS4 — pontos provisórios</h4>
                    <p role="status" className="pecas-note">{ps4Ready
                      ? "Prévia do perímetro fechada: segmento orbital integrado visualmente entre " +
@@ -2222,7 +2231,8 @@ export function PecasTecnicasWorkspace({
         </p>
       )}
       <footer className="pecas-footer">
-        <span>{selectedIds.length} polígono(s) selecionado(s) · Etapa {stage + 1} de 5 {savedPieceNotice && "· " + savedPieceNotice}</span>
+        <span>{ps4Ready ? "Prévia PS4 fechada · " : ""}{selectedIds.length} parcela(s) oficial(is) selecionada(s) ·
+          Etapa {stage + 1}/5 {savedPieceNotice && "· " + savedPieceNotice}</span>
         <div>
           <button className="pecas-secondary" type="button" disabled={actionBusy}
             onClick={() => void runAction(async () => {
