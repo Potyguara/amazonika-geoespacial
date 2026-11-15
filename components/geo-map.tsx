@@ -321,6 +321,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     if (startTopconNonce <= lastStartTopconNonce.current) return;
     lastStartTopconNonce.current = startTopconNonce;
     setAdvancedPanel(null);
+    setCurrentPieceId(null);
+    setLoadedTopconDraft(null);
+    setLoadedTopconRevision(startTopconNonce);
+    setLoadedMemorialDraft(null);
     setWorkspaceOpen(true);
   }, [startTopconNonce]);
   const [documentProfessional, setDocumentProfessional] = useState<ProfessionalDocumentProfile | null>(null);
