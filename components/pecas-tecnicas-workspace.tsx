@@ -1846,7 +1846,7 @@ export function PecasTecnicasWorkspace({
           </button>}
         </div>
       </footer>
-      {topconPreview && pa2Mode && Boolean(verticalCalculated) && (
+      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4") && (
         <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico"
           style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
             border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
@@ -1855,7 +1855,7 @@ export function PecasTecnicasWorkspace({
             justifyContent: "space-between", marginBottom: 12 }}>
             <div>
               <strong>Espaço de trabalho — Construção de vértices</strong>
-              <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção de Retas · PT8 Alinhamento</p>
+              <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais</p>
             </div>
             <button type="button" className="pecas-secondary"
               onClick={() => setPa2Mode(false)}>Concluir e voltar à peça</button>
@@ -1864,7 +1864,7 @@ export function PecasTecnicasWorkspace({
             style={{ display: "flex", alignItems: "center", gap: 8,
               flexWrap: "wrap", paddingBottom: 12, borderBottom: "1px solid #b8cfc5",
               marginBottom: 12 }}>
-            {(["PA1", "PA2", "PT8"] as const).map(method => <button
+            {(["PA1", "PA2", "PT8", "PS4"] as const).map(method => <button
               key={method} type="button"
               className={constructionMethod === method ? "pecas-primary" : "pecas-secondary"}
               onClick={() => {
@@ -1873,7 +1873,8 @@ export function PecasTecnicasWorkspace({
                 setConstructionSide(method === "PT8" ? "FORWARD" : "LEFT");
               }}>
               {method} — {method === "PA1" ? "Paralela"
-                : method === "PA2" ? "Interseção/apoio" : "Alinhamento"}
+                : method === "PA2" ? "Interseção/apoio"
+                : method === "PS4" ? "Sensores orbitais" : "Alinhamento"}
             </button>)}
             <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
               Outros métodos:
@@ -1881,7 +1882,7 @@ export function PecasTecnicasWorkspace({
                 <option value="">Selecione uma fonte</option>
                 <option value="PS1" disabled>PS1 — Aerofotogrametria (requer projeto fotogramétrico)</option>
                 <option value="PS2" disabled>PS2 — Radar aerotransportado (requer validação)</option>
-                <option value="PS4" disabled>PS4 — Sensores orbitais (requer produto validado)</option>
+
                 <option value="PB1" disabled>PB1 — Base cartográfica com precisão conhecida</option>
                 <option value="PB2" disabled>PB2 — Base cartográfica sem precisão conhecida</option>
               </select>
@@ -1894,6 +1895,10 @@ export function PecasTecnicasWorkspace({
                 : constructionMethod === "PA2" ? <p>Selecione o procedimento:
                   linha de apoio (dois marcos e clique projetado) ou interseção
                   geométrica (dois alinhamentos). O resultado precisa de revisão.</p>
+                : constructionMethod === "PS4"
+                ? <p>Ative a cena CBERS-4A no mapa, clique sucessivamente ao longo da feição natural,
+                  confirme cada ponto e atribua código V. Sem RMS da ortorretificação, os pontos
+                  permanecem como rascunho, fora da ODS e da certificação.</p>
                 : <p>Selecione dois marcos e informe a distância medida a partir
                   do primeiro, observando a direção. PT8 é aplicável a tipo M/P,
                   não a V automaticamente.</p>}
@@ -1904,10 +1909,10 @@ export function PecasTecnicasWorkspace({
             <div style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
                         <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
-                        <p>Esta etapa sucede a conversão altimétrica. Método PT8 gera
+                        <p>PA1, PA2 e PT8 exigem conversão altimétrica prévia. Método PT8 gera
                           vértices M/P conforme a tabela oficial de compatibilidade; PA1/PA2
                           permitem vértice V, sujeito à conferência técnica.</p>
-                        {!verticalCalculated && <p className="pecas-warning">
+                        {!verticalCalculated && constructionMethod !== "PS4" && <p className="pecas-warning">
                           Conclua primeiro o cálculo das altitudes normais/ortométricas dos marcos
                           de apoio para habilitar a construção dos vértices.</p>}
                         <p>Após calcular as altitudes físicas, selecione o método adequado.
