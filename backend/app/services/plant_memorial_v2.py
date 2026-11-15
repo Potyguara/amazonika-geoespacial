@@ -4,7 +4,7 @@ import base64
 import io
 import math
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from reportlab.lib import colors
@@ -40,7 +40,7 @@ class Parcel:
     segments: list[dict]
     confrontants: list[str]
     altitudes: list[float | None]
-    normal_altitudes: list[float | None]
+    normal_altitudes: list[float | None] = field(default_factory=list)
 
 
 def prepare_parcels(raw: list[dict]) -> list[Parcel]:
