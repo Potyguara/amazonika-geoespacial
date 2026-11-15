@@ -301,6 +301,7 @@ export function PecasTecnicasWorkspace({
   const [topconBoundary, setTopconBoundary] = useState<TopconBoundaryPoint[]>([]);
   const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
+  const [topconReviewFeedback, setTopconReviewFeedback] = useState<{status:"info"|"error"|"success";message:string}|null>(null);
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
@@ -890,15 +891,21 @@ export function PecasTecnicasWorkspace({
   };
   const validateTopconBoundary = async () => {
     setTopconReviewBusy(true);
+    setTopconReviewFeedback({ status:"info", message:"Conferindo os marcos GNSS, os sigmas e as parcelas TOPCON..." });
     setTopconError("");
     setTopconReview(null);
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     try {
       const parcels = parcelsForOds();
-      if (!parcels.length) throw new Error("Selecione ao menos uma parcela.");
-      if (topconBoundary.some(point => !point.sigma_reference_confirmed)) {
-        throw new Error("Pendência de pré-validação SIGEF: faltam os sigmas individuais das coordenadas ajustadas (σ Longitude/σ Latitude). O cálculo das altitudes HN está independente e não precisa ser repetido.");
+      if (!parcels.length) throw new Error("Nenhuma parcela TOPCON válida foi formada. Confira os marcos de limite, sua ordem e a identificação de parcela.");
+      const unconfirmed = topconBoundary.filter(point => !point.sigma_reference_confirmed);
+      if (unconfirmed.length) {
+        throw new Error("Pré-validação SIGEF ainda bloqueada: " + unconfirmed.length +
+          " marco(s) sem confirmação de σ Longitude e σ Latitude (" +
+          unconfirmed.map(point => point.sigef_vertex_code || point.name).join(", ") +
+          "). Informe as precisões individuais das coordenadas ajustadas; os fatores η do IBGE NÃO as substituem." +
+          (ps4Ready ? " A poligonal PS4 está fechada somente como prévia cartográfica e não integra esta validação TOPCON." : ""));
       }
       const reviews: Array<{ number: string; name: string; review: TopconReview }> = [];
       for (const parcel of parcels) {
@@ -915,6 +922,12 @@ export function PecasTecnicasWorkspace({
       const errors = reviews.flatMap(({ number, review }) => review.errors.map((msg) => `Parcela ${number}: ${msg}`));
       const warnings = reviews.flatMap(({ number, review }) => review.warnings.map((msg) => `Parcela ${number}: ${msg}`));
       const ready = errors.length === 0 && reviews.every(({ review }) => review.ready_for_ods && review.geometry);
+      setTopconReviewFeedback({
+        status: ready ? "success" : "error",
+        message: ready
+          ? "Pré-validação TOPCON aprovada para os marcos GNSS. Não inclui os V PS4 provisórios."
+          : "Pré-validação TOPCON executada com " + errors.length + " pendência(s). Leia os detalhes abaixo.",
+      });
       setTopconReview({
         ready_for_ods: Boolean(ready), errors, warnings,
         vertex_count: topconBoundary.length,
@@ -926,7 +939,9 @@ export function PecasTecnicasWorkspace({
         })) : [],
       });
     } catch (error) {
-      setTopconError(error instanceof Error ? error.message : "Falha na revisão do perímetro.");
+      const message = error instanceof Error ? error.message : "Falha na revisão do perímetro.";
+      setTopconError(message);
+      setTopconReviewFeedback({status:"error",message});
     } finally {
       setTopconReviewBusy(false);
     }
@@ -1546,11 +1561,34 @@ export function PecasTecnicasWorkspace({
                           Conclua primeiro a conversão altimétrica dos marcos de apoio.
                         </p>}
                       </div>
-                      <button type="button" className="pecas-primary"
-                        disabled={topconReviewBusy || topconBoundary.length < 3}
-                        onClick={() => void validateTopconBoundary()}>
-                        {topconReviewBusy ? "Validando perímetro..." : "Validar perímetro TOPCON"}
-                      </button>
+                      <div className="pecas-card" aria-label="Validação do perímetro TOPCON" style={{marginTop:12}}>
+                        <h4>Validação técnica dos marcos GNSS (TOPCON)</h4>
+                        <p className="pecas-note">Esta ação confere somente os marcos GNSS do levantamento.
+                          O fechamento PS4 em azul é uma prévia independente e NÃO é enviado como geometria certificada.</p>
+                        <p className="pecas-note">Marcos disponíveis: {topconBoundary.length} ·
+                          Sigmas confirmados: {topconBoundary.filter(point => point.sigma_reference_confirmed).length}/{topconBoundary.length} ·
+                          PS4: {ps4Ready ? "fechamento preliminar confirmado" : "fechamento pendente"}.</p>
+                        <button type="button" className="pecas-primary"
+                          disabled={topconReviewBusy || topconBoundary.length < 3}
+                          onClick={() => void validateTopconBoundary()}>
+                          {topconReviewBusy ? "Validando, aguarde..." : "Validar perímetro TOPCON"}
+                        </button>
+                        {topconBoundary.length < 3 &&
+                          <p role="status" className="pecas-warning">Importe pelo menos três marcos de limite para habilitar a validação.</p>}
+                        {topconReviewFeedback && <div aria-live="assertive"
+                          role={topconReviewFeedback.status === "error" ? "alert" : "status"}
+                          style={{marginTop:10,padding:12,borderRadius:8,
+                            background: topconReviewFeedback.status==="error"?"#fff1ed":"#e8f3ed",
+                            color:topconReviewFeedback.status==="error"?"#962d1b":"#14563b"}}>
+                          <strong>{topconReviewFeedback.status==="error"?"Validação não concluída":
+                            topconReviewFeedback.status==="success"?"Validação concluída":"Processando"}</strong>
+                          <p style={{margin:"6px 0 0"}}>{topconReviewFeedback.message}</p>
+                          {topconReviewFeedback.status==="error" && <p style={{margin:"6px 0 0"}}>
+                            Próximo passo: revise as precisões individuais dos marcos na seção
+                            “Correções individuais de sigmas e confrontantes”. O resultado HN do IBGE continua válido.
+                          </p>}
+                        </div>}
+                      </div>
                       {topconReview && <div role="status">
                         <p><strong>{topconReview.ready_for_ods
                           ? "Pré-validação aprovada" : "Pré-validação com pendências"}</strong>
