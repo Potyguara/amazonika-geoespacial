@@ -8,6 +8,7 @@ import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
 import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
+import { evaluatePs4Controls, type Ps4Quality, type Ps4Control } from "@/lib/ps4-quality";
 import { OfficialOverlapCheck } from "@/components/official-overlap-check";
 
 export type ProfessionalDocumentProfile = {
@@ -163,6 +164,7 @@ export type TopconDraft = {
   stage: number;
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
+  ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
   ps4_draft?: Array<{
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
@@ -350,6 +352,9 @@ export function PecasTecnicasWorkspace({
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [officialOverlap, setOfficialOverlap] = useState<TopconDraft["official_overlap"]>(undefined);
+  const [ps4Quality, setPs4Quality] = useState<TopconDraft["ps4_quality"]>(undefined);
+  const [ps4QualitySource, setPs4QualitySource] = useState("");
+  const [ps4QualityError, setPs4QualityError] = useState("");
   const [ps4Start, setPs4Start] = useState("");
   const [ps4ClosureConfirmed, setPs4ClosureConfirmed] = useState(false);
   const [ps4ConfirmedSignature, setPs4ConfirmedSignature] = useState("");
@@ -626,6 +631,8 @@ export function PecasTecnicasWorkspace({
     setTopconBoundary(d.boundary);
     setPs4Draft(d.ps4_draft ?? []);
     setOfficialOverlap(d.official_overlap);
+    setPs4Quality(d.ps4_quality);
+    setPs4QualitySource(d.ps4_quality?.source ?? "");
     setPs4Start(d.ps4_closure?.start ?? "");
     setPs4ClosureConfirmed(Boolean(d.ps4_closure?.confirmed));
     setPs4ConfirmedSignature(d.ps4_closure?.signature ?? "");
@@ -659,6 +666,7 @@ export function PecasTecnicasWorkspace({
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
     official_overlap:overlapCurrent?officialOverlap:undefined,
+    ps4_quality:ps4Quality,
     ps4_closure: { start: ps4Start, confirmed: ps4Ready,
       signature: ps4Ready ? ps4ConfirmedSignature : "" },
     vertical_model: verticalModel, vertical_factors: verticalFactors,
@@ -1072,6 +1080,8 @@ export function PecasTecnicasWorkspace({
     setTopconBoundary([]);
     setPs4Draft([]);
     setOfficialOverlap(undefined);
+    setPs4Quality(undefined);
+    setPs4QualitySource("");
     setPs4Start("");
     setPs4ClosureConfirmed(false);
     setPs4ConfirmedSignature("");
@@ -1102,6 +1112,39 @@ export function PecasTecnicasWorkspace({
       setTopconLoading(false);
     }
   };
+  const importPs4AccuracyControls = async (file:File) => {
+    setPs4QualityError("");
+    setPs4Quality(undefined);
+    try{
+      if(file.size>1024*1024)throw new Error("O arquivo de pontos excede 1 MB.");
+      if(!ps4QualitySource.trim() || ps4QualitySource.trim().length<8)
+        throw new Error("Informe a origem independente dos pontos GNSS antes da importação.");
+      const raw=(await file.text()).replace(/^\\uFEFF/,"");
+      const lines=raw.split(/\\r?\\n/).map(l=>l.trim()).filter(Boolean);
+      if(lines.length<2)throw new Error("CSV sem pontos de controle.");
+      const hdr=lines[0].split(";").map(s=>s.trim().toUpperCase().replace(/[^A-Z0-9_]/g,""));
+      const expected=["ID","LON_IMAGEM","LAT_IMAGEM","LON_CONTROLE","LAT_CONTROLE"];
+      if(expected.some((name,index)=>hdr[index]!==name))
+        throw new Error("Cabeçalho esperado: ID;LON_IMAGEM;LAT_IMAGEM;LON_CONTROLE;LAT_CONTROLE.");
+      const rows:Ps4Control[]=lines.slice(1).map((line,index)=>{
+        const fields=line.split(";").map(v=>v.trim());
+        if(fields.length<5)throw new Error("Linha "+(index+2)+" incompleta.");
+        const num=(t:string)=>{
+          const x=Number(t.replace(",","."));
+          if(!t||!Number.isFinite(x))throw new Error("Coordenada não numérica na linha "+(index+2));
+          return x;
+        };
+        return {id:fields[0],image_lon:num(fields[1]),image_lat:num(fields[2]),
+          reference_lon:num(fields[3]),reference_lat:num(fields[4])};
+      });
+      const evaluated=evaluatePs4Controls(rows);
+      setPs4Quality({...evaluated,source:ps4QualitySource.trim(),filename:file.name,scene_id:PS4_SCENE});
+      setPs4Status({kind:"info",message:"Diagnóstico de acurácia calculado. O RT deve conferir distribuição, independência e documentação da ortorretificação."});
+    }catch(e){
+      setPs4QualityError(e instanceof Error?e.message:"Falha na avaliação PS4.");
+    }
+  };
+
   const adoptPs4WorkingParcel = () => {
     setTopconError("");
     setWorkflowNotice("");
@@ -2702,6 +2745,38 @@ export function PecasTecnicasWorkspace({
                         </label>}
                         {pa2Mode && constructionMethod === "PS4" && <section aria-label="Restituição orbital PS4">
                           <h4>PS4 — Delimitação de feição natural na imagem</h4>
+                          <details className="geo97-cbers-panel">
+                            <summary>Acurácia posicional PS4 · controles GNSS independentes</summary>
+                            <p className="pecas-note">A ortorretificação L4 e o GSD de 2 m NÃO
+                              comprovam precisão absoluta de até 3 m. Utilize pontos independentes,
+                              bem distribuídos, com coordenadas observadas na imagem e GNSS de referência.</p>
+                            <label className="pecas-field"><span>Origem do levantamento independente / relatório</span>
+                              <input value={ps4QualitySource} placeholder="Ex.: Relatório GNSS de controle nº..., data e RT"
+                                onChange={e=>{setPs4QualitySource(e.target.value);setPs4Quality(undefined);}}/>
+                            </label>
+                            <label className="pecas-field"><span>CSV de pontos de checagem da cena (graus decimais)</span>
+                              <input type="file" accept=".csv,.txt" onChange={e=>{
+                                const file=e.currentTarget.files?.[0];
+                                if(file)void importPs4AccuracyControls(file);
+                                e.currentTarget.value="";
+                              }}/></label>
+                            <p className="pecas-note">Colunas: ID;LON_IMAGEM;LAT_IMAGEM;LON_CONTROLE;LAT_CONTROLE.
+                              Critério INTERNO de triagem: ao menos 20 pontos distribuídos
+                              em quatro quadrantes, RMSE e percentil 90 até 3 m.
+                              Isso não substitui avaliação de acurácia pelo RT nem confirma norma SIGEF.</p>
+                            {ps4QualityError&&<p className="pecas-warning" role="alert">{ps4QualityError}</p>}
+                            {ps4Quality&&<div className="geo96-next-step" role="status">
+                              <strong>Diagnóstico: {ps4Quality.status==="INSUFICIENTE"?
+                                "Amostragem insuficiente":"Exige revisão do responsável técnico"}</strong>
+                              <p>Controles: {ps4Quality.checkpoints} · quadrantes: {ps4Quality.quadrant_count}/4 ·
+                                RMSE horizontal: {ps4Quality.rmse_m.toFixed(3)} m ·
+                                P90: {ps4Quality.p90_m.toFixed(3)} m ·
+                                máximo: {ps4Quality.max_m.toFixed(3)} m.</p>
+                              <p>{ps4Quality.preliminary_criterion_met?
+                                "Triagem interna atendida. Ainda falta a validação técnica documentada.":
+                                "Triagem não atendida. Não utilizar a cena como fonte de precisão comprovada."}</p>
+                            </div>}
+                          </details>
                           <details className="geo97-cbers-panel">
                             <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
                             <p className="pecas-note">Escolha a imagem com base no enquadramento do imóvel.
