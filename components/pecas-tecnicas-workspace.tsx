@@ -563,6 +563,41 @@ export function PecasTecnicasWorkspace({
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(typeof payload?.detail === "string"
         ? payload.detail : "Não foi possível calcular a interseção PA2.");
+      // PA1 e PA2 geométrico: projeção da solução na primeira linha de apoio.
+      // A altitude é SEMPRE física (HN/H), nunca a h elipsoidal do TOPCON.
+      if (payload && payload.physical_altitude_m == null && witnesses.length >= 2) {
+        const a = witnesses[0]!, b = witnesses[1]!;
+        const dx = b.easting_m - a.easting_m;
+        const dy = b.northing_m - a.northing_m;
+        const length2 = dx*dx + dy*dy;
+        const t = length2 > 0 ? (
+          ((payload.easting_m - a.easting_m)*dx +
+           (payload.northing_m - a.northing_m)*dy) / length2
+        ) : NaN;
+        const pa = verticalCalculated.find(p => p.name === a.name);
+        const pb = verticalCalculated.find(p => p.name === b.name);
+        const hA = verticalModel === "hgeoHNOR2020" ? pa?.normal_height_m : pa?.orthometric_height_m;
+        const hB = verticalModel === "hgeoHNOR2020" ? pb?.normal_height_m : pb?.orthometric_height_m;
+        if (Number.isFinite(t) && t >= 0 && t <= 1 &&
+            Number.isFinite(hA) && Number.isFinite(hB)) {
+          payload.physical_altitude_m = (hA as number) + t*((hB as number)-(hA as number));
+          payload.physical_altitude_type = verticalModel === "hgeoHNOR2020" ? "HN" : "H";
+          payload.warnings = [...(payload.warnings ?? []),
+            "Altitude física interpolada pelo alinhamento dos dois primeiros marcos.",
+            "A altura elipsoidal h requer conversão específica no ponto resultante."];
+        }
+        const ba = topconBoundary.find(p => p.name === a.name);
+        const bb = topconBoundary.find(p => p.name === b.name);
+        for (const [field, dest] of [
+          ["sigma_lon_m", "sigma_e_m"], ["sigma_lat_m", "sigma_n_m"],
+          ["sigma_h_m", "sigma_h_m"],
+        ] as const) {
+          const x = ba?.[field], y = bb?.[field];
+          if (x != null && y != null && x >= 0 && y >= 0) {
+            payload[dest] = (x+y)/2;
+          }
+        }
+      }
       setPa2Result(payload);
     } catch (error) {
       setPa2Error(error instanceof Error ? error.message : "Falha ao calcular PA2.");
