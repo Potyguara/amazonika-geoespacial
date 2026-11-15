@@ -889,6 +889,67 @@ export function PecasTecnicasWorkspace({
       return next;
     });
   };
+  const [sigmaImportFeedback, setSigmaImportFeedback] = useState("");
+  const importAdjustedSigmas = async (file: File) => {
+    setSigmaImportFeedback("");
+    try {
+      if (file.size > 1024 * 1024) throw new Error("O arquivo não pode exceder 1 MB.");
+      const lines = (await file.text()).replace(/^\uFEFF/, "").split(/\r?\n/)
+        .map(v => v.trim()).filter(v => v && !v.startsWith("#"));
+      if (lines.length < 2) throw new Error("Use CSV com cabeçalho e pelo menos um ponto ajustado.");
+      const delim = lines[0].includes(";") ? ";" : lines[0].includes("\t") ? "\t" : ",";
+      const fields = (s: string) => s.split(delim).map(v => v.trim().replace(/^"|"$/g,""));
+      const normalize = (s: string) => s.toUpperCase().normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]/g,"");
+      const header = fields(lines[0]).map(normalize);
+      const col = (aliases: string[]) => header.findIndex(x => aliases.includes(x));
+      const idCol = col(["ID","PONTO","VERTICE","CODIGO","NAME"]);
+      const eCol = col(["SIGMAE","SIGMAEM","SIGMAESTE","SIGMALONGITUDE","SIGMALON"]);
+      const nCol = col(["SIGMAN","SIGMANM","SIGMANORTE","SIGMALATITUDE","SIGMALAT"]);
+      const hCol = col(["SIGMAH","SIGMAHM","SIGMAALTURA"]);
+      if ([idCol,eCol,nCol].some(i => i < 0)) throw new Error(
+        "Cabeçalho esperado: ID;SIGMA_E;SIGMA_N;SIGMA_H (metros). " +
+        "Utilize as precisões dos pontos ajustados, não RMS das linhas de base.");
+      const parseValue = (text: string, label: string) => {
+        const value = Number(text.replace(",","."));
+        if (!text || !Number.isFinite(value) || value < 0 || value > 100)
+          throw new Error("Valor de precisão inválido em "+label);
+        return value;
+      };
+      const lookup = new Map<string, TopconBoundaryPoint>();
+      for(const p of topconBoundary) {
+        lookup.set(normalize(p.name),p);
+        if(p.sigef_vertex_code)lookup.set(normalize(p.sigef_vertex_code),p);
+      }
+      const changes = new Map<string,{e:number;n:number;h:number|null}>();
+      for(const line of lines.slice(1)){
+        const cells=fields(line), id=cells[idCol] || "";
+        const point=lookup.get(normalize(id));
+        if(!point)throw new Error("Ponto não encontrado na peça: "+id);
+        if(changes.has(point.name))throw new Error("Ponto duplicado no arquivo: "+id);
+        changes.set(point.name,{
+          e:parseValue(cells[eCol] || "",id+" σE"),
+          n:parseValue(cells[nCol] || "",id+" σN"),
+          h:hCol>=0 && cells[hCol] ? parseValue(cells[hCol],id+" σh") : null,
+        });
+      }
+      const unmatched=topconBoundary.filter(p=>!changes.has(p.name));
+      if(unmatched.length)throw new Error("Arquivo incompleto: faltam "+unmatched
+        .map(p=>p.sigef_vertex_code||p.name).join(", ")+". Nada foi alterado.");
+      setTopconBoundary(old=>old.map(p=>{
+        const row=changes.get(p.name);
+        if(!row)return p;
+        return {...p,sigma_lon_m:row.e,sigma_lat_m:row.n,
+          sigma_h_m:row.h??p.sigma_h_m,sigma_reference_confirmed:false};
+      }));
+      setTopconReview(null);setSigefParcelReview(null);setSigefValidatedSignature("");
+      setSigmaImportFeedback(changes.size+" precisões individuais importadas de "+file.name+
+        ". Confira a origem do processamento e use 'Confirmar sigmas individuais preenchidos'.");
+    } catch(error) {
+      setSigmaImportFeedback("Importação não concluída: "+
+        (error instanceof Error?error.message:"arquivo inválido"));
+    }
+  };
   const validateTopconBoundary = async () => {
     setTopconReviewBusy(true);
     setTopconReviewFeedback({ status:"info", message:"Conferindo os marcos GNSS, os sigmas e as parcelas TOPCON..." });
@@ -1320,7 +1381,22 @@ export function PecasTecnicasWorkspace({
                         </table>
                       </div>
                       <div className="pecas-card" aria-label="Precisões SIGEF">
-                        <h4>Precisões e referências dos confrontantes</h4>
+                        <h4>Precisões para certificação SIGEF — etapa opcional na planta preliminar</h4>
+                        <p className="pecas-note">As precisões individuais σE/σN são necessárias à pré-validação
+                          oficial, mas <strong>não são exigidas para desenhar, fechar e salvar a poligonal preliminar PS4</strong>.
+                          Não preencha valores estimados nem reaproveite os RMS das linhas de base.</p>
+                        <label className="pecas-field"><span>Importar precisões de todos os pontos ajustados (CSV)</span>
+                          <input type="file" accept=".csv,.txt,text/csv,text/plain"
+                            onChange={e=>{
+                              const file=e.currentTarget.files?.[0];
+                              if(file)void importAdjustedSigmas(file);
+                              e.currentTarget.value="";
+                            }}/>
+                        </label>
+                        <p className="pecas-note">Formato: ID;SIGMA_E;SIGMA_N;SIGMA_H (metros).
+                          Aceita o nome TOPCON ou código SIGEF. Valores importados precisam ser conferidos pelo RT.
+                          Sem relatório de ajustamento individual, mantenha esta etapa pendente.</p>
+                        {sigmaImportFeedback && <p role="status" className="pecas-note">{sigmaImportFeedback}</p>
                         <p><strong>Valores individuais:</strong> {topconBoundary.filter(p =>
                           p.sigma_lon_m !== null && p.sigma_lat_m !== null).length}
                           /{topconBoundary.length} vértices com valores disponíveis.
@@ -1563,6 +1639,20 @@ export function PecasTecnicasWorkspace({
                       </div>
                       <div className="pecas-card" aria-label="Validação do perímetro TOPCON" style={{marginTop:12}}>
                         <h4>Validação técnica dos marcos GNSS (TOPCON)</h4>
+                        <button type="button" className="pecas-secondary"
+                          onClick={()=>{
+                            const target=document.getElementById("ps4-preliminary-review");
+                            if(!target){setTopconReviewFeedback({status:"error",
+                              message:"Ainda não há poligonal PS4 fechada. Volte ao espaço de trabalho, selecione o segmento e confirme a prévia."});return;}
+                            target.scrollIntoView({behavior:"smooth",block:"center"});
+                            setTopconReviewFeedback({status:"info",message:
+                              "Você está revisando a poligonal PS4 preliminar. Sigmas não são exigidos nesta etapa."});
+                          }}>
+                          Ir para poligonal PS4 preliminar (sem informar sigmas)
+                        </button>
+                        <p className="pecas-note"><strong>Não é necessário clicar nesta validação para concluir
+                          a prévia PS4.</strong> Os 0/5 sigmas representam uma pendência documental para SIGEF,
+                          não um erro de importação ou cálculo das altitudes.</p>
                         <p className="pecas-note">Esta ação confere somente os marcos GNSS do levantamento.
                           O fechamento PS4 em azul é uma prévia independente e NÃO é enviado como geometria certificada.</p>
                         <p className="pecas-note">Marcos disponíveis: {topconBoundary.length} ·
@@ -1571,7 +1661,7 @@ export function PecasTecnicasWorkspace({
                         <button type="button" className="pecas-primary"
                           disabled={topconReviewBusy || topconBoundary.length < 3}
                           onClick={() => void validateTopconBoundary()}>
-                          {topconReviewBusy ? "Validando, aguarde..." : "Validar perímetro TOPCON"}
+                          {topconReviewBusy ? "Validando, aguarde..." : "Pré-validar perímetro TOPCON para SIGEF"}
                         </button>
                         {topconBoundary.length < 3 &&
                           <p role="status" className="pecas-warning">Importe pelo menos três marcos de limite para habilitar a validação.</p>}
@@ -1786,7 +1876,7 @@ export function PecasTecnicasWorkspace({
                      de situação. Estes pontos não substituem automaticamente os vértices oficiais nem são enviados
                      ao SIGEF enquanto não houver validação da acurácia orbital e revisão do RT.</p>
                    {ps4Ready && <div className="pecas-card" aria-label="Sequência consolidada da poligonal PS4">
-                     <h4>Prévia consolidada · marcos M e vértices V na ordem do perímetro</h4>
+                     <h4 id="ps4-preliminary-review">Prévia consolidada · marcos M e vértices V na ordem do perímetro</h4>
                      <p>O último ponto é ligado automaticamente ao primeiro para fechar a prévia.
                        Altitudes normais dos M são calculadas pelo IBGE quando disponíveis;
                        os pontos V permanecem sem altitude ou precisão certificável.</p>
