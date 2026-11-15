@@ -765,6 +765,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       }),
       vertex_names: feature.get("vertexNames") as string[],
       confrontants: feature.get("confrontants") as string[],
+      is_preliminary: feature.get("technical_piece_status") === "PRELIMINAR_NAO_CERTIFICADA",
       altitudes_m: ((feature.get("altitudes") as string[] | undefined) ?? []).map((value) =>
         value?.trim() ? Number(value.replace(",", ".")) : null
       ),
