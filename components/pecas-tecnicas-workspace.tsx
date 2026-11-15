@@ -314,6 +314,7 @@ export function PecasTecnicasWorkspace({
   const [showAllTasks, setShowAllTasks] = useState(false);
   const [workflowNotice, setWorkflowNotice] = useState("");
   const jumpToWorkflow = (index: number) => {
+    setShowAllTasks(false);
     const item = premiumSteps[index];
     setPremiumStep(index);
     setStage(item.stage);
@@ -1372,11 +1373,178 @@ export function PecasTecnicasWorkspace({
         ))}
       </nav>
       <main className="pecas-main" id="geo96-main">
+        {showAllTasks && stage===0 && <button type="button" className="pecas-secondary"
+          style={{marginBottom:12}} onClick={()=>setShowAllTasks(false)}>
+          Voltar ao fluxo guiado · mostrar somente a etapa atual
+        </button>}
         {workflowNotice && <div className="geo96-workflow-feedback" role="status">
           <Check size={16}/><span>{workflowNotice}</span>
           <button type="button" onClick={() => setWorkflowNotice("")} aria-label="Fechar orientação">×</button>
         </div>}
-        {stage === 0 && (
+        {stage === 0 && !showAllTasks && premiumStep === 4 && <OfficialOverlapCheck
+          geometry={ps4PreviewGeometry}
+          onNext={() => jumpToWorkflow(5)} />}
+        {stage === 0 && !showAllTasks && premiumStep !== 4 && (
+          <div className="pecas-data-layout geo97-focus-layout">
+            <div className="pecas-card geo96-main-card geo97-focused-card">
+              <div className="geo96-section-heading">
+                <small>PASSO {premiumStep+1} DE {premiumSteps.length} · FLUXO GUIADO</small>
+                <h3>{premiumSteps[premiumStep]?.title}</h3>
+                <p>{premiumSteps[premiumStep]?.detail}. As demais tarefas ficam ocultas
+                  para manter o foco. Os dados da peça continuam preservados.</p>
+              </div>
+              {premiumStep===0 && <>
+                <h4>Importar processamento GNSS — TOPCON Tools</h4>
+                <label className="pecas-field"><span>Relatório TOPCON (HTML, XLSX ou PDF textual)</span>
+                  <input type="file" accept=".html,.htm,.xlsx,.pdf"
+                    disabled={topconLoading} onChange={event=>{
+                      const file=event.currentTarget.files?.[0];
+                      if(file)void importTopcon(file);
+                      event.currentTarget.value="";
+                    }}/></label>
+                {topconLoading&&<p role="status">Lendo e interpretando o levantamento…</p>}
+                {topconError&&<p role="alert" className="pecas-warning">{topconError}</p>}
+                {topconPreview&&<div className="geo96-next-step" role="status">
+                  {topconPreview.point_count} pontos identificados no arquivo {topconPreview.filename}.
+                  {topconBoundary.length} marcos de limite selecionados.
+                </div>}
+              </>}
+              {premiumStep===1 && <>
+                <h4>Vértices GNSS que compõem o imóvel</h4>
+                <p>Escolha os marcos e confirme sua ordem. Os códigos SIGEF não alteram
+                  os identificadores originais do processamento TOPCON.</p>
+                {!topconPreview&&<p className="pecas-warning" role="status">
+                  Ainda não há processamento TOPCON. Volte ao passo 1.</p>}
+                {topconPreview&&<div className="pecas-table-wrap"><table className="pecas-table">
+                  <thead><tr><th>Incluir</th><th>Ordem</th><th>Ponto TOPCON</th>
+                    <th>Código SIGEF</th><th>Precisão GNSS</th><th>Reordenar</th></tr></thead>
+                  <tbody>{topconPreview.points.filter(p=>p.point_role!=="CONTROL")
+                    .map(p=>{
+                      const i=topconBoundary.findIndex(item=>item.name===p.name);
+                      const selected=i>=0?topconBoundary[i]:null;
+                      return <tr key={p.name}>
+                        <td><input aria-label={"Selecionar "+p.name} type="checkbox"
+                          checked={Boolean(selected)} onChange={e=>{
+                            setTopconReview(null);setSigefParcelReview(null);
+                            setSigefValidatedSignature("");
+                            setTopconBoundary(current=>e.target.checked?
+                              [...current,{...p,point_role:"BOUNDARY" as const,
+                                sigef_vertex_code:"",parcel_number:"1",
+                                parcel_name:data.title||"Parcela 1",
+                                ellipsoidal_height_m:p.ellipsoidal_height_reported_m??null,
+                                sigma_lon_m:p.sigma_e_m??null,sigma_lat_m:p.sigma_n_m??null,
+                                sigma_h_m:p.sigma_u_m??null,sigma_reference_confirmed:false,
+                                height_reference_confirmed:false,confrontant_cns:"",
+                                confrontant_registration:"",sigef_method:"",
+                                boundary_type:"",confrontant:""}]:
+                              current.filter(item=>item.name!==p.name));
+                          }}/></td>
+                        <td>{selected?i+1:"—"}</td>
+                        <td><strong>{p.name}</strong></td>
+                        <td>{selected?<input aria-label={"Código SIGEF "+p.name}
+                          value={selected.sigef_vertex_code} onChange={e=>
+                            setTopconBoundary(old=>old.map(item=>item.name===p.name?
+                              {...item,sigef_vertex_code:e.target.value}:item))}/>:"—"}</td>
+                        <td>{p.sigma_hz_m!=null?p.sigma_hz_m.toFixed(3)+" m":"Não fornecida"}</td>
+                        <td>{selected&&<span className="geo97-order-actions">
+                          <button type="button" aria-label={"Subir "+p.name}
+                            disabled={i===0} onClick={()=>setTopconBoundary(old=>{
+                              const next=[...old];[next[i-1],next[i]]=[next[i],next[i-1]];return next;
+                            })}>↑</button>
+                          <button type="button" aria-label={"Descer "+p.name}
+                            disabled={i===topconBoundary.length-1} onClick={()=>setTopconBoundary(old=>{
+                              const next=[...old];[next[i+1],next[i]]=[next[i],next[i+1]];return next;
+                            })}>↓</button></span>}</td>
+                      </tr>;
+                    })}</tbody></table></div>}
+                <p className="geo96-next-step">{topconBoundary.length} marcos na sequência.
+                  A pré-validação SIGEF e a edição manual de sigmas são procedimentos
+                  separados desta seleção.</p>
+              </>}
+              {premiumStep===2 && <>
+                <h4>Altitudes normais — IBGE hgeoHNOR2020</h4>
+                <p>Importe o arquivo <code>saida.txt</code> do IBGE.
+                  Os fatores η são aplicados aos marcos M sem alterar h original.</p>
+                <label className="pecas-field"><span>Modelo de conversão</span>
+                  <select value={verticalModel} onChange={e=>
+                    setVerticalModel(e.target.value as "hgeoHNOR2020"|"MAPGEO2015")}>
+                    <option value="hgeoHNOR2020">hgeoHNOR2020 · altitude normal</option>
+                    <option value="MAPGEO2015">MAPGEO2015 · altitude ortométrica</option>
+                  </select></label>
+                <label className="pecas-field"><span>Arquivo de resultados do IBGE (.txt, .csv)</span>
+                  <input type="file" accept=".txt,.csv" onChange={e=>{
+                    const file=e.currentTarget.files?.[0];
+                    if(file)void importIbgeBatch(file);
+                    e.currentTarget.value="";
+                  }}/></label>
+                {ibgeBatchNotice&&<p role="status" className="geo96-next-step">{ibgeBatchNotice}</p>}
+                {verticalError&&<p role="alert" className="pecas-warning">{verticalError}</p>}
+                <div className="pecas-table-wrap"><table className="pecas-table">
+                  <thead><tr><th>Marco</th><th>h (m)</th><th>Fator η (m)</th><th>HN (m)</th></tr></thead>
+                  <tbody>{topconBoundary.map(p=>{
+                    const result=verticalCalculated?.find(x=>x.name===p.name);
+                    return <tr key={p.name}><td>{p.sigef_vertex_code||p.name}</td>
+                      <td>{p.ellipsoidal_height_m?.toFixed(3)??"—"}</td>
+                      <td>{verticalFactors[p.name]??"—"}</td>
+                      <td>{result?.normal_height_m?.toFixed(3)??"Pendente"}</td>
+                    </tr>;
+                  })}</tbody></table></div>
+                <button type="button" className="pecas-primary" disabled={verticalLoading}
+                  onClick={()=>void calculateVertical()}>
+                  {verticalLoading?"Calculando…":"Calcular altitudes normais"}
+                </button>
+                <p className="pecas-note">A altitude dos V por PS4 exige fonte adicional
+                  tecnicamente apropriada; não será estimada como se fosse GNSS.</p>
+              </>}
+              {premiumStep===3 && <>
+                <h4>Vértices V por sensores orbitais</h4>
+                <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
+                  e faça o fechamento M–V–M antes de consolidar a parcela preliminar.</p>
+                <p className="geo96-next-step">{ps4Draft.length} vértices V registrados.
+                  Fechamento: {ps4Ready?"confirmado para prévia":"pendente"}.</p>
+                <button type="button" className="pecas-primary"
+                  disabled={!topconPreview||topconBoundary.length<2}
+                  onClick={()=>{
+                    setConstructionMethod("PS4");setPa2Mode(true);
+                  }}>Abrir mapa PS4 e imagens INPE</button>
+                {ps4Ready&&<div className="geo97-adopt-banner" role="status">
+                  <strong>Poligonal fechada com {ps4Closure.names.length} vértices.</strong>
+                  <p>A prévia e o PDF de cinco marcos são diferentes até aplicar
+                    o novo perímetro à parcela de trabalho.</p>
+                  <button type="button" className="pecas-primary"
+                    onClick={adoptPs4WorkingParcel}>
+                    Aplicar geometria M–V à parcela preliminar
+                  </button>
+                </div>}
+                <p className="pecas-note">Acurácia PS4: não demonstrada;
+                  os V permanecem identificados como preliminares, sem coordenadas
+                  e altitudes certificáveis.</p>
+              </>}
+              <div className="geo97-flow-actions">
+                <button type="button" className="pecas-secondary"
+                  onClick={()=>setShowAllTasks(true)}>Abrir edição avançada desta peça</button>
+                <button type="button" className="pecas-primary"
+                  onClick={()=>jumpToWorkflow(Math.min(4,premiumStep+1))}>
+                  {premiumStep===3?"Ir para sobreposições SIGEF":"Continuar para o próximo passo"} →
+                </button>
+              </div>
+            </div>
+            <div className="geo97-map-aside">
+              <SituationMapPreview
+                geometry={displaySituationGeometry}
+                geometryKey={displaySituationKey}
+                saved={previewTopconGeometry?null:situationSaved}
+                onSave={onSaveSituation}
+                vertexNames={displayVertexNames}
+                showVertices={Boolean(previewTopconGeometry)}
+                previewBasemap={previewTopconGeometry?"osm":"satellite"}
+                ps4Draft={ps4Draft}
+                ps4ClosureGeometry={ps4PreviewGeometry}
+              />
+            </div>
+          </div>
+        )}
+        {stage === 0 && showAllTasks && (
           <div className="pecas-data-layout">
             <div className="pecas-card geo96-main-card">
               <div className="geo96-section-heading">
