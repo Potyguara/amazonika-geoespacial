@@ -6,6 +6,7 @@ resultado negativo. A API não desloca vértices nem emite liberação SIGEF.
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -101,6 +102,20 @@ def check_official_overlaps(payload: OverlapRequest, db: Session = Depends(get_d
                 "slug": source.slug,
             }
             continue
+        if version.feature_count is None or version.feature_count <= 0:
+            status[kind] = {"checked": False, "status": "VERSAO_SEM_FEICOES",
+                             "source": source.name, "slug": source.slug}
+            continue
+        if kind == "SIGEF Mensais" and (
+            not version.reference_date or
+            version.reference_date < date.today() - timedelta(days=65)
+        ):
+            status[kind] = {
+                "checked": False, "status": "VERSAO_MENSAL_DESATUALIZADA",
+                "source": source.name, "slug": source.slug,
+                "reference_date": str(version.reference_date) if version.reference_date else None,
+            }
+            continue
         rows = db.execute(text("""
             WITH target AS (
                 SELECT ST_SetSRID(ST_GeomFromGeoJSON(:geom), 4674) AS geom
@@ -114,6 +129,7 @@ def check_official_overlaps(payload: OverlapRequest, db: Session = Depends(get_d
               FROM geo_features f
               CROSS JOIN target
              WHERE f.version_id = :version_id
+               AND ST_Dimension(f.geom) = 2
                AND f.geom && ST_Expand(target.geom, :near_deg)
                AND ST_DWithin(f.geom::geography, target.geom::geography, :near_m)
              ORDER BY ST_Intersects(f.geom, target.geom) DESC,
@@ -155,6 +171,7 @@ def check_official_overlaps(payload: OverlapRequest, db: Session = Depends(get_d
                                        pt.geom::geography) AS displacement_m
                     FROM geo_features f CROSS JOIN pt
                     WHERE f.version_id=:version_id
+                      AND ST_Dimension(f.geom) = 2
                       AND f.geom && ST_Expand(pt.geom,:near_deg)
                       AND ST_DWithin(ST_Boundary(f.geom)::geography,
                                      pt.geom::geography,:max_shift)
