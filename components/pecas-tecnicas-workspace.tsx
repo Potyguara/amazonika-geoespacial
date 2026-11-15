@@ -1489,6 +1489,8 @@ export function PecasTecnicasWorkspace({
                           preliminar. A exportação SIGEF exige os dados técnicos previstos pelo seu esquema,
                           sem atribuir valores inexistentes nem confundir RMS de vetores com σ de coordenadas.
                         </p>
+                        <details className="geo96-optional-section">
+                          <summary>Ajustes avançados de sigmas e referências · opcional</summary>
                         <p className="pecas-note">As precisões individuais σE/σN são necessárias à pré-validação
                           oficial, mas <strong>não são exigidas para desenhar, fechar e salvar a poligonal preliminar PS4</strong>.
                           Não preencha valores estimados nem reaproveite os RMS das linhas de base.</p>
@@ -1640,6 +1642,7 @@ export function PecasTecnicasWorkspace({
                           </table>
                         </div>
                          </details>
+                        </details>
                       </div>
                        
                       <div id="geo96-altimetry" className="pecas-card geo96-task-card" aria-label="Conversão altimétrica IBGE">
