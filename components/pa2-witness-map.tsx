@@ -29,6 +29,7 @@ type Props = {
   onPick: (name: string) => void;
   method?: "PA1" | "PA2" | "PT8" | "PS4";
   ps4Points?: Array<{ name: string; latitude: number; longitude: number }>;
+  ps4Candidate?: { latitude: number; longitude: number } | null;
   onPs4Click?: (point: { longitude: number; latitude: number }) => void;
   supportLineMode?: boolean;
   onPositionHint?: (point: { longitude: number; latitude: number }) => void;
@@ -40,7 +41,7 @@ type Props = {
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
-  polygonGeometry, polygonKey = "", ps4Points = [], onPs4Click }: Props) {
+  polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate, onPs4Click }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -336,11 +337,16 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       feature.set("label", point.name);
       source.addFeature(feature);
     }
+    if (ps4Candidate && Number.isFinite(ps4Candidate.longitude) && Number.isFinite(ps4Candidate.latitude)) {
+      const f = new Feature({ geometry: new Point(fromLonLat([ps4Candidate.longitude, ps4Candidate.latitude])) });
+      f.set("label", "V? confirmar");
+      source.addFeature(f);
+    }
     if (ps4Points.length > 1) {
       const coords = ps4Points.map(p => fromLonLat([p.longitude, p.latitude]));
       source.addFeature(new Feature({ geometry: new LineString(coords) }));
     }
-  }, [JSON.stringify(ps4Points)]);
+  }, [JSON.stringify(ps4Points), ps4Candidate?.latitude, ps4Candidate?.longitude]);
 
   useEffect(() => {
     if (method === "PS4") setCbersEnabled(true);
@@ -392,7 +398,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       <button type="button" onClick={() => changeZoom(-1)}>Zoom −</button>
     </div>
     <div ref={container} style={{ height: "min(68vh, 700px)", minHeight: 390, width: "100%", borderRadius: 9,
-      border: "1px solid #9ca3af", overflow: "hidden" }} aria-label="Mapa de apoio à interseção de retas PA2" />
+      border: "1px solid #9ca3af", overflow: "hidden" }} aria-label={method === "PS4" ? "Mapa de restituição experimental de vértices PS4" : "Mapa de construção de vértices"} />
     {baseError && <p role="status">{baseError}</p>}
     {cbersError && <p role="status" style={{ fontSize: 12 }}>{cbersError}</p>}
     {ps4MapWarning && <p role="alert" style={{ fontSize: 12, color: "#9f1239" }}>{ps4MapWarning}</p>}
