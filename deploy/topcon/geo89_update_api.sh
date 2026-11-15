@@ -42,6 +42,12 @@ docker run --rm --network none --memory 512m --cpus 0.5 \
   -e PYTHONPATH=/app --workdir /app \
   --entrypoint python "$NEW" -B /tmp/test_pa2_support_line.py
 
+echo "===== 2B. IMPORTAÇÃO TOPCON E SIGMAS DOS PONTOS ====="
+docker run --rm --network none --memory 512m --cpus 0.5 \
+  -v "$PWD/backend/tests/test_topcon_import.py:/tmp/test_topcon_import.py:ro" \
+  -e PYTHONPATH=/app --workdir /app \
+  --entrypoint python "$NEW" -B /tmp/test_topcon_import.py
+
 echo "===== 2B. REGRESSOES PA2 E SIGMAS ====="
 for TEST in test_pa2_intersection.py test_topcon_perimeter_review.py; do
   docker run --rm --network none --memory 512m --cpus 0.5 \
