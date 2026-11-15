@@ -1094,6 +1094,74 @@ export function PecasTecnicasWorkspace({
       setTopconLoading(false);
     }
   };
+  const adoptPs4WorkingParcel = () => {
+    setTopconError("");
+    setWorkflowNotice("");
+    try {
+      if (!ps4Ready || !ps4Closure.geometry)
+        throw new Error("Confirme primeiro a sequência e o fechamento da poligonal PS4.");
+      const numbers = new Set(topconBoundary.map(p => p.parcel_number));
+      if (numbers.size !== 1)
+        throw new Error("A incorporação PS4 é feita uma parcela de cada vez. Separe as parcelas antes de continuar.");
+      if (!topconBoundary.every(p => p.height_reference_confirmed))
+        setWorkflowNotice("Existem alturas GNSS sem confirmação do referencial. A planta permanecerá preliminar.");
+      const initial = topconBoundary[ps4StartIndex];
+      if (!initial || initial.longitude == null || initial.latitude == null)
+        throw new Error("Marco inicial da restituição PS4 inválido.");
+      const utmZone = lonLatToSirgasUtm(initial.longitude,initial.latitude);
+      const vertices: TopconBoundaryPoint[] = [
+        ...topconBoundary.slice(0,ps4StartIndex+1),
+        ...ps4Draft.map(point=>{
+          const utm = lonLatToSirgasUtm(point.longitude,point.latitude);
+          if (utm.zone !== utmZone.zone || utm.hemisphere !== utmZone.hemisphere)
+            throw new Error("O vértice "+point.name+" não está na zona UTM do marco. Revise a cena.");
+          return {
+            ...initial,
+            name: point.name, sigef_vertex_code: point.name, point_role:"BOUNDARY" as const,
+            longitude:point.longitude, latitude:point.latitude,
+            easting_m:utm.easting_m,northing_m:utm.northing_m,
+            elevation_reported_m:null,ellipsoidal_height_reported_m:null,ellipsoidal_height_m:null,
+            sigma_e_m:null,sigma_n_m:null,sigma_u_m:null,sigma_hz_m:null,
+            sigma_lon_m:null,sigma_lat_m:null,sigma_h_m:null,
+            sigma_reference_confirmed:false,height_reference_confirmed:false,
+            sigma_suggestion_e_m:null,sigma_suggestion_n_m:null,sigma_suggestion_h_m:null,
+            derived_physical_altitude_m:null,derived_physical_model:null,
+            sigef_method:"PS4",boundary_type:"LN1",
+            derived_calculation:{method:"PS4",scene_id:point.scene_id,
+              status:"PRELIMINAR",accuracy_verified:false,
+              note:"Posicionamento orbital visual sem acurácia ou h comprovadas"},
+          };
+        }),
+        ...topconBoundary.slice(ps4StartIndex+1),
+      ];
+      if(vertices.length !== ps4Closure.names.length ||
+         vertices.some((p,i) => p.name !== ps4Closure.names[i]))
+        throw new Error("A ordem dos vértices mudou. Feche a prévia novamente.");
+      if(!window.confirm("Aplicar a poligonal de "+vertices.length+
+         " vértices à PARCELA PRELIMINAR para elaborar planta e memorial?\n"+
+         "Os pontos V não possuem acurácia PS4 ou altitude comprovadas.\n"+
+         "Isto não libera a ODS nem constitui certificação SIGEF."))return;
+      onAdoptTopconParcels([{
+        number:initial.parcel_number,
+        name:initial.parcel_name || data.title || "Parcela preliminar",
+        vertices,
+      }]);
+      onDataChange("plantHeading","PLANTA PRELIMINAR — NÃO CERTIFICADA");
+      onDataChange("memorialHeading","MEMORIAL PRELIMINAR — NÃO CERTIFICADO");
+      setEditableMemorial("");
+      setMemorialSaved(false);
+      setMemorialDirty(false);
+      setPdfBlob(null);setPdfUrl(null);lastPdfKey.current="";
+      setStage(1);setPremiumStep(5);
+      setSavedPieceNotice("Parcela preliminar M–V transferida: "+vertices.length+
+        " vértices. Regere memorial e planta; SIGEF permanece pendente.");
+      setWorkflowNotice("Parcela M–V aplicada ao mapa. Confira áreas e vértices, depois regere o memorial.");
+    }catch(error){
+      setTopconError(error instanceof Error?error.message:"Não foi possível aplicar os V.");
+      setWorkflowNotice("Falha ao aplicar poligonal M–V. Revise o fechamento e os marcos selecionados.");
+    }
+  };
+
   const adoptTopconGeometry = () => {
     setTopconError("");
     try {
@@ -1942,6 +2010,18 @@ export function PecasTecnicasWorkspace({
                      ao SIGEF enquanto não houver validação da acurácia orbital e revisão do RT.</p>
                    {ps4Ready && <div className="pecas-card" aria-label="Sequência consolidada da poligonal PS4">
                      <h4 id="ps4-preliminary-review">Prévia consolidada · marcos M e vértices V na ordem do perímetro</h4>
+                     <div className="geo97-adopt-banner" role="status">
+                       <strong>Próximo passo: aplicar os {ps4Closure.names.length} vértices à parcela de trabalho.</strong>
+                       <p>Atualmente a tabela e o mapa mostram apenas a prévia PS4.
+                         A planta e o memorial antigos continuam com a geometria de cinco marcos
+                         até confirmar esta transferência.</p>
+                       <button type="button" className="pecas-primary"
+                         onClick={adoptPs4WorkingParcel}>
+                         Aplicar geometria M–V na parcela preliminar
+                       </button>
+                       <small>A ação substitui a parcela TOPCON anterior na área de trabalho,
+                         preservando o levantamento GNSS; os V continuam pendentes de acurácia e altitude.</small>
+                     </div>
                      <p>O último ponto é ligado automaticamente ao primeiro para fechar a prévia.
                        Altitudes normais dos M são calculadas pelo IBGE quando disponíveis;
                        os pontos V permanecem sem altitude ou precisão certificável.</p>
