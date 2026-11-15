@@ -17,6 +17,7 @@ import { Circle as CircleStyle, Fill, Stroke, Style, Text as TextStyle } from "o
 
 export type Pa2MapWitness = {
   name: string;
+  virtual?: boolean;
   latitude: number | null;
   longitude: number | null;
 };
@@ -120,6 +121,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       feature.set("label", point.name);
       feature.set("pointName", point.name);
       feature.set("chosen", selected.includes(point.name));
+      feature.set("virtual", Boolean(point.virtual));
       source.addFeature(feature);
     }
     for (let i = 0; i + 1 < selected.length &&
