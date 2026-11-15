@@ -703,7 +703,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       if (!(getArea(polygon, { projection: "EPSG:3857" }) > 0.001)) {
         throw new Error("Parcela " + parcel.number + ": geometria sem área válida.");
       }
-      const id = "TOPCON-" + Date.now() + "-" + parcel.number.replace(/[^a-zA-Z0-9_-]/g, "");
+      const id = "TOPCON-PARCEL-" + parcel.number.replace(/[^a-zA-Z0-9_-]/g, "");
       const feature = new Feature({ geometry: polygon });
       feature.set("workPolygonId", id, true);
       feature.set("workPolygonName", parcel.name, true);
@@ -732,7 +732,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const incomingNumbers = new Set(parcels.map(p => p.number));
     for (const existing of polygonFeatures()) {
       const id = String(existing.get("workPolygonId") ?? "");
-      const match = /^TOPCON-\\d+-(.+)$/.exec(id);
+      const match = /^TOPCON-(?:\d+|PARCEL)-(.+)$/.exec(id);
       if (match && incomingNumbers.has(match[1])) sourceRef.current.removeFeature(existing);
     }
     sourceRef.current.addFeatures(candidates);
