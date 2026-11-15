@@ -6654,3 +6654,18 @@ input {
  .pecas-workspace .geo96-main-card{padding:14px;}
  .pecas-workspace .geo96-content > .pecas-footer{flex-wrap:wrap;padding:10px 14px;}
 }
+
+
+/* GEO96 — advanced GNSS data is accessible but not forced into the normal workflow. */
+.pecas-workspace .geo96-optional-section {
+  border:1px solid #dce6e3; border-radius:11px; padding:0 14px;
+  margin-top:12px; background:#f7faf9;
+}
+.pecas-workspace .geo96-optional-section > summary {
+  padding:14px 3px; cursor:pointer; font-size:12px; font-weight:750;
+  color:#28584d; list-style-position:inside;
+}
+.pecas-workspace .geo96-optional-section[open] > summary {
+  margin-bottom:12px; border-bottom:1px solid #dbe6e1;
+}
+.pecas-workspace .geo96-optional-section:focus-within {border-color:#85b7a9;}
