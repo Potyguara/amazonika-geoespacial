@@ -1098,7 +1098,9 @@ export function PecasTecnicasWorkspace({
     try {
       await fn();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Falha na exportação.");
+      const message = error instanceof Error ? error.message : "Falha na operação.";
+      setActionError(message);
+      setPs4Status({ kind: "error", message: "Operação não concluída: " + message });
     } finally {
       setActionBusy(false);
     }
@@ -1723,6 +1725,55 @@ export function PecasTecnicasWorkspace({
                    <p>{ps4Draft.length} ponto(s) restituído(s) visualmente. O traçado aparece em vermelho no mapa
                      de situação. Estes pontos não substituem automaticamente os vértices oficiais nem são enviados
                      ao SIGEF enquanto não houver validação da acurácia orbital e revisão do RT.</p>
+                   {ps4Ready && <div className="pecas-card" aria-label="Sequência consolidada da poligonal PS4">
+                     <h4>Prévia consolidada · marcos M e vértices V na ordem do perímetro</h4>
+                     <p>O último ponto é ligado automaticamente ao primeiro para fechar a prévia.
+                       Altitudes normais dos M são calculadas pelo IBGE quando disponíveis;
+                       os pontos V permanecem sem altitude ou precisão certificável.</p>
+                     <div style={{ overflowX: "auto" }}>
+                       <table className="pecas-table">
+                         <thead><tr><th>Ordem</th><th>Código</th><th>Tipo</th><th>Latitude</th>
+                           <th>Longitude</th><th>HN (m)</th><th>Origem / Status</th></tr></thead>
+                         <tbody>{ps4Closure.names.map((name, index) => {
+                           const m = topconBoundary.find(p => p.name === name);
+                           const v = ps4Draft.find(p => p.name === name);
+                           const h = m ? verticalCalculated?.find(p => p.name === m.name)?.normal_height_m : null;
+                           const lon = m?.longitude ?? v?.longitude;
+                           const lat = m?.latitude ?? v?.latitude;
+                           return <tr key={name + index}>
+                             <td>{index + 1}</td>
+                             <td>{m?.sigef_vertex_code || name}</td>
+                             <td>{m ? "M (GNSS)" : "V (PS4)"}</td>
+                             <td>{typeof lat === "number" ? lat.toFixed(8) : "—"}</td>
+                             <td>{typeof lon === "number" ? lon.toFixed(8) : "—"}</td>
+                             <td>{typeof h === "number" ? h.toFixed(3) : "Pendente"}</td>
+                             <td>{m ? "Levantamento GNSS / revisar sigmas" : "CBERS-4A / provisório"}</td>
+                           </tr>;
+                         })}</tbody>
+                       </table>
+                     </div>
+                     <button type="button" className="pecas-secondary" onClick={() => {
+                       if (!ps4PreviewGeometry) return;
+                       const feature = {
+                         type: "Feature",
+                         properties: {
+                           status: "PREVIA_NAO_CERTIFICAVEL",
+                           method: "PS4",
+                           scene: PS4_SCENE,
+                           vertices_in_order: ps4Closure.names,
+                           disclaimer: "Restituição visual preliminar. Não é planta certificada ou ODS SIGEF.",
+                         },
+                         geometry: ps4PreviewGeometry,
+                       };
+                       downloadBlob(new Blob([JSON.stringify({
+                         type: "FeatureCollection", features: [feature],
+                       }, null, 2)], {type:"application/geo+json"}),
+                         "amazonika_previa_ps4_nao_certificavel.geojson");
+                       setSavedPieceNotice("GeoJSON de conferência gerado. Não utilizar como SIGEF.");
+                     }}>
+                       Baixar GeoJSON da prévia para conferência
+                     </button>
+                   </div>}
                    <div style={{ overflowX: "auto" }}>
                      <table className="pecas-table"><thead><tr>
                        <th>Vértice</th><th>Latitude</th><th>Longitude</th><th>Cena</th>
@@ -2003,6 +2054,12 @@ export function PecasTecnicasWorkspace({
                 setSavedPieceNotice("Rascunho PS4 salvo sem fechamento; complete antes da planta");
               })}>Salvar rascunho sem fechar</button>}
           </div>
+          {(actionError || actionBusy) && <div role={actionError ? "alert" : "status"}
+            aria-live="polite" style={{ marginBottom: 8, padding: "10px 12px",
+              borderRadius: 8, background: actionError ? "#fff1ed" : "#e8f3ed",
+              color: actionError ? "#932a1c" : "#12513b", fontWeight: 600 }}>
+            {actionError ? "Não foi possível concluir: " + actionError : "Processando e salvando..."}
+          </div>}
           <div role="toolbar" aria-label="Métodos de construção e ferramentas cartográficas"
             style={{ display: "flex", alignItems: "center", gap: 8,
               flexWrap: "wrap", paddingBottom: 12, borderBottom: "1px solid #b8cfc5",
