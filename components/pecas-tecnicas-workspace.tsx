@@ -318,6 +318,14 @@ export function PecasTecnicasWorkspace({
   const [workflowNotice, setWorkflowNotice] = useState("");
   const jumpToWorkflow = (index: number) => {
     setShowAllTasks(false);
+    if (index >= 5 && index <= 7 && selectedIds.length === 0) {
+      setPremiumStep(ps4Ready ? 3 : 1);
+      setStage(0);
+      setWorkflowNotice(ps4Ready
+        ? "Antes de gerar áreas, memorial ou planta, aplique a geometria M–V à parcela preliminar."
+        : "Selecione e ordene os marcos GNSS; para o trecho natural, conclua a restituição PS4 e aplique a parcela.");
+      return;
+    }
     const item = premiumSteps[index];
     setPremiumStep(index);
     setStage(item.stage);
