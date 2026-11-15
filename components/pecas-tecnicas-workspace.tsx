@@ -1809,62 +1809,7 @@ export function PecasTecnicasWorkspace({
                           <p key={index} className="pecas-warning" role="alert">{message}</p>)}
                         {topconReview.warnings.map((message, index) =>
                           <p key={index} className="pecas-note">{message}</p>)}
-                        {topconReview.ready_for_ods && topconReview.geometry && (
-                          <div className="pecas-card" aria-label="Revisão preliminar de identificação SIGEF">
-                            <h4>3. Identificação e situação jurídica — pré-validação SIGEF</h4>
-                            <p>Preencha os dados do titular e imóvel nos campos gerais acima.
-                              Informe aqui os municípios e a situação jurídica para testar todas as parcelas.
-                              Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
-                            <label className="pecas-field"><span>Municípios (separados por ponto e vírgula)</span>
-                              <input value={sigefMunicipalities} placeholder="Macapá-AP; Santana-AP"
-                                onChange={(e) => { setSigefMunicipalities(e.target.value); setSigefParcelReview(null); }} />
-                            </label>
-                            <label className="pecas-field"><span>Situação jurídica</span>
-                              <select value={sigefSituation}
-                                onChange={(e) => { setSigefSituation(e.target.value); setSigefParcelReview(null); }}>
-                                <option>Imóvel Registrado</option>
-                                <option>Área Titulada não Registrada</option>
-                                <option>Área não Titulada</option>
-                              </select>
-                            </label>
-                            {sigefSituation === "Imóvel Registrado" && <div>
-                              <label className="pecas-field"><span>CNS cartório</span>
-                                <input value={sigefCns} onChange={(e) => { setSigefCns(e.target.value); setSigefParcelReview(null); }} />
-                              </label>
-                              <label className="pecas-field"><span>Matrícula / transcrição</span>
-                                <input value={sigefRegistration} onChange={(e) => { setSigefRegistration(e.target.value); setSigefParcelReview(null); }} />
-                              </label>
-                            </div>}
-                            <button type="button" className="pecas-primary" disabled={sigefParcelBusy}
-                              onClick={() => void validateSigefParcel()}>
-                              {sigefParcelBusy ? "Validando identificação..." : "Pré-validar identificação e parcela"}
-                            </button>
-                            {sigefParcelReview && <div role="status">
-                              <p><strong>{sigefParcelReview.status === "PREVALIDATED"
-                                ? "Pré-validação cadastral sem erros locais"
-                                : "Pendências cadastrais detectadas"}</strong></p>
-                              {sigefParcelReview.parcels.map((p) => <p key={p.number}>
-                                Parcela {p.number}: {p.area_ha.toLocaleString("pt-BR")} ha</p>)}
-                              {sigefParcelReview.errors.map((msg, i) =>
-                                <p key={i} className="pecas-warning" role="alert">{msg}</p>)}
-                              {sigefParcelReview.warnings.map((msg, i) =>
-                                <p key={i} className="pecas-note">{msg}</p>)}
-                              <p>A ausência de base confrontante não comprova inexistência de sobreposição.
-                                Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
-                              {sigefParcelReview.status === "PREVALIDATED" && <div>
-                                <button type="button" className="pecas-primary"
-                                  disabled={reviewedOdsBusy || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
-                                  onClick={() => void downloadReviewedOds()}>
-                                  {reviewedOdsBusy ? "Gerando ODS..." : "Gerar ODS SIGEF revisada"}
-                                </button>
-                                {reviewedOdsError && <p className="pecas-warning" role="alert">{reviewedOdsError}</p>}
-                                {reviewedOdsNotice && <p role="status">{reviewedOdsNotice}</p>}
-                                <p>ODS para conferência técnica. A validação oficial do SIGEF
-                                  e a verificação com parcelas certificadas continuam necessárias.</p>
-                              </div>}
-                            </div>}
-                          </div>
-                        )}
+                        <p className="pecas-note">A identificação e a situação jurídica foram transferidas para a revisão final.</p>
                         <button type="button" className="pecas-primary"
                           disabled={!topconBoundary.length}
                           onClick={adoptTopconGeometry}>
@@ -1920,7 +1865,7 @@ export function PecasTecnicasWorkspace({
                   </div>
                 )}
               </div>
-              <InpeCbersSceneSearch geometry={displaySituationGeometry} geometryKey={displaySituationKey} />
+              
               {importedMetadata?.source === "SIGEF_ODS" && (
                 <div className="pecas-card" aria-label="Dados preservados da planilha SIGEF">
                   <h4>Identificação SIGEF importada</h4>
@@ -2227,6 +2172,69 @@ export function PecasTecnicasWorkspace({
 
         {stage === 4 && (
           <div className="pecas-card">
+            {premiumStep === 8 && <>
+              {topconReview?.ready_for_ods && topconReview.geometry && (
+                          <div className="pecas-card" id="geo97-legal" aria-label="Revisão final de identificação SIGEF">
+                            <h4>9. Identificação e situação jurídica — revisão final SIGEF</h4>
+                            <p>Preencha os dados do titular e imóvel nos campos gerais acima.
+                              Informe aqui os municípios e a situação jurídica para testar todas as parcelas.
+                              Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
+                            <label className="pecas-field"><span>Municípios (separados por ponto e vírgula)</span>
+                              <input value={sigefMunicipalities} placeholder="Macapá-AP; Santana-AP"
+                                onChange={(e) => { setSigefMunicipalities(e.target.value); setSigefParcelReview(null); }} />
+                            </label>
+                            <label className="pecas-field"><span>Situação jurídica</span>
+                              <select value={sigefSituation}
+                                onChange={(e) => { setSigefSituation(e.target.value); setSigefParcelReview(null); }}>
+                                <option>Imóvel Registrado</option>
+                                <option>Área Titulada não Registrada</option>
+                                <option>Área não Titulada</option>
+                              </select>
+                            </label>
+                            {sigefSituation === "Imóvel Registrado" && <div>
+                              <label className="pecas-field"><span>CNS cartório</span>
+                                <input value={sigefCns} onChange={(e) => { setSigefCns(e.target.value); setSigefParcelReview(null); }} />
+                              </label>
+                              <label className="pecas-field"><span>Matrícula / transcrição</span>
+                                <input value={sigefRegistration} onChange={(e) => { setSigefRegistration(e.target.value); setSigefParcelReview(null); }} />
+                              </label>
+                            </div>}
+                            <button type="button" className="pecas-primary" disabled={sigefParcelBusy}
+                              onClick={() => void validateSigefParcel()}>
+                              {sigefParcelBusy ? "Validando identificação..." : "Pré-validar identificação e parcela"}
+                            </button>
+                            {sigefParcelReview && <div role="status">
+                              <p><strong>{sigefParcelReview.status === "PREVALIDATED"
+                                ? "Pré-validação cadastral sem erros locais"
+                                : "Pendências cadastrais detectadas"}</strong></p>
+                              {sigefParcelReview.parcels.map((p) => <p key={p.number}>
+                                Parcela {p.number}: {p.area_ha.toLocaleString("pt-BR")} ha</p>)}
+                              {sigefParcelReview.errors.map((msg, i) =>
+                                <p key={i} className="pecas-warning" role="alert">{msg}</p>)}
+                              {sigefParcelReview.warnings.map((msg, i) =>
+                                <p key={i} className="pecas-note">{msg}</p>)}
+                              <p>A ausência de base confrontante não comprova inexistência de sobreposição.
+                                Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
+                              {sigefParcelReview.status === "PREVALIDATED" && <div>
+                                <button type="button" className="pecas-primary"
+                                  disabled={reviewedOdsBusy || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
+                                  onClick={() => void downloadReviewedOds()}>
+                                  {reviewedOdsBusy ? "Gerando ODS..." : "Gerar ODS SIGEF revisada"}
+                                </button>
+                                {reviewedOdsError && <p className="pecas-warning" role="alert">{reviewedOdsError}</p>}
+                                {reviewedOdsNotice && <p role="status">{reviewedOdsNotice}</p>}
+                                <p>ODS para conferência técnica. A validação oficial do SIGEF
+                                  e a verificação com parcelas certificadas continuam necessárias.</p>
+                              </div>}
+                            </div>}
+                          </div>
+                        )}
+              {!topconReview?.ready_for_ods && <div className="pecas-warning" role="status">
+                A revisão cadastral para SIGEF depende da pré-validação TOPCON.
+                Isso não impede a planta e o memorial preliminares.
+              </div>}
+            </>}
+            {premiumStep !== 8 && <div id="geo97-export">
             <h3>5. Conferência e exportação</h3>
             <p>Documentos gerados pelos serviços existentes. As exportações vetoriais são feitas individualmente por polígono.</p>
             <div className="pecas-export-grid">
@@ -2255,6 +2263,7 @@ export function PecasTecnicasWorkspace({
             ))}
             {(actionError || externalError) && <p className="pecas-warning" role="alert">{actionError || externalError}</p>}
             {!pdfReady && <p className="pecas-note">O PDF precisa ser conferido novamente na etapa Planta antes da exportação.</p>}
+            </div>}
           </div>
         )}
       </main>
@@ -2413,6 +2422,14 @@ export function PecasTecnicasWorkspace({
                         </label>}
                         {pa2Mode && constructionMethod === "PS4" && <section aria-label="Restituição orbital PS4">
                           <h4>PS4 — Delimitação de feição natural na imagem</h4>
+                          <details className="geo97-cbers-panel">
+                            <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
+                            <p className="pecas-note">Escolha a imagem com base no enquadramento do imóvel.
+                              A camada atual de restituição permanece limitada à cena de teste indicada no mapa;
+                              selecionar outro thumbnail não substitui automaticamente o raster.</p>
+                            <InpeCbersSceneSearch geometry={displaySituationGeometry}
+                              geometryKey={displaySituationKey}/>
+                          </details>
                           <p>Marque pontos sucessivos nas margens do curso d'água visível na imagem.
                             A trilha é apenas um rascunho técnico; nenhum ponto será tratado como certificado,
                             nem transferido automaticamente para ODS ou memorial.</p>
