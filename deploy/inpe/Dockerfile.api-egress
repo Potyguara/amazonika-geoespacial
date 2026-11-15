@@ -1,0 +1,3 @@
+ARG BASE_API_IMAGE=amazonika-api-inpe:geo90-test
+FROM ${BASE_API_IMAGE}
+COPY backend/app/api/routes/inpe_cbers.py /app/app/api/routes/inpe_cbers.py
