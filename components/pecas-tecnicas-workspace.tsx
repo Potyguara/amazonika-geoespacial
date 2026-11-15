@@ -162,6 +162,7 @@ export type TopconDraft = {
   registration: string;
   stage: number;
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
+  official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_draft?: Array<{
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
@@ -348,6 +349,7 @@ export function PecasTecnicasWorkspace({
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
+  const [officialOverlap, setOfficialOverlap] = useState<TopconDraft["official_overlap"]>(undefined);
   const [ps4Start, setPs4Start] = useState("");
   const [ps4ClosureConfirmed, setPs4ClosureConfirmed] = useState(false);
   const [ps4ConfirmedSignature, setPs4ConfirmedSignature] = useState("");
@@ -369,6 +371,7 @@ export function PecasTecnicasWorkspace({
     draft: ps4Draft.map(p => [p.name, p.longitude, p.latitude, p.scene_id]),
   });
   const ps4Ready = ps4ClosureConfirmed && ps4ConfirmedSignature === ps4Signature && ps4Closure.valid;
+  const overlapCurrent = officialOverlap?.signature === ps4Signature;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -622,6 +625,7 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(d.preview);
     setTopconBoundary(d.boundary);
     setPs4Draft(d.ps4_draft ?? []);
+    setOfficialOverlap(d.official_overlap);
     setPs4Start(d.ps4_closure?.start ?? "");
     setPs4ClosureConfirmed(Boolean(d.ps4_closure?.confirmed));
     setPs4ConfirmedSignature(d.ps4_closure?.signature ?? "");
@@ -637,6 +641,7 @@ export function PecasTecnicasWorkspace({
     setSigefCns(d.cns);
     setSigefRegistration(d.registration);
     setStage(d.stage >= 0 && d.stage <= 4 ? d.stage : 0);
+    setPremiumStep(d.stage>0?[0,5,6,7,9][d.stage]:d.ps4_closure?.confirmed?3:0);
     setTopconReview(null);
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
@@ -653,6 +658,7 @@ export function PecasTecnicasWorkspace({
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
+    official_overlap:overlapCurrent?officialOverlap:undefined,
     ps4_closure: { start: ps4Start, confirmed: ps4Ready,
       signature: ps4Ready ? ps4ConfirmedSignature : "" },
     vertical_model: verticalModel, vertical_factors: verticalFactors,
@@ -1065,6 +1071,7 @@ export function PecasTecnicasWorkspace({
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setPs4Draft([]);
+    setOfficialOverlap(undefined);
     setPs4Start("");
     setPs4ClosureConfirmed(false);
     setPs4ConfirmedSignature("");
@@ -1252,6 +1259,18 @@ export function PecasTecnicasWorkspace({
     scale: data.scale, customScale: data.customScale, layoutTemplate: data.layoutTemplate, rasterKey, elements, declination, surveyDate, situationKey, situationToken: situationSaved?.token, memorialRevision: memorialSaved ? editableMemorial : null,
   });
   const pdfReady = Boolean(pdfBlob && lastPdfKey.current === pdfKey);
+  const verifiedProgress = [
+    Boolean(topconPreview),
+    topconBoundary.length>=3,
+    Boolean(verticalCalculated?.length),
+    ps4Ready,
+    Boolean(overlapCurrent && officialOverlap?.complete && officialOverlap?.count===0),
+    selectedIds.length>0,
+    Boolean(memorialText || editableMemorial),
+    Boolean(pdfReady),
+    Boolean(sigefParcelReview?.status==="PREVALIDATED"),
+  ].filter(Boolean).length;
+  const progressPercent = Math.round(verifiedProgress / 9 * 100);
 
   // Nenhuma mudança de configuração, etapa ou geometria dispara geração.
   // A referência da revisão é capturada antes da chamada e conferida ao fim.
@@ -1332,9 +1351,9 @@ export function PecasTecnicasWorkspace({
           </div>
           <div className="geo96-progress">
             <div className="geo96-progress-head"><strong>PROGRESSO DO PROJETO</strong>
-              <span>{Math.round(((premiumStep + 1) / premiumSteps.length) * 100)}%</span></div>
-            <div className="geo96-progress-track"><span style={{width: (((premiumStep + 1) / premiumSteps.length) * 100) + "%"}} /></div>
-            <p>Passo {premiumStep + 1} de {premiumSteps.length} · Rascunho em elaboração</p>
+              <span>{progressPercent}%</span></div>
+            <div className="geo96-progress-track"><span style={{width: progressPercent + "%"}} /></div>
+            <p>Passo {premiumStep + 1} de {premiumSteps.length} · {verifiedProgress}/9 marcos de progresso concluídos</p>
           </div>
           <nav className="geo96-sidebar-nav" aria-label="Etapas do projeto">
             {premiumSteps.map((item, index) => (
@@ -1364,7 +1383,7 @@ export function PecasTecnicasWorkspace({
         {stages.map((name, index) => (
           <button type="button" key={name} aria-current={index === stage ? "step" : undefined}
             className={index === stage ? "active" : index < stage ? "done" : ""}
-            onClick={() => setStage(index)}
+            onClick={() => jumpToWorkflow(([0,5,6,7,9] as const)[index])}
             disabled={(index > 1 && selectedIds.length === 0) || (index === 4 && !pdfReady)}
           >
             <span className="pecas-step-number">{index < stage ? <Check size={14} /> : index + 1}</span>
@@ -1383,6 +1402,7 @@ export function PecasTecnicasWorkspace({
         </div>}
         {stage === 0 && !showAllTasks && premiumStep === 4 && <OfficialOverlapCheck
           geometry={ps4PreviewGeometry}
+          onReport={result=>setOfficialOverlap({...result,signature:ps4Signature})}
           onNext={() => jumpToWorkflow(5)} />}
         {stage === 0 && !showAllTasks && premiumStep !== 4 && (
           <div className="pecas-data-layout geo97-focus-layout">
@@ -2522,7 +2542,7 @@ export function PecasTecnicasWorkspace({
       )}
       <footer className="pecas-footer">
         <span>{ps4Ready ? "Prévia PS4 fechada · " : ""}{selectedIds.length} parcela(s) oficial(is) selecionada(s) ·
-          Etapa {stage + 1}/5 {savedPieceNotice && "· " + savedPieceNotice}</span>
+          Passo {premiumStep + 1}/{premiumSteps.length} {savedPieceNotice && "· " + savedPieceNotice}</span>
         <div>
           <button className="pecas-secondary" type="button" disabled={actionBusy}
             onClick={() => void runAction(async () => {
@@ -2530,12 +2550,15 @@ export function PecasTecnicasWorkspace({
               await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
               setSavedPieceNotice("Rascunho salvo no servidor");
             })}>Salvar peça</button>
-          <button className="pecas-secondary" type="button" onClick={() => stage === 0 ? onClose() : setStage(stage - 1)}>
+          <button className="pecas-secondary" type="button" onClick={() => stage === 0 ? onClose() : jumpToWorkflow(([0,0,5,6,7] as const)[stage])}>
             <ArrowLeft size={16} /> {stage === 0 ? "Mapa" : "Voltar"}
           </button>
           {stage < 4 && <button className="pecas-primary" type="button"
             disabled={selectedIds.length === 0 || (stage === 3 && (!pdfReady || pdfBusy))}
-            onClick={() => setStage(stage + 1)}>
+            onClick={() => {
+              if(stage===0)jumpToWorkflow(5);
+              else jumpToWorkflow(([0,0,6,7,9] as const)[stage]);
+            }}>
             Avançar <ArrowRight size={16} />
           </button>}
           {stage === 4 && <button className="pecas-primary" type="button" onClick={onClose}>
