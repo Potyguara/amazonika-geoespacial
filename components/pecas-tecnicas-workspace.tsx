@@ -999,7 +999,7 @@ export function PecasTecnicasWorkspace({
                         <p>O sigma horizontal Topcon não substitui automaticamente as precisões
                           separadas de longitude e latitude exigidas na ODS. Informe os valores
                           confirmados pelo processamento e confirme a referência de h.</p>
-                        <div style={{ overflowX: "auto" }}>
+                        <details className="pecas-advanced"><summary>Correções individuais de sigmas e confrontantes (avançado)</summary><p>Abra somente quando precisar revisar valores individuais.</p><div style={{ overflowX: "auto" }}>
                           <table>
                             <thead><tr><th>Vértice</th><th>σ Longitude (m)</th>
                               <th>σ Latitude (m)</th><th>σ h (m)</th><th>h confirmada</th>
@@ -1008,14 +1008,16 @@ export function PecasTecnicasWorkspace({
                               <td>{point.sigef_vertex_code || point.name}</td>
                               {(["sigma_lon_m", "sigma_lat_m", "sigma_h_m"] as const)
                                 .map((field) => <td key={field}>
-                                  <input aria-label={`${field} ${point.name}`} inputMode="decimal"
-                                    value={point[field] ?? ""}
-                                    onChange={(event) => {
-                                      const value = event.target.value.trim().replace(",", ".");
-                                      updateBoundaryPoint(index, {
-                                        [field]: value === "" ? null : Number(value),
-                                      });
-                                    }} />
+                                  <input key={`${point.name}:${field}:${loadedTopconRevision ?? 0}`}
+                                     aria-label={`${field} ${point.name}`} inputMode="decimal"
+                                     defaultValue={point[field] ?? ""}
+                                     onBlur={(event) => {
+                                       const value = event.target.value.trim().replace(",", ".");
+                                       if (value !== "" && !Number.isFinite(Number(value))) return;
+                                       updateBoundaryPoint(index, {
+                                         [field]: value === "" ? null : Number(value),
+                                       });
+                                     }} />
                                 </td>)}
                               <td><input type="checkbox" aria-label={`Confirmar h ${point.name}`}
                                 checked={point.height_reference_confirmed}
@@ -1041,6 +1043,8 @@ export function PecasTecnicasWorkspace({
                           </table>
                         </div>
                       </div>
+                         </details>
+                       
                       <div className="pecas-card" aria-label="Conversão altimétrica IBGE">
                         <h4>Conversão altimétrica — IBGE</h4>
                         <p>A ODS SIGEF utiliza a altura elipsoidal (h). A altitude normal ou
