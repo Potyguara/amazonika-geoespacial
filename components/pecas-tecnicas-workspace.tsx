@@ -1214,8 +1214,8 @@ export function PecasTecnicasWorkspace({
                             </tr>)}</tbody>
                           </table>
                         </div>
-                      </div>
                          </details>
+                      </div>
                        
                       <div className="pecas-card" aria-label="Conversão altimétrica IBGE">
                         <h4>Conversão altimétrica — IBGE</h4>
