@@ -19,6 +19,7 @@ from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
 from app.services.vertical_datum import convert_altitudes
 from app.services.pa2_intersection import intersect_pa2
 from app.services.constructed_vertices import calculate_constructed_vertex
+from app.services.pa2_support_line import pa2_support_line
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -103,6 +104,28 @@ def calculate_pa2_intersection(
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+class Pa2SupportLineInput(BaseModel):
+    supports: list[dict] = Field(min_length=2, max_length=2)
+    hint_longitude: float
+    hint_latitude: float
+    utm_zone: int
+    hemisphere: str
+    sirgas2000_confirmed: bool
+    altitude_type: str
+
+
+@router.post("/topcon/pa2-support-line")
+def calculate_pa2_support_line_route(
+    payload: Pa2SupportLineInput,
+    user: User = Depends(get_current_user),
+):
+    """Inserção provisória no alinhamento de dois marcos, com altitude HN/H."""
+    try:
+        return pa2_support_line(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 class ConstructedVertexInput(BaseModel):
