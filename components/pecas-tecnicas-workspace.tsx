@@ -1042,8 +1042,16 @@ export function PecasTecnicasWorkspace({
                           disabled={!topconBoundary.length}
                           onClick={() => {
                             if (!window.confirm("Confirma que você verificou todas as alturas h no referencial SIRGAS2000 e sua época?")) return;
-                            setTopconBoundary((old) => old.map((p) => ({ ...p, height_reference_confirmed: true })));
-                            setVerticalConfirmed(Object.fromEntries(topconBoundary.map((p) => [p.name, true])));
+                            setTopconBoundary((old) => old.map((p) => ({
+                              ...p,
+                              height_reference_confirmed: p.ellipsoidal_height_m !== null &&
+                                topconPreview?.points.some((source) => source.name === p.name)
+                                ? true : p.height_reference_confirmed,
+                            })));
+                            setVerticalConfirmed(Object.fromEntries(topconBoundary
+                              .filter((p) => p.ellipsoidal_height_m !== null &&
+                                topconPreview?.points.some((source) => source.name === p.name))
+                              .map((p) => [p.name, true])));
                             setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature("");
                           }}>
                           Confirmar h de todos após conferência do RT
