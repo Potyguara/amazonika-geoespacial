@@ -159,7 +159,7 @@ export type TopconDraft = {
   cns: string;
   registration: string;
   stage: number;
-  ps4_closure?: { start: string; confirmed: boolean };
+  ps4_closure?: { start: string; confirmed: boolean; signature?: string };
   ps4_draft?: Array<{
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
@@ -306,6 +306,7 @@ export function PecasTecnicasWorkspace({
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [ps4Start, setPs4Start] = useState("");
   const [ps4ClosureConfirmed, setPs4ClosureConfirmed] = useState(false);
+  const [ps4ConfirmedSignature, setPs4ConfirmedSignature] = useState("");
   const [ps4Status, setPs4Status] = useState<{ kind: "success" | "error" | "info"; message: string }>({
     kind: "info", message: "Etapa 1/3: marque os vértices V no mapa; depois feche o trecho entre dois marcos."
   });
@@ -318,7 +319,12 @@ export function PecasTecnicasWorkspace({
   const ps4End = ps4StartIndex < 0 ? "" :
     topconBoundary[(ps4StartIndex + 1) % topconBoundary.length]?.name ?? "";
   const ps4Closure = buildPs4Closure(topconBoundary, ps4Draft, ps4Start, ps4End);
-  const ps4Ready = ps4ClosureConfirmed && ps4Closure.valid;
+  const ps4Signature = JSON.stringify({
+    start: ps4Start,
+    boundary: topconBoundary.map(p => [p.name, p.sigef_vertex_code, p.longitude, p.latitude]),
+    draft: ps4Draft.map(p => [p.name, p.longitude, p.latitude, p.scene_id]),
+  });
+  const ps4Ready = ps4ClosureConfirmed && ps4ConfirmedSignature === ps4Signature && ps4Closure.valid;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -574,6 +580,7 @@ export function PecasTecnicasWorkspace({
     setPs4Draft(d.ps4_draft ?? []);
     setPs4Start(d.ps4_closure?.start ?? "");
     setPs4ClosureConfirmed(Boolean(d.ps4_closure?.confirmed));
+    setPs4ConfirmedSignature(d.ps4_closure?.signature ?? "");
     setPs4Candidate(null);
     setVerticalModel(d.vertical_model);
     setVerticalFactors(d.vertical_factors);
@@ -602,7 +609,8 @@ export function PecasTecnicasWorkspace({
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
-    ps4_closure: { start: ps4Start, confirmed: ps4Ready },
+    ps4_closure: { start: ps4Start, confirmed: ps4Ready,
+      signature: ps4Ready ? ps4ConfirmedSignature : "" },
     vertical_model: verticalModel, vertical_factors: verticalFactors,
     vertical_factor_uncertainty: verticalFactorUncertainty,
     vertical_origin: verticalOrigin, vertical_confirmed: verticalConfirmed,
@@ -932,6 +940,7 @@ export function PecasTecnicasWorkspace({
     setPs4Draft([]);
     setPs4Start("");
     setPs4ClosureConfirmed(false);
+    setPs4ConfirmedSignature("");
     setPs4Candidate(null);
     setTopconReview(null);
     setVerticalFactors({});
@@ -2235,6 +2244,7 @@ export function PecasTecnicasWorkspace({
                               checked={ps4ClosureConfirmed && ps4Closure.valid}
                               onChange={e => {
                                 setPs4ClosureConfirmed(e.target.checked);
+                                setPs4ConfirmedSignature(e.target.checked ? ps4Signature : "");
                                 setPs4Status(e.target.checked
                                   ? {kind:"success",message:"Prévia de poligonal fechada! Confira o contorno azul no mapa. Ainda pendente de validação técnica PS4."}
                                   : {kind:"info",message:"Prévia de fechamento desmarcada. Selecione o segmento e confirme."});
