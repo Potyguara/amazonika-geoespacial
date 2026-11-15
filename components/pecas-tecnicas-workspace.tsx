@@ -348,7 +348,7 @@ export function PecasTecnicasWorkspace({
     }
     const lines = points.map(point =>
       `${point.name} ${Number(point.latitude).toFixed(9)} ${Number(point.longitude).toFixed(9)}`);
-    downloadBlob(new Blob([lines.join("\\n") + "\\n"], { type: "text/plain;charset=utf-8" }),
+    downloadBlob(new Blob([lines.join("\n") + "\n"], { type: "text/plain;charset=utf-8" }),
       "amazonika_hgeoHNOR2020_entrada_IBGE.txt");
     setIbgeBatchNotice(`Arquivo para consulta IBGE: ${points.length} ponto(s), ordem ID LAT LON (grau decimal). Confira o referencial SIRGAS2000.`);
   };
@@ -356,16 +356,16 @@ export function PecasTecnicasWorkspace({
     setIbgeBatchNotice("");
     try {
       if (file.size > 1_000_000) throw new Error("Arquivo excede o limite de 1 MB.");
-      const raw = (await file.text()).replace(/^\\uFEFF/, "").trim();
-      const lines = raw.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+      const raw = (await file.text()).replace(/^\uFEFF/, "").trim();
+      const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
       if (lines.length < 2) throw new Error("Arquivo sem cabeçalho e linhas de resultados.");
-      const delimiter = lines[0].includes(";") ? ";" : lines[0].includes("\\t") ? "\\t" : ",";
+      const delimiter = lines[0].includes(";") ? ";" : lines[0].includes("\t") ? "\t" : ",";
       const fields = (line: string) => line.split(delimiter).map(value => value.trim().replace(/^"|"$/g, ""));
       const normal = (s: string) => s.toUpperCase().normalize("NFD")
-        .replace(/[\\u0300-\\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
+        .replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
       const header = fields(lines[0]).map(normal);
       const idIndex = header.findIndex(value => ["ID", "PONTO", "NAME", "IDENTIFICACAO"].includes(value));
-      const factorIndex = header.findIndex(value => ["FATCOR", "ETAM", "ETA", "FATOR", "FATORCONVERSAO", "ONDGEO", "NM"].includes(value));
+      const factorIndex = header.findIndex(value => ["FATCOR", "ETAM", "ETA", "ONDGEO", "NM"].includes(value));
       const modelIndex = header.findIndex(value => ["MODELO", "MODEL"].includes(value));
       if (idIndex < 0 || factorIndex < 0)
         throw new Error("Cabeçalho esperado: ID;FATCOR (IBGE hgeoHNOR2020) ou ID;ONDGEO (MAPGEO2015).");
@@ -383,7 +383,7 @@ export function PecasTecnicasWorkspace({
         if (!value || !Number.isFinite(Number(value))) throw new Error(`Fator inválido: ${id}`);
         if (modelIndex >= 0) {
           const model = normal(values[modelIndex] ?? "");
-          if (verticalModel === "hgeoHNOR2020" && model && !model.includes("HGE OHNOR".replace(" ", "")) && !model.includes("HGEONOR"))
+          if (verticalModel === "hgeoHNOR2020" && model && !model.includes("HGEOHNOR"))
             throw new Error(`Modelo divergente no ponto ${id}.`);
           if (verticalModel === "MAPGEO2015" && model && !model.includes("MAPGEO2015"))
             throw new Error(`Modelo divergente no ponto ${id}.`);
