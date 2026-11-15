@@ -1879,7 +1879,16 @@ export function PecasTecnicasWorkspace({
             <div style={{ overflow: "auto", minHeight: 0 }}>
               <div className="pecas-card">
                   <h4>Mapa ampliado — {constructionMethod}</h4>
-                  <Pa2WitnessMap points={topconPreview.points} selected={pa2Witnesses}
+                  <Pa2WitnessMap
+                    points={[...topconPreview.points,
+                      ...topconBoundary.filter(point =>
+                        !topconPreview.points.some(p => p.name === point.name))
+                        .map(point => ({
+                          name: point.sigef_vertex_code || point.name,
+                          longitude: point.longitude, latitude: point.latitude,
+                          virtual: true,
+                        }))]}
+                    selected={pa2Witnesses}
                     method={constructionMethod}
                     supportLineMode={constructionMethod === "PA2" && pa2Variant === "SUPPORT_LINE"}
                     intersection={pa2Result}
@@ -1900,7 +1909,13 @@ export function PecasTecnicasWorkspace({
                         } else setConstructionSide(dx * px + dy * py >= 0 ? "FORWARD" : "BACKWARD");
                       }
                     }}
-                    onPick={pickPa2Witness} />
+                    onPick={name => {
+                      if (!topconPreview.points.some(point => point.name === name)) {
+                        setPa2Error("Selecione como testemunhos os marcos diretamente posicionados no TOPCON.");
+                        return;
+                      }
+                      pickPa2Witness(name);
+                    }} />
                   <button type="button" className="pecas-secondary"
                     onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
                     Limpar testemunhos selecionados
