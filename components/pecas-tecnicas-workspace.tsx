@@ -1127,8 +1127,8 @@ export function PecasTecnicasWorkspace({
       if(file.size>1024*1024)throw new Error("O arquivo de pontos excede 1 MB.");
       if(!ps4QualitySource.trim() || ps4QualitySource.trim().length<8)
         throw new Error("Informe a origem independente dos pontos GNSS antes da importação.");
-      const raw=(await file.text()).replace(/^\\uFEFF/,"");
-      const lines=raw.split(/\\r?\\n/).map(l=>l.trim()).filter(Boolean);
+      const raw=(await file.text()).replace(/^\uFEFF/,"");
+      const lines=raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
       if(lines.length<2)throw new Error("CSV sem pontos de controle.");
       const hdr=lines[0].split(";").map(s=>s.trim().toUpperCase().replace(/[^A-Z0-9_]/g,""));
       const expected=["ID","LON_IMAGEM","LAT_IMAGEM","LON_CONTROLE","LAT_CONTROLE"];
