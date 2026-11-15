@@ -6,6 +6,7 @@ import { SituationMapPreview, type SituationSnapshot } from "@/components/situat
 import { Pa2WitnessMap } from "@/components/pa2-witness-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { getApiUrl } from "@/lib/api";
+import { buildPs4Closure } from "@/lib/ps4-closure";
 
 export type ProfessionalDocumentProfile = {
   full_name: string;
@@ -158,6 +159,7 @@ export type TopconDraft = {
   cns: string;
   registration: string;
   stage: number;
+  ps4_closure?: { start: string; confirmed: boolean };
   ps4_draft?: Array<{
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
@@ -302,11 +304,23 @@ export function PecasTecnicasWorkspace({
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
+  const [ps4Start, setPs4Start] = useState("");
+  const [ps4ClosureConfirmed, setPs4ClosureConfirmed] = useState(false);
+  const [ps4Status, setPs4Status] = useState<{ kind: "success" | "error" | "info"; message: string }>({
+    kind: "info", message: "Etapa 1/3: marque os vértices V no mapa; depois feche o trecho entre dois marcos."
+  });
   const [ps4Candidate, setPs4Candidate] = useState<{ longitude: number; latitude: number } | null>(null);
   const [ps4CandidateName, setPs4CandidateName] = useState("");
   const [ps4Notice, setPs4Notice] = useState("");
   const [ps4ConfirmFeature, setPs4ConfirmFeature] = useState(false);
   const PS4_SCENE = "CBERS4A_WPM_PCA_RGB321_20261016_214_113";
+  const ps4StartIndex = topconBoundary.findIndex(p => p.name === ps4Start);
+  const ps4End = ps4StartIndex < 0 ? "" :
+    topconBoundary[(ps4StartIndex + 1) % topconBoundary.length]?.name ?? "";
+  const ps4Closure = buildPs4Closure(topconBoundary, ps4Draft, ps4Start, ps4End);
+  const ps4Ready = ps4ClosureConfirmed && ps4Closure.valid;
+  const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
+  const ps4PreviewKey = ps4Ready ? JSON.stringify(ps4PreviewGeometry) : "";
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const prefix = code.length >= 3 && code.length <= 6 ? code : "VIRTUAL";
@@ -332,6 +346,7 @@ export function PecasTecnicasWorkspace({
       setPs4Notice("O código informado já existe neste rascunho.");
       return;
     }
+    setPs4ClosureConfirmed(false);
     setPs4Draft(points => [...points, {
       name, longitude: ps4Candidate.longitude, latitude: ps4Candidate.latitude,
       scene_id: PS4_SCENE, created_at: new Date().toISOString(),
@@ -339,7 +354,8 @@ export function PecasTecnicasWorkspace({
     setPs4Candidate(null);
     setPs4CandidateName("");
     setPs4ConfirmFeature(false);
-    setPs4Notice(`Ponto ${name} adicionado ao rascunho PS4. Salve a peça para persistir os dados.`);
+    setPs4Notice(`Vértice ${name} registrado como rascunho. Continue marcando a feição e depois confira o fechamento.`);
+    setPs4Status({kind:"success", message:`Vértice ${name} registrado. Próximo: marcar outro V ou validar fechamento.`});
   };
   const [pa2Variant, setPa2Variant] = useState<"SUPPORT_LINE" | "INTERSECTION">("SUPPORT_LINE");
   const [constructionDistance, setConstructionDistance] = useState("");
@@ -557,6 +573,8 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(d.preview);
     setTopconBoundary(d.boundary);
     setPs4Draft(d.ps4_draft ?? []);
+    setPs4Start(d.ps4_closure?.start ?? "");
+    setPs4ClosureConfirmed(Boolean(d.ps4_closure?.confirmed));
     setPs4Candidate(null);
     setVerticalModel(d.vertical_model);
     setVerticalFactors(d.vertical_factors);
@@ -585,6 +603,7 @@ export function PecasTecnicasWorkspace({
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
+    ps4_closure: { start: ps4Start, confirmed: ps4Ready },
     vertical_model: verticalModel, vertical_factors: verticalFactors,
     vertical_factor_uncertainty: verticalFactorUncertainty,
     vertical_origin: verticalOrigin, vertical_confirmed: verticalConfirmed,
@@ -912,6 +931,8 @@ export function PecasTecnicasWorkspace({
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setPs4Draft([]);
+    setPs4Start("");
+    setPs4ClosureConfirmed(false);
     setPs4Candidate(null);
     setTopconReview(null);
     setVerticalFactors({});
@@ -1689,9 +1710,16 @@ export function PecasTecnicasWorkspace({
                   showVertices={Boolean(previewTopconGeometry)}
                   previewBasemap={previewTopconGeometry ? "osm" : "satellite"}
                   ps4Draft={ps4Draft}
+                  ps4ClosureGeometry={ps4PreviewGeometry}
                  />
                  {ps4Draft.length > 0 && <div className="pecas-card" aria-label="Resumo de restituição PS4 provisória">
                    <h4>Restituição PS4 — pontos provisórios</h4>
+                   <p role="status" className="pecas-note">{ps4Ready
+                     ? "Prévia do perímetro fechada: segmento orbital integrado visualmente entre " +
+                       (topconBoundary.find(p=>p.name===ps4Start)?.sigef_vertex_code || ps4Start) + " e " +
+                       (topconBoundary.find(p=>p.name===ps4End)?.sigef_vertex_code || ps4End) +
+                       ". Ainda não liberado para a planta oficial, memorial ou ODS."
+                     : "Trecho orbital aberto: use Fechar prévia da poligonal no espaço PS4 antes de preparar a planta."}</p>
                    <p>{ps4Draft.length} ponto(s) restituído(s) visualmente. O traçado aparece em vermelho no mapa
                      de situação. Estes pontos não substituem automaticamente os vértices oficiais nem são enviados
                      ao SIGEF enquanto não houver validação da acurácia orbital e revisão do RT.</p>
