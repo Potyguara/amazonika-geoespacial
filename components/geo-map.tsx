@@ -2712,6 +2712,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   };
 
   const downloadSigefOds = async () => {
+    if (selectedFeatures().some(feature => feature.get("technical_piece_status") === "PRELIMINAR_NAO_CERTIFICADA")) {
+      throw new Error("ODS SIGEF bloqueada: parcela M–V contém vértices PS4 sem acurácia e altura comprovadas. Gere a planta preliminar e conclua a revisão técnica.");
+    }
     if (!analysisId) throw new Error("Conclua uma análise espacial antes de exportar o ODS SIGEF.");
     const response = await fetch(`${getApiUrl()}/analyses/${analysisId}/sigef-ods`, {
       credentials: "include",
