@@ -6669,3 +6669,40 @@ input {
   margin-bottom:12px; border-bottom:1px solid #dbe6e1;
 }
 .pecas-workspace .geo96-optional-section:focus-within {border-color:#85b7a9;}
+
+
+/* GEO97 — CTA contrast, task focus and orbital parcel adoption */
+.pecas-workspace .pecas-primary:not(:disabled),
+.pecas-workspace .geo96-content .pecas-primary:not(:disabled),
+.pecas-workspace .pecas-export-grid button:not(:disabled),
+.pecas-workspace .geo97-flow-actions button.pecas-primary:not(:disabled){
+  background:#075e54 !important;
+  border-color:#075e54 !important;
+  color:#fff !important;
+}
+.pecas-workspace .pecas-primary:not(:disabled) svg,
+.pecas-workspace .pecas-export-grid button:not(:disabled) svg,
+.pecas-workspace .geo97-flow-actions button.pecas-primary:not(:disabled) svg {color:#fff !important;}
+.pecas-workspace .pecas-primary:not(:disabled):hover,
+.pecas-workspace .pecas-export-grid button:not(:disabled):hover {
+  background:#064b45 !important; border-color:#064b45 !important;
+}
+.pecas-workspace .geo97-focused-card{min-height:440px;}
+.pecas-workspace .geo97-focused-card .pecas-table-wrap{overflow-x:auto;margin:16px 0;}
+.pecas-workspace .geo97-focused-card .pecas-table input[type=text] {min-width:125px;}
+.pecas-workspace .geo97-focused-card .pecas-table td {vertical-align:middle;}
+.pecas-workspace .geo97-flow-actions {display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;border-top:1px solid #e2eae7;margin-top:24px;padding-top:18px;}
+.pecas-workspace .geo97-order-actions {display:flex;gap:4px;}
+.pecas-workspace .geo97-order-actions button {border:1px solid #d6e3df;border-radius:7px;background:#f1f8f5;color:#145747;padding:6px 10px;cursor:pointer;}
+.pecas-workspace .geo97-order-actions button:disabled{opacity:.35;cursor:not-allowed;}
+.pecas-workspace .geo97-map-aside {min-width:0;position:relative;}
+.pecas-workspace .geo97-map-aside > *{position:sticky;top:0;}
+.pecas-workspace .geo97-adopt-banner {display:grid;gap:10px;padding:15px;border-radius:12px;background:#e7f4ec;border:1px solid #b7d8c4;margin:16px 0;color:#205a47;}
+.pecas-workspace .geo97-adopt-banner button {justify-self:start;}
+.pecas-workspace .geo97-adopt-banner small {font-size:11px;line-height:1.5;}
+.pecas-workspace .geo97-cbers-panel {margin:14px 0;padding:10px 13px;border:1px solid #bedace;border-radius:12px;background:#f4faf7;}
+.pecas-workspace .geo97-cbers-panel summary {font-weight:700;color:#15594d;cursor:pointer;padding:9px;}
+.pecas-workspace .geo97-cbers-panel > div {min-width:0;}
+@media(max-width:1100px){
+ .pecas-workspace .geo97-map-aside > *{position:static;}
+}
