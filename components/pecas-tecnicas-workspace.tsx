@@ -1396,7 +1396,7 @@ export function PecasTecnicasWorkspace({
                         <p className="pecas-note">Formato: ID;SIGMA_E;SIGMA_N;SIGMA_H (metros).
                           Aceita o nome TOPCON ou código SIGEF. Valores importados precisam ser conferidos pelo RT.
                           Sem relatório de ajustamento individual, mantenha esta etapa pendente.</p>
-                        {sigmaImportFeedback && <p role="status" className="pecas-note">{sigmaImportFeedback}</p>
+                        {sigmaImportFeedback && <p role="status" className="pecas-note">{sigmaImportFeedback}</p>}
                         <p><strong>Valores individuais:</strong> {topconBoundary.filter(p =>
                           p.sigma_lon_m !== null && p.sigma_lat_m !== null).length}
                           /{topconBoundary.length} vértices com valores disponíveis.
