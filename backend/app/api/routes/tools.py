@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.services.geospatial_export import export_polygon
 from app.services.plant_memorial_v2 import prepare_parcels, build_joint_memorial
 from app.services.plant_memorial_v3 import make_joint_pdf
+from app.services.preliminary_pdf_stamp import stamp_preliminary_pdf
 from app.services.memorial_docx import build_memorial_docx
 from app.services.auth import require_permission, get_current_user
 from app.models.auth import User
@@ -43,6 +44,7 @@ class MemorialParcel(BaseModel):
     vertex_names: list[str] | None = None
     confrontants: list[str] | None = None
     altitudes_m: list[float | None] | None = None
+    is_preliminary: bool = False
 
 
 class ProfessionalDocumentOverride(BaseModel):
@@ -504,6 +506,7 @@ def plant_memorial_pdf(
         raise HTTPException(422, "Selecione ao menos uma área para a planta.")
     try:
         prepared = prepare_parcels(raw_parcels)
+        is_preliminary = any(p.is_preliminary for p in (payload.parcels or []))
         document_id = uuid4()
         site = get_settings().public_base_url.rstrip("/")
         download_url = f"{site}/documentos/{document_id}"
@@ -520,8 +523,8 @@ def plant_memorial_pdf(
             croqui=payload.include_croqui_warning,
             raster_b64=payload.raster_b64,
             raster_source=payload.raster_source,
-            plant_heading=payload.plant_heading,
-            memorial_heading=payload.memorial_heading,
+            plant_heading="PLANTA PRELIMINAR - NAO CERTIFICADA" if is_preliminary else payload.plant_heading,
+            memorial_heading="MEMORIAL PRELIMINAR - NAO CERTIFICADO" if is_preliminary else payload.memorial_heading,
             qr_url=download_url,
             paper_format=payload.paper_format,
             layout_template=payload.layout_template,
@@ -533,6 +536,8 @@ def plant_memorial_pdf(
             survey_date=payload.survey_date,
             property_metadata=payload.property_metadata,
         )
+        if is_preliminary or "PRELIMINAR" in payload.plant_heading.upper():
+            pdf = stamp_preliminary_pdf(pdf)
         folder = _generated_documents_dir()
         stem = document_id.hex
         destination = folder / f"{stem}.pdf"
