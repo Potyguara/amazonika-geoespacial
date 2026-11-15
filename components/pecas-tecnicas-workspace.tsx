@@ -7,6 +7,8 @@ import { Pa2WitnessMap } from "@/components/pa2-witness-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
+import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
+import { OfficialOverlapCheck } from "@/components/official-overlap-check";
 
 export type ProfessionalDocumentProfile = {
   full_name: string;
@@ -269,15 +271,16 @@ type Props = {
 
 const stages = ["Dados do imóvel", "Áreas e vértices", "Memorial", "Planta", "Exportar"];
 const premiumSteps = [
-  { title: "Importação GNSS", detail: "Relatório TOPCON e identificação", stage: 0, target: "geo96-import" },
-  { title: "Vértices do divisor", detail: "Selecionar, nomear e ordenar", stage: 0, target: "geo96-vertices" },
-  { title: "Precisões e confrontantes", detail: "Revisão facultativa de sigmas", stage: 0, target: "geo96-sigmas" },
-  { title: "Conversão altimétrica", detail: "Modelo IBGE hgeoHNOR2020", stage: 0, target: "geo96-altimetry" },
-  { title: "Construção PS4", detail: "Traçado e fechamento visual", stage: 0, target: "geo96-ps4" },
-  { title: "Áreas e vértices", detail: "Selecionar parcela de trabalho", stage: 1, target: "" },
-  { title: "Memorial", detail: "Conferência do descritivo", stage: 2, target: "" },
-  { title: "Planta", detail: "Elementos e composição", stage: 3, target: "" },
-  { title: "Exportações", detail: "Arquivos técnicos revisados", stage: 4, target: "" },
+  { title: "Importação GNSS", detail: "Pontos e precisões TOPCON", stage: 0, target: "geo96-import" },
+  { title: "Vértices do divisor", detail: "Seleção e ordenamento", stage: 0, target: "geo96-vertices" },
+  { title: "Conversão altimétrica", detail: "Resultado oficial do IBGE", stage: 0, target: "geo96-altimetry" },
+  { title: "Construção PS4", detail: "Vértices V e CBERS-4A", stage: 0, target: "geo96-ps4" },
+  { title: "Sobreposições SIGEF", detail: "SIGEF Mensais e Brasil", stage: 0, target: "geo97-overlaps" },
+  { title: "Áreas e vértices", detail: "Parcela M–V consolidada", stage: 1, target: "" },
+  { title: "Memorial", detail: "Conferência dos segmentos", stage: 2, target: "" },
+  { title: "Planta", detail: "Prévia e elementos", stage: 3, target: "" },
+  { title: "Identificação jurídica", detail: "Titular, matrícula e situação", stage: 4, target: "geo97-legal" },
+  { title: "Revisão e exportação", detail: "Documentos preliminares", stage: 4, target: "geo97-export" },
 ] as const;
 
 
@@ -308,12 +311,13 @@ export function PecasTecnicasWorkspace({
 }: Props) {
   const [stage, setStage] = useState(0);
   const [premiumStep, setPremiumStep] = useState(0);
+  const [showAllTasks, setShowAllTasks] = useState(false);
   const [workflowNotice, setWorkflowNotice] = useState("");
   const jumpToWorkflow = (index: number) => {
     const item = premiumSteps[index];
     setPremiumStep(index);
     setStage(item.stage);
-    if (index === 4) {
+    if (index === 3) {
       if (topconBoundary.length < 2) {
         setWorkflowNotice("Para iniciar PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
         return;
