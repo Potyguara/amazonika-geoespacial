@@ -131,6 +131,26 @@ type TopconPreview = {
   ready_for_sigef: false;
 };
 
+export type TopconDraft = {
+  version: 1;
+  preview: TopconPreview | null;
+  boundary: TopconBoundaryPoint[];
+  vertical_model: "hgeoHNOR2020" | "MAPGEO2015";
+  vertical_factors: Record<string, string>;
+  vertical_origin: string;
+  vertical_confirmed: Record<string, boolean>;
+  vertical_calculated: Array<{
+    name: string; ellipsoidal_height_m: number;
+    normal_height_m?: number; orthometric_height_m?: number;
+    conversion_factor_m?: number; eta_m?: number; geoid_undulation_m?: number;
+  }> | null;
+  municipalities: string;
+  situation: string;
+  cns: string;
+  registration: string;
+  stage: number;
+};
+
 const SIGEF_POSITION_METHODS = [
   ["PG1", "Relativo estático"], ["PG2", "Relativo estático-rápido"],
   ["PG3", "Relativo semicinemático"], ["PG4", "Relativo cinemático"],
@@ -214,7 +234,9 @@ type Props = {
   onDeclinationChange: (value: string) => void;
   surveyDate: string;
   onSurveyDateChange: (value: string) => void;
-  onSavePiece: (memorialDraft: string) => Promise<void>;
+  onSavePiece: (memorialDraft: string, topconDraft: TopconDraft) => Promise<void>;
+  loadedTopconDraft?: TopconDraft | null;
+  loadedTopconRevision?: number;
   onSaveMemorial: (text: string | null) => void;
   loadedMemorialDraft?: string | null;
   loadedPieceId?: string | null;
@@ -245,6 +267,7 @@ export function PecasTecnicasWorkspace({
   elements, onToggleElement, declination, onDeclinationChange,
   surveyDate, onSurveyDateChange,
   onSavePiece, onSaveMemorial, loadedMemorialDraft, loadedPieceId,
+  loadedTopconDraft, loadedTopconRevision,
 }: Props) {
   const [stage, setStage] = useState(0);
   const [topconPreview, setTopconPreview] = useState<TopconPreview | null>(null);
@@ -328,6 +351,37 @@ export function PecasTecnicasWorkspace({
   const [sigefParcelBusy, setSigefParcelBusy] = useState(false);
   const [sigefValidatedSignature, setSigefValidatedSignature] = useState("");
   const [reviewedOdsBusy, setReviewedOdsBusy] = useState(false);
+  useEffect(() => {
+    if (!loadedTopconDraft || loadedTopconDraft.version !== 1) return;
+    const d = loadedTopconDraft;
+    setTopconPreview(d.preview);
+    setTopconBoundary(d.boundary);
+    setVerticalModel(d.vertical_model);
+    setVerticalFactors(d.vertical_factors);
+    setVerticalOrigin(d.vertical_origin);
+    setVerticalConfirmed(d.vertical_confirmed);
+    setVerticalCalculated(d.vertical_calculated);
+    setSigefMunicipalities(d.municipalities);
+    setSigefSituation(d.situation);
+    setSigefCns(d.cns);
+    setSigefRegistration(d.registration);
+    setStage(d.stage >= 0 && d.stage <= 4 ? d.stage : 0);
+    setTopconReview(null);
+    setSigefParcelReview(null);
+    setSigefValidatedSignature("");
+    setPa2Mode(false);
+    setPa2Result(null);
+    setPa2Witnesses([]);
+  }, [loadedTopconRevision]);
+  const draftForSave = (): TopconDraft => ({
+    version: 1, preview: topconPreview, boundary: topconBoundary,
+    vertical_model: verticalModel, vertical_factors: verticalFactors,
+    vertical_origin: verticalOrigin, vertical_confirmed: verticalConfirmed,
+    vertical_calculated: verticalCalculated,
+    municipalities: sigefMunicipalities, situation: sigefSituation,
+    cns: sigefCns, registration: sigefRegistration, stage,
+  });
+
   const [reviewedOdsError, setReviewedOdsError] = useState("");
   const [reviewedOdsNotice, setReviewedOdsNotice] = useState("");
   const makeSigefIdentity = () => ({
@@ -1446,7 +1500,7 @@ export function PecasTecnicasWorkspace({
                 onClick={() => void runAction(async () => {
                   memorialSavingRef.current = true;
                   try {
-                    await onSavePiece(editableMemorial);
+                    await onSavePiece(editableMemorial, draftForSave());
                     onSaveMemorial(editableMemorial);
                     setMemorialDirty(false);
                     setMemorialSaved(true);
@@ -1595,7 +1649,7 @@ export function PecasTecnicasWorkspace({
           <button className="pecas-secondary" type="button" disabled={actionBusy}
             onClick={() => void runAction(async () => {
               onSaveMemorial(editableMemorial.trim() ? editableMemorial : null);
-              await onSavePiece(editableMemorial.trim() ? editableMemorial : "");
+              await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
               setSavedPieceNotice("Rascunho salvo no servidor");
             })}>Salvar peça</button>
           <button className="pecas-secondary" type="button" onClick={() => stage === 0 ? onClose() : setStage(stage - 1)}>
