@@ -1846,10 +1846,20 @@ export function PecasTecnicasWorkspace({
                           disabled={!topconBoundary.length}
                           onClick={() => {
                             if (!window.confirm("Confirmo que conferi os desvios padrão individuais extraídos do TOPCON, sua referência e o resultado do ajustamento. Desejo aprovar os valores já preenchidos?")) return;
-                            setTopconBoundary(old => old.map(point =>
-                              point.sigma_lon_m !== null && point.sigma_lat_m !== null
-                                ? { ...point, sigma_reference_confirmed: true } : point
-                            ));
+                            const candidates=topconBoundary.filter(point =>
+                              (point.sigma_lon_m??point.sigma_e_m)!=null &&
+                              (point.sigma_lat_m??point.sigma_n_m)!=null);
+                            setTopconBoundary(old=>old.map(point=>{
+                              const lon=point.sigma_lon_m??point.sigma_e_m;
+                              const lat=point.sigma_lat_m??point.sigma_n_m;
+                              const alt=point.sigma_h_m??point.sigma_u_m;
+                              return {...point,sigma_lon_m:lon,sigma_lat_m:lat,
+                                sigma_h_m:alt,sigma_reference_confirmed:
+                                  lon!=null&&lat!=null&&alt!=null};
+                            }));
+                            setSigmaImportFeedback(candidates.length+" de "+topconBoundary.length+
+                              " marcos com sigmas ajustados disponíveis no TOPCON preenchidos automaticamente. "+
+                              "Os demais permanecem em branco, sem valores inventados.");
                             setTopconReview(null); setSigefParcelReview(null);
                             setSigefValidatedSignature("");
                           }}>Confirmar sigmas individuais preenchidos</button>
@@ -1943,10 +1953,10 @@ export function PecasTecnicasWorkspace({
                               </td>
                               {(["sigma_lon_m", "sigma_lat_m", "sigma_h_m"] as const)
                                 .map((field) => <td key={field}>
-                                  <input key={`${point.name}:${field}:${loadedTopconRevision ?? 0}`}
+                                  <input key={`${point.name}:${field}`}
                                      aria-label={`${field} ${point.name}`} inputMode="decimal"
-                                     defaultValue={point[field] ?? ""}
-                                     onBlur={(event) => {
+                                     value={point[field] ?? ""}
+                                     onChange={(event) => {
                                        const value = event.target.value.trim().replace(",", ".");
                                        if (value !== "" && !Number.isFinite(Number(value))) return;
                                        updateBoundaryPoint(index, {
