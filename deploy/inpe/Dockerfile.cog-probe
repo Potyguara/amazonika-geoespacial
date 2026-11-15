@@ -1,0 +1,8 @@
+# GEO90B: diagnóstico efêmero, não serve tráfego de usuários.
+FROM python:3.12-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /srv
+RUN pip install --no-cache-dir rasterio==1.4.3
+COPY deploy/inpe/probe_cog.py /srv/probe_cog.py
+USER 65534:65534
+CMD ["python", "-B", "/srv/probe_cog.py"]
