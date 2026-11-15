@@ -6,15 +6,14 @@ through authenticated FastAPI; this service is not a public-facing API.
 """
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from math import atan, degrees, exp, pi, sinh
 from threading import BoundedSemaphore
-import json
 import re
 
 from PIL import Image
+import numpy as np
 import rasterio
 from rasterio.enums import Resampling
 from rasterio.env import Env
@@ -75,11 +74,10 @@ def png_tile(z: int, x: int, y: int):
                 )
     # COG is verified RGB uint8; alpha 0 for nodata.
     rgb = data.filled(0).transpose(1, 2, 0)
-    mask = ~data.mask.all(axis=0) if hasattr(data.mask, "all") else None
-    alpha = (mask.astype("uint8") * 255) if mask is not None else None
+    valid = ~np.ma.getmaskarray(data).all(axis=0)
+    alpha = (valid.astype("uint8") * 255)
     image = Image.fromarray(rgb, "RGB").convert("RGBA")
-    if alpha is not None:
-        image.putalpha(Image.fromarray(alpha, "L"))
+    image.putalpha(Image.fromarray(alpha, "L"))
     output = BytesIO()
     image.save(output, "PNG", optimize=True)
     return output.getvalue()
