@@ -1039,11 +1039,13 @@ export function PecasTecnicasWorkspace({
                                    <td><input aria-label={`Denominação da parcela ${point.name}`} disabled={!selected}
                                      value={selected?.parcel_name ?? ""}
                                      onChange={(event) => updateBoundaryPoint(index, { parcel_name: event.target.value })} /></td>
-                                   <td><input aria-label={`Altura elipsoidal ${point.name}`} disabled={!selected}
+                                   <td><input key={`${point.name}:h:${loadedTopconRevision ?? 0}`}
+                                    aria-label={`Altura elipsoidal ${point.name}`} disabled={!selected}
                                     inputMode="decimal" placeholder="Confirmar h"
-                                    value={selected?.ellipsoidal_height_m ?? ""}
-                                    onChange={(event) => {
+                                    defaultValue={selected?.ellipsoidal_height_m ?? ""}
+                                    onBlur={(event) => {
                                       const value = event.target.value.trim().replace(",", ".");
+                                      if (value !== "" && !Number.isFinite(Number(value))) return;
                                       updateBoundaryPoint(index, { ellipsoidal_height_m:
                                         value === "" ? null : Number(value) });
                                     }} /></td>
