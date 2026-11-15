@@ -29,7 +29,7 @@ import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
 import { LayerAttributeSearch, type LayerSearchResult } from "@/components/layer-attribute-search";
-import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile, type TopconBoundaryPoint } from "@/components/pecas-tecnicas-workspace";
+import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile, type TopconBoundaryPoint, type TopconDraft } from "@/components/pecas-tecnicas-workspace";
 import type { SituationSnapshot } from "@/components/situation-map-preview";
 import type { TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
 import { parseManualCoordinates, type ManualCoordinateMode } from "@/lib/geospatial-tools";
@@ -334,6 +334,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [currentPieceId, setCurrentPieceId] = useState<string | null>(null);
   const [lastGeneratedPdfId, setLastGeneratedPdfId] = useState<string | null>(null);
   const [loadedMemorialDraft, setLoadedMemorialDraft] = useState<string | null>(null);
+  const [loadedTopconDraft, setLoadedTopconDraft] = useState<TopconDraft | null>(null);
+  const [loadedTopconRevision, setLoadedTopconRevision] = useState(0);
   const restoreNonceRef = useRef(0);
   useEffect(() => {
     if (!workspaceOpen) return;
@@ -750,7 +752,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     return parcels;
   };
 
-  const saveCurrentPiece = async (editedMemorial: string) => {
+  const saveCurrentPiece = async (editedMemorial: string, topconDraft: TopconDraft) => {
     const features = new GeoJSON().writeFeaturesObject(polygonFeatures(), {
       featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
     });
@@ -772,6 +774,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       memorial_edited: editedMemorial.trim() ? editedMemorial : null,
       generated_pdf_id: lastGeneratedPdfId,
       situation: situationSnapshot,
+      topcon: topconDraft,
     };
     const url = currentPieceId
       ? `${getApiUrl()}/technical-pieces/${currentPieceId}`
@@ -2749,6 +2752,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       setSurveyDate(String(snapshot.survey_date ?? ""));
       setSituationSnapshot((snapshot.situation ?? null) as SituationSnapshot | null);
       setLoadedMemorialDraft(String(snapshot.memorial_edited ?? ""));
+      setLoadedTopconDraft((snapshot.topcon ?? null) as TopconDraft | null);
+      setLoadedTopconRevision(restorePiece.nonce);
       setEditedMemorial(snapshot.memorial_edited ? String(snapshot.memorial_edited) : null);
       setCurrentPieceId(restorePiece.id);
       setLastGeneratedPdfId(typeof snapshot.generated_pdf_id === "string" ? snapshot.generated_pdf_id : null);
@@ -3163,6 +3168,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         onSaveMemorial={setEditedMemorial}
         loadedPieceId={currentPieceId}
         loadedMemorialDraft={loadedMemorialDraft}
+        loadedTopconDraft={loadedTopconDraft}
+        loadedTopconRevision={loadedTopconRevision}
         sigefAvailable={Boolean(analysisId)}
       />
 
