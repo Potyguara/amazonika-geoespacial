@@ -54,6 +54,8 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   const cbersRef = useRef<TileLayer<XYZ> | null>(null);
   const [cbersEnabled, setCbersEnabled] = useState(false);
   const [cbersOpacity, setCbersOpacity] = useState(0.8);
+  const cbersActiveRef = useRef(false);
+  const [ps4MapWarning, setPs4MapWarning] = useState("");
   const [cbersError, setCbersError] = useState("");
   const [basemap, setBasemap] = useState<"osm" | "esri" | "google" | "mapbox">("esri");
   const [googleEnabled, setGoogleEnabled] = useState(false);
@@ -140,7 +142,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
       if (methodRef.current === "PS4" && ps4ClickRef.current) {
         const [longitude, latitude] = toLonLat(event.coordinate);
-        if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
+        if (!cbersActiveRef.current) {
+          setPs4MapWarning("Ative a camada CBERS-4A antes de restituir vértices PS4.");
+        } else if (longitude < -51.251767 || longitude > -50.256565 ||
+                   latitude < -0.504223 || latitude > 0.471441) {
+          setPs4MapWarning("Fora da cobertura da cena CBERS-4A habilitada. Nenhum vértice criado.");
+        } else if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
+          setPs4MapWarning("");
           ps4ClickRef.current({ longitude, latitude });
         }
         return;
@@ -335,6 +343,12 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   }, [JSON.stringify(ps4Points)]);
 
   useEffect(() => {
+    if (method === "PS4") setCbersEnabled(true);
+    else setPs4MapWarning("");
+  }, [method]);
+
+  useEffect(() => {
+    cbersActiveRef.current = cbersEnabled;
     cbersRef.current?.setVisible(cbersEnabled);
     cbersRef.current?.setOpacity(cbersOpacity);
     if (cbersEnabled) setCbersError("Camada experimental restrita à cena de 16/10/2026. Não comprova acurácia PS4.");
@@ -381,6 +395,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       border: "1px solid #9ca3af", overflow: "hidden" }} aria-label="Mapa de apoio à interseção de retas PA2" />
     {baseError && <p role="status">{baseError}</p>}
     {cbersError && <p role="status" style={{ fontSize: 12 }}>{cbersError}</p>}
+    {ps4MapWarning && <p role="alert" style={{ fontSize: 12, color: "#9f1239" }}>{ps4MapWarning}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
     <p style={{ fontSize: 12, marginTop: 8 }}>
       {method === "PS4"
