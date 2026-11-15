@@ -29,6 +29,18 @@ COG = (
     "CBERS4A_WPM_PCA_RGB321_20261016_214_113.tif"
 )
 SCENE_ID = "CBERS4A_WPM_PCA_RGB321_20261016_214_113"
+SCENE_COGS = {
+    "CBERS4A_WPM_PCA_RGB321_20261016_214_113": COG,
+    "CBERS4A_WPM_PCA_RGB321_20260815_214_113": (
+        "https://data.inpe.br/bdc/data/CB4A-WPM-PCA-FUSED/"
+        "v001/214/113/2026/08/CBERS4A_WPM_PCA_RGB321_20260815_214_113.tif"
+    ),
+    "CBERS4A_WPM_PCA_RGB321_20260715_214_113": (
+        "https://data.inpe.br/bdc/data/CB4A-WPM-PCA-FUSED/"
+        "v001/214/113/2026/07/CBERS4A_WPM_PCA_RGB321_20260715_214_113.tif"
+    ),
+}
+
 # From INPE STAC scene bbox; use an initial geographical guard even before GDAL.
 W, S, E, N = -51.251767, -0.504223, -50.256565, 0.471441
 MAX_CONCURRENT = BoundedSemaphore(1)
@@ -39,7 +51,10 @@ CACHE_LIMIT = 64
 MAX_PNG_BYTES = 500_000
 MAX_ZOOM = 18
 MIN_ZOOM = 10
-TILE_RE = re.compile(r"^/tiles/(1[0-8])/(\d{1,7})/(\d{1,7})\.png$")
+TILE_RE = re.compile(
+    r"^/tiles/(?:(CBERS4A_WPM_PCA_RGB321_\\d{8}_214_113)/)?"
+    r"(1[0-8])/(\\d{1,7})/(\\d{1,7})\\.png$"
+)
 
 
 def tile_lonlat_bbox(z: int, x: int, y: int):
@@ -55,7 +70,9 @@ def intersects_scene(z: int, x: int, y: int):
     return w < E and e > W and s < N and n > S
 
 
-def png_tile(z: int, x: int, y: int):
+def png_tile(z: int, x: int, y: int, scene_id: str = SCENE_ID):
+    if scene_id not in SCENE_COGS:
+        raise ValueError("Cena não autorizada.")
     if not intersects_scene(z, x, y):
         raise ValueError("Tile fora da cena autorizada.")
     w, s, e, n = tile_lonlat_bbox(z, x, y)
@@ -69,7 +86,7 @@ def png_tile(z: int, x: int, y: int):
         VSI_CACHE="FALSE",
         GDAL_NUM_THREADS="1",
     ):
-        with rasterio.open("/vsicurl/" + COG) as src:
+        with rasterio.open("/vsicurl/" + SCENE_COGS[scene_id]) as src:
             with WarpedVRT(src, crs="EPSG:3857", resampling=Resampling.bilinear) as vrt:
                 window = from_bounds(*merc, transform=vrt.transform)
                 data = vrt.read(
@@ -93,17 +110,20 @@ def png_tile(z: int, x: int, y: int):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
-            return self.respond(200, b'{"status":"ok","scene":"fixed"}', "application/json")
+            return self.respond(200, b'{"status":"ok","scene":"allowlisted"}', "application/json")
         match = TILE_RE.fullmatch(self.path)
         if not match:
             return self.respond(404, b'{"error":"not found"}', "application/json")
-        z, x, y = map(int, match.groups())
+        scene_id = match.group(1) or SCENE_ID
+        if scene_id not in SCENE_COGS:
+            return self.respond(404, b'{"error":"scene unavailable"}', "application/json")
+        z, x, y = map(int, match.groups()[1:])
         try:
             if not intersects_scene(z, x, y):
                 return self.respond(404, b'{"error":"outside scene"}', "application/json")
         except ValueError:
             return self.respond(422, b'{"error":"invalid xyz"}', "application/json")
-        key = (z, x, y)
+        key = (scene_id, z, x, y)
         with CACHE_LOCK:
             result = CACHE.get(key)
             if result is not None:
@@ -123,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
                     CACHE.move_to_end(key)
             if result is None:
                 try:
-                    result = png_tile(z, x, y)
+                    result = png_tile(z, x, y, scene_id)
                 except Exception:
                     return self.respond(502, b'{"error":"remote raster unavailable"}', "application/json")
                 if len(result) > MAX_PNG_BYTES:
