@@ -2118,6 +2118,7 @@ export function PecasTecnicasWorkspace({
                     selected={pa2Witnesses}
                     method={constructionMethod}
                     ps4Points={ps4Draft}
+                    ps4Candidate={ps4Candidate}
                     onPs4Click={point => {
                       setPs4Candidate(point);
                       setPs4CandidateName(ps4SuggestedName());
@@ -2150,13 +2151,18 @@ export function PecasTecnicasWorkspace({
                       }
                       pickPa2Witness(name);
                     }} />
-                  <button type="button" className="pecas-secondary"
-                    onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
-                    Limpar testemunhos selecionados
-                  </button>
-                  <p className="pecas-note">Clique nos marcos no mapa e amplie o zoom para
-                    conferir o alinhamento. O local clicado não equivale a levantamento de campo,
-                    nem fornece altura elipsoidal ou precisão topográfica.</p>
+                  {constructionMethod !== "PS4" ? <>
+                    <button type="button" className="pecas-secondary"
+                      onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
+                      Limpar testemunhos selecionados
+                    </button>
+                    <p className="pecas-note">Clique nos marcos no mapa e amplie o zoom para
+                      conferir o alinhamento. O local clicado não equivale a levantamento de campo,
+                      nem fornece altura elipsoidal ou precisão topográfica.</p>
+                  </> : <p className="pecas-note">
+                    Os pontos PS4 são registros provisórios de restituição visual,
+                    sem h ou desvio-padrão homologado. Salve a peça para guardar este traçado.
+                  </p>}
                 </div>
             </div>
           </div>
