@@ -1273,6 +1273,8 @@ export function PecasTecnicasWorkspace({
   pdfCallbackRef.current = onBuildPdf;
 
   const chosen = polygons.filter((polygon) => selectedIds.includes(polygon.id));
+  const hasProvisionalPs4Parcel = chosen.some(p =>
+    p.vertexDetails?.some(d => d.preliminary_ps4 === true && d.accuracy_verified !== true));
   // Prévia cartográfica não substitui geometrias do mapa nem autoriza a ODS.
   // A sequência reflete o ordenamento atual do editor, inclusive erros a corrigir.
   const previewTopconGeometry = (() => {
@@ -2577,11 +2579,15 @@ export function PecasTecnicasWorkspace({
               <button disabled={actionBusy} onClick={() => void runAction(onDownloadDocx)}>
                 <FileText size={17} /> Memorial descritivo (DOCX)
               </button>
-              <button disabled={!sigefAvailable || actionBusy} onClick={() => void runAction(onDownloadSigef)}>
+              <button disabled={!sigefAvailable || actionBusy || hasProvisionalPs4Parcel} onClick={() => void runAction(onDownloadSigef)}>
                 <Download size={17} /> SIGEF — simulação (ODS)
               </button>
             </div>
             {!sigefAvailable && <p className="pecas-note">A exportação ODS SIGEF exige uma análise espacial registrada e a permissão correspondente. Conclua a análise no módulo existente para habilitá-la.</p>}
+            {hasProvisionalPs4Parcel && <p className="pecas-warning" role="status">
+              Esta parcela contém vértices V restituídos por PS4 sem acurácia certificável.
+              A ODS SIGEF permanece bloqueada. A planta e o memorial PRELIMINARES podem ser gerados.
+            </p>}
             <h4>Exportações vetoriais por área</h4>
             {chosen.map((polygon) => (
               <div className="pecas-vector-row" key={polygon.id}>
