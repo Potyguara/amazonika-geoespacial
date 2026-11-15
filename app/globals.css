@@ -6568,3 +6568,89 @@ input {
     max-height: min(530px, calc(100vh - 170px));
   }
 }
+
+
+/* GEO96 — Premium guided workspace. Scoped to the technical-pieces module. */
+.pecas-workspace .geo96-header {
+  padding: 15px clamp(18px, 2.4vw, 38px);
+  background: #fff;
+  border-bottom: 1px solid #e1e8e9;
+  box-shadow: 0 1px 0 #0a51420d;
+}
+.pecas-workspace .geo96-header h2 { font-size: 20px; color: #183a37; letter-spacing: -.025em; }
+.pecas-workspace .geo96-header small { color: #0c6e61; letter-spacing: .13em; }
+.pecas-workspace .geo96-shell { flex:1; min-height:0; display:grid; grid-template-columns:250px minmax(0,1fr); }
+.pecas-workspace .geo96-content { min-width:0; min-height:0; display:flex; flex-direction:column; background: #f5f7f9; }
+.pecas-workspace .geo96-sidebar {
+  overflow-y:auto; min-height:0; background: linear-gradient(156deg,#063e3f 0%,#0e5850 65%,#123f41 100%);
+  color:#e7f3ee; padding:24px 15px 20px; scrollbar-width:thin;
+  border-right:1px solid #164e49;
+}
+.pecas-workspace .geo96-sidebar-brand { display:flex; align-items:center; gap:10px; padding:0 7px 24px; border-bottom:1px solid #ffffff27; }
+.pecas-workspace .geo96-sidebar-brand strong {font-size:15px; letter-spacing:.085em; display:block;color:#fff;}
+.pecas-workspace .geo96-sidebar-brand small {font-size:10px;letter-spacing:.16em;color:#b5dacd;display:block;margin-top:3px;}
+.pecas-workspace .geo96-logo {display:grid;place-items:center;width:39px;height:39px; flex-shrink:0;border-radius:13px 13px 18px 7px;background:linear-gradient(140deg,#9be5b0,#4da792);color:#083f36;font-size:20px;font-weight:850;font-family:Georgia,serif;}
+.pecas-workspace .geo96-progress {margin:23px 8px 19px;}
+.pecas-workspace .geo96-progress-head {display:flex;justify-content:space-between;gap:8px;font-size:10px;letter-spacing:.08em;color:#d3e8e1;}
+.pecas-workspace .geo96-progress-track {margin:10px 0 9px;height:6px;background:#ffffff24;border-radius:99px;overflow:hidden;}
+.pecas-workspace .geo96-progress-track span {height:100%;display:block;border-radius:99px;background:#8fdaad;transition:width .25s ease;}
+.pecas-workspace .geo96-progress p {font-size:11px;color:#bcd6cd;line-height:1.5;margin:0;}
+.pecas-workspace .geo96-sidebar-nav {display:grid;gap:5px;}
+.pecas-workspace .geo96-sidebar-nav button {display:flex;text-align:left;align-items:center;gap:10px;min-width:0;padding:10px 9px; background:transparent;color:#dceae6;border:1px solid transparent;border-radius:11px;cursor:pointer;transition:background .14s,border-color .14s;}
+.pecas-workspace .geo96-sidebar-nav button:hover {background:#ffffff16;}
+.pecas-workspace .geo96-sidebar-nav button:focus-visible {outline:2px solid #bef8ca;outline-offset:2px;}
+.pecas-workspace .geo96-sidebar-nav button.current {background:linear-gradient(90deg,#236e60,#1a5a50);border-color:#8de4b64d;box-shadow:0 7px 22px #09241a34;color:#fff;}
+.pecas-workspace .geo96-sidebar-nav button.completed .geo96-step-index {background:#8bd4a8;color:#063e3f;border-color:#8bd4a8;}
+.pecas-workspace .geo96-step-index {height:27px;width:27px;flex-shrink:0;display:grid;place-items:center;border:1px solid #c0dacf6b;border-radius:50%;font-size:11px;font-weight:800;}
+.pecas-workspace .geo96-sidebar-nav button.current .geo96-step-index {background:#fff;color:#095e4a;border-color:#fff;}
+.pecas-workspace .geo96-sidebar-nav strong {display:block;font-size:12px;line-height:1.32;font-weight:750;}
+.pecas-workspace .geo96-sidebar-nav small {display:block;color:#b7d6cb;font-size:10px;line-height:1.5;margin-top:3px;}
+.pecas-workspace .geo96-sidebar-foot {margin:24px 7px 0;padding-top:16px;border-top:1px solid #ffffff24;font-size:11px;color:#b8d8cb;line-height:1.6;}
+.pecas-workspace .geo96-content > .pecas-stepper { padding:10px 22px;background:#fff;border-color:#e6ece9;box-shadow:0 1px 0 #173d2810; }
+.pecas-workspace .geo96-content > .pecas-stepper button {font-size:11px;min-height:38px;}
+.pecas-workspace .geo96-content > .pecas-main {padding:22px clamp(14px,2.4vw,34px);scroll-behavior:smooth;}
+.pecas-workspace .geo96-content > .pecas-main .pecas-data-layout {max-width:1540px; grid-template-columns:minmax(0,1.82fr) minmax(310px,.9fr);gap:20px;}
+.pecas-workspace .geo96-main-card {padding:23px;border-color:#e1e8e7;box-shadow:0 7px 26px #0d454011;}
+.pecas-workspace .geo96-section-heading small {font-size:11px;font-weight:800;letter-spacing:.11em;color:#11685b;}
+.pecas-workspace .geo96-section-heading h3 {font-size:25px;letter-spacing:-.036em;color:#132f31;margin:6px 0 8px;}
+.pecas-workspace .geo96-section-heading p {font-size:13px;color:#627478;max-width:790px;line-height:1.6;}
+.pecas-workspace .geo96-task-strip {display:flex;gap:7px;flex-wrap:wrap;padding:9px;background:#f1f5f5;border:1px solid #e0e9e7;border-radius:13px;margin:18px 0;}
+.pecas-workspace .geo96-task-strip button {display:flex;align-items:center;gap:7px;flex:1 1 120px;text-align:left;border:1px solid transparent;border-radius:9px;color:#3a5b59;background:#fff;padding:9px;font-size:11px;font-weight:700;cursor:pointer;transition:box-shadow .15s,background .15s;}
+.pecas-workspace .geo96-task-strip button.current {color:#fff;background:#116452;box-shadow:0 3px 9px #1453402b;}
+.pecas-workspace .geo96-task-strip button span {display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#dfede8;color:#16614f;flex-shrink:0;}
+.pecas-workspace .geo96-task-strip button.current span {background:#fff;color:#116452;}
+.pecas-workspace .geo96-next-step {border:1px solid #c6dfd5;background:#edf7f2;color:#285e50;border-radius:10px;padding:12px 15px;margin-bottom:20px;font-size:12px;line-height:1.6;}
+.pecas-workspace .geo96-next-step strong {color:#135843;}
+.pecas-workspace .geo96-task-card {scroll-margin-top:20px;border-radius:12px;border-color:#dce7e3;box-shadow:none;padding:18px;margin:15px 0;}
+.pecas-workspace .geo96-task-card h4 {font-size:15px;color:#163d39;margin-top:3px;}
+.pecas-workspace .geo96-task-eyebrow {font-size:10px;font-weight:800;letter-spacing:.12em;color:#177861;margin-bottom:5px;}
+.pecas-workspace .geo96-helper {font-size:12px;color:#59766c;line-height:1.6;}
+.pecas-workspace .geo96-sigma-principle {display:flex;gap:10px;align-items:start;background:#eaf4f6;border:1px solid #cee0e4;border-radius:10px;padding:12px;font-size:12px;color:#2b5661;line-height:1.6;}
+.pecas-workspace .geo96-sigma-principle svg {flex-shrink:0;margin-top:2px;color:#0b755f;}
+.pecas-workspace .geo96-workflow-feedback {display:flex;gap:9px;align-items:center;padding:12px 15px;margin:0 0 16px;border-radius:10px;border:1px solid #bbdac9;background:#eaf7ef;color:#14614c;font-size:12px;font-weight:600;}
+.pecas-workspace .geo96-workflow-feedback button {margin-left:auto;border:0;background:transparent;cursor:pointer;color:inherit;font-size:18px;}
+.pecas-workspace .geo96-content > .pecas-footer {padding:13px 22px;background:#fff;}
+.pecas-workspace .geo96-content .pecas-primary {background:#075b51;border-color:#075b51;border-radius:9px;}
+.pecas-workspace .geo96-content .pecas-primary:hover {background:#084f47;}
+.pecas-workspace .geo96-content .pecas-secondary {border-radius:9px;}
+.pecas-workspace .geo96-content input:focus-visible,.pecas-workspace .geo96-content button:focus-visible,.pecas-workspace .geo96-content select:focus-visible{outline:2px solid #0e8d76;outline-offset:2px;}
+.pecas-workspace .geo96-content .pecas-situation-pane {top:10px;border-radius:14px;border-color:#e0e8e5;box-shadow:0 8px 28px #15493e15;}
+@media(max-width:1100px){
+ .pecas-workspace .geo96-shell{grid-template-columns:205px minmax(0,1fr);}
+ .pecas-workspace .geo96-content > .pecas-main .pecas-data-layout{grid-template-columns:minmax(0,1fr);}
+ .pecas-workspace .geo96-content .pecas-situation-pane{position:static;}
+}
+@media(max-width:760px){
+ .pecas-workspace .geo96-shell{display:flex;flex-direction:column;}
+ .pecas-workspace .geo96-sidebar{flex-shrink:0;overflow:visible;padding:9px 12px;}
+ .pecas-workspace .geo96-sidebar-brand,.pecas-workspace .geo96-sidebar-foot,.pecas-workspace .geo96-sidebar-nav,.pecas-workspace .geo96-progress{display:none;}
+ .pecas-workspace .geo96-content{flex:1;}
+ .pecas-workspace .geo96-content > .pecas-stepper{overflow:auto;display:flex;padding:8px;}
+ .pecas-workspace .geo96-content > .pecas-stepper button{flex:0 0 auto;white-space:nowrap;padding:10px;}
+ .pecas-workspace .geo96-task-strip{overflow-x:auto;flex-wrap:nowrap;}
+ .pecas-workspace .geo96-task-strip button{flex:0 0 145px;}
+ .pecas-workspace .geo96-header{padding:12px 16px;}
+ .pecas-workspace .geo96-header h2{font-size:17px;}
+ .pecas-workspace .geo96-main-card{padding:14px;}
+ .pecas-workspace .geo96-content > .pecas-footer{flex-wrap:wrap;padding:10px 14px;}
+}
