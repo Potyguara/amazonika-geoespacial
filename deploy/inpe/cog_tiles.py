@@ -52,8 +52,8 @@ MAX_PNG_BYTES = 500_000
 MAX_ZOOM = 18
 MIN_ZOOM = 10
 TILE_RE = re.compile(
-    r"^/tiles/(?:(CBERS4A_WPM_PCA_RGB321_\\d{8}_214_113)/)?"
-    r"(1[0-8])/(\\d{1,7})/(\\d{1,7})\\.png$"
+    r"^/tiles/(?:(CBERS4A_WPM_PCA_RGB321_\d{8}_214_113)/)?"
+    r"(1[0-8])/(\d{1,7})/(\d{1,7})\.png$"
 )
 
 
