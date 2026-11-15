@@ -157,8 +157,11 @@ export type TopconDraft = {
   cns: string;
   registration: string;
   stage: number;
+  ps4_draft?: Array<{
+    name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
+  }>;
   construction?: {
-    method: "PA1" | "PA2" | "PT8";
+    method: "PA1" | "PA2" | "PT8" | "PS4";
     pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
     witnesses: string[];
     distance: string;
@@ -296,7 +299,349 @@ export function PecasTecnicasWorkspace({
   const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
   const [pa2Mode, setPa2Mode] = useState(false);
-  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8">("PA2");
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
+  const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
+  const [ps4Candidate, setPs4Candidate] = useState<{ longitude: number; latitude: number } | null>(null);
+  const [ps4CandidateName, setPs4CandidateName] = useState("");
+  const [ps4Notice, setPs4Notice] = useState("");
+  const [ps4ConfirmFeature, setPs4ConfirmFeature] = useState(false);
+  const PS4_SCENE = "CBERS4A_WPM_PCA_RGB321_20261016_214_113";
+  const ps4SuggestedName = () => {
+    const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const prefix = code.length >= 3 && code.length <= 6 ? code : "VIRTUAL";
+    const existing = [...topconBoundary.map(p => p.sigef_vertex_code || p.name), ...ps4Draft.map(p => p.name)];
+    const pattern = new RegExp(`^${prefix}-V-(\\d{4})"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
+import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
+import { Pa2WitnessMap } from "@/components/pa2-witness-map";
+import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
+import { getApiUrl } from "@/lib/api";
+
+export type ProfessionalDocumentProfile = {
+  full_name: string;
+  rg: string;
+  cpf: string;
+  profession: string;
+  specialization: string;
+  crea: string;
+  visto: string;
+  incra_code: string;
+  art: string;
+};
+
+export const PLANT_OPTIONS = [
+  ["title", "Título e identificação da planta"],
+  ["grid", "Grade UTM georreferenciada"],
+  ["north", "Seta do norte / orientação"],
+  ["scale_text", "Escala numérica (1:...)"],
+  ["scale_bar", "Escala gráfica"],
+  ["vertex_labels", "Rótulos dos vértices"],
+  ["azimuths", "Azimutes dos segmentos"],
+  ["distances", "Distâncias dos segmentos"],
+  ["confrontants", "Rótulos de confrontantes"],
+  ["coordinates", "Quadro de coordenadas"],
+  ["situation", "Planta de situação"],
+  ["technical_stamp", "Carimbo do responsável técnico"],
+  ["magnetic_declination", "Declinação magnética (WMM2025 automática ou manual)"],
+] as const;
+export type PlantElementKey = (typeof PLANT_OPTIONS)[number][0];
+export type PlantElementFlags = Record<PlantElementKey, boolean>;
+export const DEFAULT_PLANT_ELEMENTS: PlantElementFlags = {
+  title: true, grid: true, north: true, scale_text: true,
+  scale_bar: false, vertex_labels: true, azimuths: true,
+  distances: true, confrontants: true, coordinates: true,
+  situation: true, technical_stamp: true, magnetic_declination: true,
+};
+
+export type PecasPolygon = {
+  id: string;
+  name: string;
+  vertices: string[];
+  confrontants: string[];
+  altitudes: string[];
+  vertexDetails?: Array<Record<string, unknown>>;
+  areaHa: number;
+  perimeterM: number;
+};
+
+export type PecasData = {
+  title: string;
+  plantHeading: string;
+  memorialHeading: string;
+  owner: string;
+  rg: string;
+  cpf: string;
+  address: string;
+  croqui: boolean;
+  format: "A4" | "A3" | "A2" | "A1" | "A0";
+  orientation: "paisagem" | "retrato";
+  layoutTemplate: "lateral" | "inferior" | "classic_lateral" | "cartographic_frame" | "modern_lateral";
+  scale: string;
+  customScale: string;
+};
+
+type TopconPoint = {
+  name: string;
+  northing_m: number;
+  easting_m: number;
+  elevation_reported_m: number;
+  latitude: number | null;
+  longitude: number | null;
+  sigma_n_m: number | null;
+  sigma_e_m: number | null;
+  sigma_hz_m: number | null;
+  sigma_u_m: number | null;
+  point_role: "CONTROL" | "UNCLASSIFIED";
+  ellipsoidal_height_reported_m?: number | null;
+};
+export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_reported_m"> & {
+  elevation_reported_m: number | null;
+  sigef_vertex_code: string;
+  sigef_method: string;
+  boundary_type: string;
+  confrontant: string;
+  ellipsoidal_height_m: number | null;
+  sigma_lon_m: number | null;
+  sigma_lat_m: number | null;
+  sigma_reference_confirmed?: boolean;
+  sigma_h_m: number | null;
+  confrontant_cns: string;
+  confrontant_registration: string;
+  height_reference_confirmed: boolean;
+  point_role: "BOUNDARY";
+  parcel_number: string;
+  parcel_name: string;
+  derived_physical_altitude_m?: number | null;
+  derived_physical_model?: "HN" | "H" | null;
+  sigma_suggestion_e_m?: number | null;
+  sigma_suggestion_n_m?: number | null;
+  sigma_suggestion_h_m?: number | null;
+  derived_calculation?: Record<string, unknown> | null;
+};
+type TopconReview = {
+  ready_for_ods: boolean;
+  errors: string[];
+  warnings: string[];
+  vertex_count: number;
+  area_ha: number | null;
+  perimeter_m: number | null;
+  geometry: Record<string, unknown> | null;
+  parcel_geometries?: Array<{ number: string; name: string; geometry: Record<string, unknown> }>;
+};
+
+type TopconPreview = {
+  source: "TOPCON_TOOLS";
+  filename: string;
+  project: Record<string, string | number | null>;
+  points: TopconPoint[];
+  point_count: number;
+  observations?: Array<{ baseline: string; horizontal_rms_m: number; vertical_rms_m: number;
+    sigma_x_m: number; sigma_y_m: number; sigma_z_m: number; solution_type: string }>;
+  solution: Array<{
+    baseline: string; distance_m: number; solution_type: string;
+    orbit: string; pdop: number; hdop: number; vdop: number;
+  }>;
+  sessions: Array<{
+    point: string; started_at_reported: string; ended_at_reported: string;
+    duration: string; method: string; antenna: string; interval_ms: string;
+  }>;
+  checks: { errors: string[]; warnings: string[] };
+  ready_for_sigef: false;
+};
+
+export type TopconDraft = {
+  version: 1;
+  preview: TopconPreview | null;
+  boundary: TopconBoundaryPoint[];
+  vertical_model: "hgeoHNOR2020" | "MAPGEO2015";
+  vertical_factors: Record<string, string>;
+  vertical_origin: string;
+  vertical_confirmed: Record<string, boolean>;
+  vertical_calculated: Array<{
+    name: string; ellipsoidal_height_m: number;
+    normal_height_m?: number; orthometric_height_m?: number;
+    conversion_factor_m?: number; eta_m?: number; geoid_undulation_m?: number;
+  }> | null;
+  municipalities: string;
+  situation: string;
+  cns: string;
+  registration: string;
+  stage: number;
+  ps4_draft?: Array<{
+    name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
+  }>;
+  construction?: {
+    method: "PA1" | "PA2" | "PT8" | "PS4";
+    pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
+    witnesses: string[];
+    distance: string;
+    side: "LEFT" | "RIGHT" | "FORWARD" | "BACKWARD";
+    crs_confirmed: boolean;
+    insert_after: string;
+    hint: { longitude: number; latitude: number } | null;
+    last_result: Record<string, unknown> | null;
+  };
+};
+
+const SIGEF_POSITION_METHODS = [
+  ["PG1", "Relativo estático"], ["PG2", "Relativo estático-rápido"],
+  ["PG3", "Relativo semicinemático"], ["PG4", "Relativo cinemático"],
+  ["PG5", "Relativo a partir de códigos"], ["PG6", "RTK convencional / RTPPP"],
+  ["PG7", "RTK em rede"], ["PG8", "DGPS"],
+  ["PG9", "Posicionamento por Ponto Preciso"], ["PT1", "Poligonação"],
+  ["PT2", "Triangulação"], ["PT3", "Trilateração"],
+  ["PT4", "Triangulateração"], ["PT5", "Irradiação"],
+  ["PT6", "Interseção linear"], ["PT7", "Interseção angular"],
+  ["PT8", "Alinhamento"], ["PT9", "Estação livre"],
+  ["PA1", "Paralela"], ["PA2", "Interseção de retas"],
+  ["PA3", "Projeção técnica"], ["PS1", "Aerofotogrametria"],
+  ["PS2", "Radar aerotransportado"], ["PS3", "Laser scanner aerotransportado"],
+  ["PS4", "Sensores orbitais"], ["PB1", "Base cartográfica com precisão conhecida"],
+  ["PB2", "Base cartográfica sem precisão conhecida"],
+] as const;
+const SIGEF_BOUNDARY_TYPES = [
+  ["LA1", "Cerca"], ["LA2", "Muro"], ["LA3", "Estrada"],
+  ["LA4", "Vala"], ["LA5", "Canal"], ["LA6", "Linha ideal"],
+  ["LA7", "Limite artificial não tipificado"],
+  ["LN1", "Corpo d'água ou curso d'água"],
+  ["LN2", "Linha de cumeada"], ["LN3", "Grota"],
+  ["LN4", "Crista de encosta"], ["LN5", "Pé de encosta"],
+  ["LN6", "Limite natural não tipificado"],
+] as const;
+
+function groupTopconParcels(points: TopconBoundaryPoint[], fallback: string) {
+  const groups = new globalThis.Map<string, { number: string; name: string; vertices: TopconBoundaryPoint[] }>();
+  for (const point of points) {
+    const number = point.parcel_number.trim();
+    if (!number) throw new Error(`Ponto ${point.name}: informe o número da parcela.`);
+    const name = point.parcel_name.trim() || fallback.trim() || `Parcela ${number}`;
+    const parcel = groups.get(number);
+    if (parcel && parcel.name !== name) {
+      throw new Error(`Parcela ${number}: denominações divergentes entre os vértices.`);
+    }
+    if (parcel) parcel.vertices.push(point);
+    else groups.set(number, { number, name, vertices: [point] });
+  }
+  if (groups.size > 50) throw new Error("Máximo de 50 parcelas por exportação.");
+  return [...groups.values()];
+}
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  data: PecasData;
+  onDataChange: (key: keyof PecasData, value: string | boolean) => void;
+  polygons: PecasPolygon[];
+  importedMetadata?: Record<string, string> | null;
+  selectedIds: string[];
+  rasterKey: string;
+  onSelect: (id: string, checked: boolean) => void;
+  onRenamePolygon: (id: string, name: string) => void;
+  onRenameVertex: (id: string, index: number, name: string) => void;
+  onConfrontant: (id: string, index: number, value: string) => void;
+  onAdoptTopconParcels: (parcels: Array<{
+    number: string; name: string; vertices: TopconBoundaryPoint[];
+  }>) => void;
+  memorialText: string;
+  memorialLoading: boolean;
+  externalError?: string | null;
+  onGenerateMemorial: () => Promise<void>;
+  onBuildPdf: () => Promise<Blob>;
+  onDownloadDocx: () => Promise<void>;
+  onExportPolygon: (id: string, format: "txt" | "kml" | "shp") => Promise<void>;
+  onDownloadSigef: () => Promise<void>;
+  sigefAvailable: boolean;
+  rtProfile: ProfessionalDocumentProfile | null;
+  rtLoading: boolean;
+  rtError: string;
+  onRtChange: (key: keyof ProfessionalDocumentProfile, value: string) => void;
+  onRtReload: () => void;
+  situationGeometry: Record<string, unknown>;
+  situationKey: string;
+  situationSaved: SituationSnapshot | null;
+  onSaveSituation: (snapshot: SituationSnapshot) => void;
+  elements: PlantElementFlags;
+  onToggleElement: (key: PlantElementKey, checked: boolean) => void;
+  declination: string;
+  onDeclinationChange: (value: string) => void;
+  surveyDate: string;
+  onSurveyDateChange: (value: string) => void;
+  onSavePiece: (memorialDraft: string, topconDraft: TopconDraft) => Promise<void>;
+  loadedTopconDraft?: TopconDraft | null;
+  loadedTopconRevision?: number;
+  onSaveMemorial: (text: string | null) => void;
+  loadedMemorialDraft?: string | null;
+  loadedPieceId?: string | null;
+};
+
+const stages = ["Dados do imóvel", "Áreas e vértices", "Memorial", "Planta", "Exportar"];
+
+const fileSlug = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 80) || "imovel";
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+export function PecasTecnicasWorkspace({
+  open, onClose, data, onDataChange, polygons, importedMetadata, selectedIds, rasterKey, onSelect,
+  onRenamePolygon, onRenameVertex, onConfrontant, onAdoptTopconParcels, memorialText,
+  memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
+  onExportPolygon, onDownloadSigef, sigefAvailable,
+  rtProfile, rtLoading, rtError, onRtChange, onRtReload,
+  situationGeometry, situationKey, situationSaved, onSaveSituation,
+  elements, onToggleElement, declination, onDeclinationChange,
+  surveyDate, onSurveyDateChange,
+  onSavePiece, onSaveMemorial, loadedMemorialDraft, loadedPieceId,
+  loadedTopconDraft, loadedTopconRevision,
+}: Props) {
+  const [stage, setStage] = useState(0);
+  const [topconPreview, setTopconPreview] = useState<TopconPreview | null>(null);
+  const [topconLoading, setTopconLoading] = useState(false);
+  const [topconError, setTopconError] = useState("");
+  const [topconBoundary, setTopconBoundary] = useState<TopconBoundaryPoint[]>([]);
+  const [topconReview, setTopconReview] = useState<TopconReview | null>(null);
+  const [topconReviewBusy, setTopconReviewBusy] = useState(false);
+  const [pa2Mode, setPa2Mode] = useState(false);
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
+);
+    const taken = new Set(existing.map(value => pattern.exec(value)?.[1]).filter(Boolean).map(Number));
+    let number = 1;
+    while (taken.has(number)) number++;
+    return `${prefix}-V-${String(number).padStart(4, "0")}`;
+  };
+  const addPs4DraftPoint = () => {
+    if (!ps4Candidate || !ps4ConfirmFeature) {
+      setPs4Notice("Confirme a identificação visual da feição antes de registrar o ponto provisório.");
+      return;
+    }
+    const name = ps4CandidateName.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,12}-V-\\d{4}$/.test(name)) {
+      setPs4Notice("Use o formato CODIGO-V-0001. Confira o código do credenciado no perfil.");
+      return;
+    }
+    if ([...topconBoundary.map(p => p.sigef_vertex_code || p.name), ...ps4Draft.map(p => p.name)]
+      .some(value => value.toUpperCase() === name)) {
+      setPs4Notice("O código informado já existe neste rascunho.");
+      return;
+    }
+    setPs4Draft(points => [...points, {
+      name, longitude: ps4Candidate.longitude, latitude: ps4Candidate.latitude,
+      scene_id: PS4_SCENE, created_at: new Date().toISOString(),
+    }]);
+    setPs4Candidate(null);
+    setPs4CandidateName("");
+    setPs4ConfirmFeature(false);
+    setPs4Notice(`Ponto ${name} adicionado ao rascunho PS4. Salve a peça para persistir os dados.`);
+  };
   const [pa2Variant, setPa2Variant] = useState<"SUPPORT_LINE" | "INTERSECTION">("SUPPORT_LINE");
   const [constructionDistance, setConstructionDistance] = useState("");
   const [pt8PointConfirmed, setPt8PointConfirmed] = useState(false);
@@ -450,6 +795,8 @@ export function PecasTecnicasWorkspace({
     const d = loadedTopconDraft;
     setTopconPreview(d.preview);
     setTopconBoundary(d.boundary);
+    setPs4Draft(d.ps4_draft ?? []);
+    setPs4Candidate(null);
     setVerticalModel(d.vertical_model);
     setVerticalFactors(d.vertical_factors);
     setVerticalOrigin(d.vertical_origin);
@@ -475,7 +822,7 @@ export function PecasTecnicasWorkspace({
     setPa2Result((d.construction?.last_result ?? null) as typeof pa2Result);
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
-    version: 1, preview: topconPreview, boundary: topconBoundary,
+    version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
     vertical_model: verticalModel, vertical_factors: verticalFactors,
     vertical_origin: verticalOrigin, vertical_confirmed: verticalConfirmed,
     vertical_calculated: verticalCalculated,
@@ -801,6 +1148,8 @@ export function PecasTecnicasWorkspace({
     setPa2Mode(false); setPa2Result(null); setPa2Witnesses([]); setMapHint(null);
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
+    setPs4Draft([]);
+    setPs4Candidate(null);
     setTopconReview(null);
     setVerticalFactors({});
     setVerticalConfirmed({});
@@ -1856,7 +2205,7 @@ export function PecasTecnicasWorkspace({
             gridTemplateColumns: "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
             <div style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
-                        <h4>Construção de vértices por geometria analítica — PA1, PA2 ou PT8</h4>
+                        <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
                         <p>Esta etapa sucede a conversão altimétrica. Método PT8 gera
                           vértices M/P conforme a tabela oficial de compatibilidade; PA1/PA2
                           permitem vértice V, sujeito à conferência técnica.</p>
@@ -1869,22 +2218,68 @@ export function PecasTecnicasWorkspace({
                           medida a partir do primeiro. O mapa permite escolher visualmente
                           um local, mas o cálculo mantém as restrições geométricas do método.</p>
                         <label className="pecas-check"><input type="checkbox"
-                          disabled={!verticalCalculated} checked={pa2Mode}
+                          disabled={!verticalCalculated && constructionMethod !== "PS4"} checked={pa2Mode}
                           onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
                           Preciso construir vértices adicionais</label>
                         {pa2Mode && <label className="pecas-field">
                           <span>Método de posicionamento</span>
                           <select value={constructionMethod} onChange={e => {
-                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8");
+                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4");
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
                             <option value="PA1">PA1 — Paralela (tipo V)</option>
                             <option value="PA2">PA2 — Vértice virtual (tipo V)</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
+                            <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
                           </select>
                         </label>}
-                        {pa2Mode && <>
+                        {pa2Mode && constructionMethod === "PS4" && <section aria-label="Restituição orbital PS4">
+                          <h4>PS4 — Delimitação de feição natural na imagem</h4>
+                          <p>Marque pontos sucessivos nas margens do curso d'água visível na imagem.
+                            A trilha é apenas um rascunho técnico; nenhum ponto será tratado como certificado,
+                            nem transferido automaticamente para ODS ou memorial.</p>
+                          <p className="pecas-warning">O PS4 depende da cena ortorretificada, relatório RMS,
+                            feição identificável, precisão absoluta compatível com o limite e revisão do RT.
+                            Não utilize em cerca, vértices M ou mudança de confrontação.</p>
+                          <p><strong>Cena em edição:</strong> CBERS-4A WPM 16/10/2026 (cobertura de teste).</p>
+                          <p><strong>Vértices provisórios:</strong> {ps4Draft.length}</p>
+                          {ps4Candidate && <div className="pecas-card" role="group" aria-label="Nomear vértice PS4">
+                            <p>Posição clicada: {ps4Candidate.latitude.toFixed(8)}°, {ps4Candidate.longitude.toFixed(8)}°.</p>
+                            <label className="pecas-field"><span>Código do novo vértice V</span>
+                              <input value={ps4CandidateName} onChange={e => setPs4CandidateName(e.target.value)}
+                                aria-label="Código do novo vértice PS4" />
+                            </label>
+                            <p className="pecas-note">Numeração sugerida somente dentro desta peça.
+                              A reserva de códigos por usuário credenciado ainda depende de serviço transacional.</p>
+                            <label className="pecas-check"><input type="checkbox"
+                              checked={ps4ConfirmFeature} onChange={e => setPs4ConfirmFeature(e.target.checked)} />
+                              Confirmo que identifiquei visualmente a feição natural nesta cena.
+                            </label>
+                            <button type="button" className="pecas-primary" onClick={addPs4DraftPoint}>
+                              Adicionar V ao rascunho
+                            </button>
+                            <button type="button" className="pecas-secondary" onClick={() => setPs4Candidate(null)}>
+                              Cancelar ponto
+                            </button>
+                          </div>}
+                          {ps4Notice && <p role="status" className="pecas-note">{ps4Notice}</p>}
+                          {ps4Draft.length > 0 && <div style={{ overflowX: "auto" }}>
+                            <table><thead><tr><th>Código</th><th>Latitude</th><th>Longitude</th><th>Ação</th></tr></thead>
+                              <tbody>{ps4Draft.map((point, index) => <tr key={point.name}>
+                                <td>{point.name}</td><td>{point.latitude.toFixed(8)}</td>
+                                <td>{point.longitude.toFixed(8)}</td>
+                                <td><button type="button" className="pecas-secondary"
+                                  onClick={() => setPs4Draft(old => old.filter((_, i) => i !== index))}>
+                                  Remover
+                                </button></td>
+                              </tr>)}</tbody>
+                            </table>
+                          </div>}
+                          <p>Use “Salvar peça” para guardar o traçado no rascunho associado ao usuário autenticado.
+                            A atribuição definitiva de código SIGEF dependerá de validação e unicidade.</p>
+                        </section>}
+                        {pa2Mode && constructionMethod !== "PS4" && <>
                           {constructionMethod === "PA2" && <label className="pecas-field">
                             <span>Procedimento de construção PA2</span>
                             <select value={pa2Variant} onChange={(event) => {
@@ -2019,6 +2414,13 @@ export function PecasTecnicasWorkspace({
                         }))]}
                     selected={pa2Witnesses}
                     method={constructionMethod}
+                    ps4Points={ps4Draft}
+                    onPs4Click={point => {
+                      setPs4Candidate(point);
+                      setPs4CandidateName(ps4SuggestedName());
+                      setPs4ConfirmFeature(false);
+                      setPs4Notice("");
+                    }}
                     supportLineMode={constructionMethod === "PA2" && pa2Variant === "SUPPORT_LINE"}
                     intersection={pa2Result}
                     hint={mapHint} onPositionHint={point => {
