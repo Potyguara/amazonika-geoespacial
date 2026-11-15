@@ -72,6 +72,14 @@ def check_official_overlaps(payload: OverlapRequest, db: Session = Depends(get_d
                 "SIGEF Brasil" if "brasil" in token else None)
         if kind is None:
             continue
+        # Fonte Brasil antiga foi explicitamente desativada pela pesquisa oficial;
+        # jamais ressuscitar essa versão local como conferência negativa confiável.
+        if source.slug == "incra-sigef-brasil":
+            status[kind] = {
+                "checked": False, "status": "GEONODE_REMOTO_SEM_VETOR_ATUAL",
+                "source": source.name, "slug": source.slug,
+            }
+            continue
         # GeoNode WMS não é uma versão vetorial consultável.
         version = db.scalar(select(SourceVersion).where(
             SourceVersion.source_id == source.id,
