@@ -39,6 +39,10 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
+  const cbersRef = useRef<TileLayer<XYZ> | null>(null);
+  const [cbersEnabled, setCbersEnabled] = useState(false);
+  const [cbersOpacity, setCbersOpacity] = useState(0.8);
+  const [cbersError, setCbersError] = useState("");
   const [basemap, setBasemap] = useState<"osm" | "esri" | "google" | "mapbox">("esri");
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [mapboxEnabled, setMapboxEnabled] = useState(false);
@@ -56,10 +60,20 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     const source = sourceRef.current;
     const base = new TileLayer<OSM | XYZ>({ source: new OSM() });
     baseRef.current = base;
+    const cbersLayer = new TileLayer({
+      visible: false, opacity: 0.8,
+      source: new XYZ({
+        url: getApiUrl() + "/inpe-cbers/tiles/CBERS4A_WPM_PCA_RGB321_20261016_214_113/{z}/{x}/{y}.png",
+        crossOrigin: "use-credentials", minZoom: 10, maxZoom: 18,
+        attributions: "INPE / Brazil Data Cube · CBERS-4A WPM · 16/10/2026",
+      }),
+    });
+    cbersRef.current = cbersLayer;
     const map = new Map({
       target: container.current,
       layers: [
         base,
+        cbersLayer,
         new VectorLayer({
           source,
           style: (feature) => {
@@ -105,6 +119,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       map.setTarget(undefined);
       mapRef.current = null;
       baseRef.current = null;
+      cbersRef.current = null;
       source.clear();
     };
   }, []);
@@ -230,6 +245,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     return () => { active = false; map.un("moveend", update); };
   }, [basemap]);
 
+  useEffect(() => {
+    cbersRef.current?.setVisible(cbersEnabled);
+    cbersRef.current?.setOpacity(cbersOpacity);
+    if (cbersEnabled) setCbersError("Camada experimental restrita à cena de 16/10/2026. Não comprova acurácia PS4.");
+    else setCbersError("");
+  }, [cbersEnabled, cbersOpacity]);
+
   const changeZoom = (delta: number) => {
     const map = mapRef.current;
     if (map) map.getView().setZoom(Math.min(21, Math.max(2, (map.getView().getZoom() ?? 12) + delta)));
@@ -244,12 +266,21 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         <option value="google" disabled={!googleEnabled}>Google Satélite</option>
         <option value="mapbox" disabled={!mapboxEnabled}>Mapbox Satélite</option>
       </select></label>
+      <label style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        <input type="checkbox" checked={cbersEnabled} onChange={e => setCbersEnabled(e.target.checked)} />
+        CBERS-4A INPE (experimental)
+      </label>
+      {cbersEnabled && <label>Transparência CBERS-4A:
+        <input aria-label="Opacidade da imagem CBERS-4A" type="range" min="0.2" max="1" step="0.1"
+          value={cbersOpacity} onChange={e => setCbersOpacity(Number(e.target.value))} />
+      </label>}
       <button type="button" onClick={() => changeZoom(1)}>Zoom +</button>
       <button type="button" onClick={() => changeZoom(-1)}>Zoom −</button>
     </div>
     <div ref={container} style={{ height: "min(68vh, 700px)", minHeight: 390, width: "100%", borderRadius: 9,
       border: "1px solid #9ca3af", overflow: "hidden" }} aria-label="Mapa de apoio à interseção de retas PA2" />
     {baseError && <p role="status">{baseError}</p>}
+    {cbersError && <p role="status" style={{ fontSize: 12 }}>{cbersError}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
     <p style={{ fontSize: 12, marginTop: 8 }}>
       Clique nos marcos para definir o alinhamento. Um clique no terreno indica
