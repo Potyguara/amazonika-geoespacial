@@ -8,6 +8,7 @@ import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
 import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
+import { estimatePs4NormalAltitudes } from "@/lib/ps4-normal-altitude-preview";
 import { evaluatePs4Controls, type Ps4Quality, type Ps4Control } from "@/lib/ps4-quality";
 import { OfficialOverlapCheck } from "@/components/official-overlap-check";
 
@@ -1179,9 +1180,22 @@ export function PecasTecnicasWorkspace({
       if (!initial || initial.longitude == null || initial.latitude == null)
         throw new Error("Marco inicial da restituição PS4 inválido.");
       const utmZone = lonLatToSirgasUtm(initial.longitude,initial.latitude);
+      const final = topconBoundary[(ps4StartIndex+1)%topconBoundary.length];
+      if(!final||final.longitude===null||final.latitude===null)
+        throw new Error("Marco final PS4 inválido.");
+      const confirmedNormal = (name:string) =>
+        verticalModel==="hgeoHNOR2020" ?
+          (verticalCalculated?.find(p=>p.name===name)?.normal_height_m??null) : null;
+      const virtualHN = estimatePs4NormalAltitudes(
+        {longitude:initial.longitude,latitude:initial.latitude,
+          normal_height_m:confirmedNormal(initial.name)},
+        ps4Draft,
+        {longitude:final.longitude,latitude:final.latitude,
+          normal_height_m:confirmedNormal(final.name)},
+      );
       const vertices: TopconBoundaryPoint[] = [
         ...topconBoundary.slice(0,ps4StartIndex+1),
-        ...ps4Draft.map(point=>{
+        ...ps4Draft.map((point,pointIndex)=>{
           const utm = lonLatToSirgasUtm(point.longitude,point.latitude);
           if (utm.zone !== utmZone.zone || utm.hemisphere !== utmZone.hemisphere)
             throw new Error("O vértice "+point.name+" não está na zona UTM do marco. Revise a cena.");
@@ -1195,11 +1209,14 @@ export function PecasTecnicasWorkspace({
             sigma_lon_m:null,sigma_lat_m:null,sigma_h_m:null,
             sigma_reference_confirmed:false,height_reference_confirmed:false,
             sigma_suggestion_e_m:null,sigma_suggestion_n_m:null,sigma_suggestion_h_m:null,
-            derived_physical_altitude_m:null,derived_physical_model:null,
+            derived_physical_altitude_m:virtualHN[pointIndex],
+            derived_physical_model:virtualHN[pointIndex]===null?null:"HN",
             sigef_method:"PS4",boundary_type:"LN1",
             derived_calculation:{method:"PS4",scene_id:point.scene_id,
               status:"PRELIMINAR",accuracy_verified:false,
-              note:"Posicionamento orbital visual sem acurácia ou h comprovadas"},
+              altitude_source:virtualHN[pointIndex]===null?"AUSENTE":"INTERPOLACAO_HN_M_V_M",
+              altitude_quality:"INDICATIVA_NAO_MEDIDA",
+              note:"Posicionamento orbital visual sem h medida. HN estimada somente por interpolação entre os dois M, não válida para SIGEF"},
           };
         }),
         ...topconBoundary.slice(ps4StartIndex+1),
