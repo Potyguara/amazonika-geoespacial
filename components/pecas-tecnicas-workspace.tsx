@@ -933,7 +933,6 @@ export function PecasTecnicasWorkspace({
           <div className="pecas-data-layout">
             <div className="pecas-card">
               <h3>1. Identificação do imóvel</h3>
-              <InpeCbersSceneSearch geometry={displaySituationGeometry} geometryKey={displaySituationKey} />
               <p>As informações abaixo compõem a planta e o memorial. As correções do responsável técnico valem somente para esta peça.</p>
               <div className="pecas-card" aria-label="Pré-validação do processamento TOPCON Tools">
                 <h4>Importar processamento GNSS — TOPCON Tools</h4>
@@ -1418,6 +1417,7 @@ export function PecasTecnicasWorkspace({
                   </div>
                 )}
               </div>
+              <InpeCbersSceneSearch geometry={displaySituationGeometry} geometryKey={displaySituationKey} />
               {importedMetadata?.source === "SIGEF_ODS" && (
                 <div className="pecas-card" aria-label="Dados preservados da planilha SIGEF">
                   <h4>Identificação SIGEF importada</h4>
