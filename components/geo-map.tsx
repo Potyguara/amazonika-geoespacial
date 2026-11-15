@@ -712,6 +712,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       feature.set("altitudes", vertices.map((p) =>
         !p.height_reference_confirmed || p.ellipsoidal_height_m === null
           ? "" : String(p.ellipsoidal_height_m)), true);
+      // HN interpolada é um atributo DE VISUALIZAÇÃO separado de h GNSS.
+      feature.set("normalAltitudeEstimates", vertices.map(p =>
+        p.sigef_method==="PS4" && p.derived_calculation?.altitude_source==="INTERPOLACAO_HN_M_V_M"
+          ? p.derived_physical_altitude_m : null), true);
       feature.set("technical_piece_status",
         vertices.some(p => p.sigef_method === "PS4" && p.derived_calculation?.accuracy_verified !== true)
         ? "PRELIMINAR_NAO_CERTIFICADA" : "EM_REVISAO", true);
@@ -766,6 +770,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       vertex_names: feature.get("vertexNames") as string[],
       confrontants: feature.get("confrontants") as string[],
       is_preliminary: feature.get("technical_piece_status") === "PRELIMINAR_NAO_CERTIFICADA",
+      normal_altitudes_m: feature.get("normalAltitudeEstimates") as Array<number|null> | undefined,
       altitudes_m: ((feature.get("altitudes") as string[] | undefined) ?? []).map((value) =>
         value?.trim() ? Number(value.replace(",", ".")) : null
       ),
