@@ -31,6 +31,7 @@ type Props = {
   method?: "PA1" | "PA2" | "PT8" | "PS4";
   ps4Points?: Array<{ name: string; latitude: number; longitude: number }>;
   ps4Candidate?: { latitude: number; longitude: number } | null;
+  ps4ClosureGeometry?: { type: "Polygon"; coordinates: number[][][] } | null;
   onPs4Click?: (point: { longitude: number; latitude: number }) => void;
   supportLineMode?: boolean;
   onPositionHint?: (point: { longitude: number; latitude: number }) => void;
@@ -42,12 +43,13 @@ type Props = {
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
-  polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate, onPs4Click }: Props) {
+  polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate, ps4ClosureGeometry, onPs4Click }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
   const polygonSourceRef = useRef(new VectorSource());
   const ps4SourceRef = useRef(new VectorSource());
+  const closureSourceRef = useRef(new VectorSource());
   const ps4ClickRef = useRef(onPs4Click);
   ps4ClickRef.current = onPs4Click;
   const methodRef = useRef(method);
@@ -96,6 +98,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
           style: new Style({
             fill: new Fill({ color: "rgba(1, 130, 100, 0.12)" }),
             stroke: new Stroke({ color: "#01d4a0", width: 3 }),
+          }),
+        }),
+        new VectorLayer({
+          source: closureSourceRef.current,
+          style: new Style({
+            fill: new Fill({ color: "rgba(37,99,235,0.08)" }),
+            stroke: new Stroke({ color: "#2563eb", width: 3, lineDash: [8, 5] }),
           }),
         }),
         new VectorLayer({
@@ -176,6 +185,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       source.clear();
       polygonSourceRef.current.clear();
       ps4SourceRef.current.clear();
+      closureSourceRef.current.clear();
     };
   }, []);
 
@@ -326,6 +336,21 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     map.on("moveend", update); update();
     return () => { active = false; map.un("moveend", update); };
   }, [basemap]);
+
+  const closureKey = JSON.stringify(ps4ClosureGeometry);
+  useEffect(() => {
+    const source = closureSourceRef.current;
+    source.clear();
+    if (!ps4ClosureGeometry) return;
+    try {
+      source.addFeatures(new GeoJSON().readFeatures(ps4ClosureGeometry, {
+        dataProjection: "EPSG:4326",
+        featureProjection: "EPSG:3857",
+      }));
+    } catch {
+      setPs4MapWarning("Não foi possível visualizar a prévia de fechamento.");
+    }
+  }, [closureKey]);
 
   useEffect(() => {
     const source = ps4SourceRef.current;
