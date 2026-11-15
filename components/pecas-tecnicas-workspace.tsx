@@ -1210,7 +1210,7 @@ export function PecasTecnicasWorkspace({
             sigma_reference_confirmed:false,height_reference_confirmed:false,
             sigma_suggestion_e_m:null,sigma_suggestion_n_m:null,sigma_suggestion_h_m:null,
             derived_physical_altitude_m:virtualHN[pointIndex],
-            derived_physical_model:virtualHN[pointIndex]===null?null:"HN",
+            derived_physical_model:virtualHN[pointIndex]===null?null:("HN" as const),
             sigef_method:"PS4",boundary_type:"LN1",
             derived_calculation:{method:"PS4",scene_id:point.scene_id,
               status:"PRELIMINAR",accuracy_verified:false,
