@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from math import atan, degrees, exp, pi, sinh
 from threading import BoundedSemaphore
+from collections import OrderedDict
+from threading import Lock
 import re
 
 from PIL import Image
@@ -30,6 +32,10 @@ SCENE_ID = "CBERS4A_WPM_PCA_RGB321_20261016_214_113"
 # From INPE STAC scene bbox; use an initial geographical guard even before GDAL.
 W, S, E, N = -51.251767, -0.504223, -50.256565, 0.471441
 MAX_CONCURRENT = BoundedSemaphore(1)
+CACHE = OrderedDict()
+CACHE_LOCK = Lock()
+CACHE_LIMIT = 64
+MAX_PNG_BYTES = 500_000
 MAX_ZOOM = 18
 MIN_ZOOM = 10
 TILE_RE = re.compile(r"^/tiles/(1[0-8])/(\d{1,7})/(\d{1,7})\.png$")
@@ -96,13 +102,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(404, b'{"error":"outside scene"}', "application/json")
         except ValueError:
             return self.respond(422, b'{"error":"invalid xyz"}', "application/json")
-        if not MAX_CONCURRENT.acquire(blocking=False):
-            return self.respond(429, b'{"error":"renderer busy"}', "application/json")
+        key = (z, x, y)
+        with CACHE_LOCK:
+            result = CACHE.get(key)
+            if result is not None:
+                CACHE.move_to_end(key)
+        if result is not None:
+            return self.respond(200, result, "image/png", max_age=600)
+        if not MAX_CONCURRENT.acquire(timeout=30):
+            return self.respond(503, b'{"error":"renderer busy"}', "application/json")
         try:
-            try:
-                result = png_tile(z, x, y)
-            except Exception:
-                return self.respond(502, b'{"error":"remote raster unavailable"}', "application/json")
+            # Second lookup: another worker might already have rendered the same tile.
+            with CACHE_LOCK:
+                result = CACHE.get(key)
+                if result is not None:
+                    CACHE.move_to_end(key)
+            if result is None:
+                try:
+                    result = png_tile(z, x, y)
+                except Exception:
+                    return self.respond(502, b'{"error":"remote raster unavailable"}', "application/json")
+                if len(result) > MAX_PNG_BYTES:
+                    return self.respond(502, b'{"error":"tile too large"}', "application/json")
+                with CACHE_LOCK:
+                    CACHE[key] = result
+                    CACHE.move_to_end(key)
+                    while len(CACHE) > CACHE_LIMIT:
+                        CACHE.popitem(last=False)
         finally:
             MAX_CONCURRENT.release()
         return self.respond(200, result, "image/png", max_age=600)
