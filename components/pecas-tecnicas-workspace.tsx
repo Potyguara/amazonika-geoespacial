@@ -268,6 +268,18 @@ type Props = {
 };
 
 const stages = ["Dados do imóvel", "Áreas e vértices", "Memorial", "Planta", "Exportar"];
+const premiumSteps = [
+  { title: "Importação GNSS", detail: "Relatório TOPCON e identificação", stage: 0, target: "geo96-import" },
+  { title: "Vértices do divisor", detail: "Selecionar, nomear e ordenar", stage: 0, target: "geo96-vertices" },
+  { title: "Precisões e confrontantes", detail: "Revisão facultativa de sigmas", stage: 0, target: "geo96-sigmas" },
+  { title: "Conversão altimétrica", detail: "Modelo IBGE hgeoHNOR2020", stage: 0, target: "geo96-altimetry" },
+  { title: "Construção PS4", detail: "Traçado e fechamento visual", stage: 0, target: "geo96-ps4" },
+  { title: "Áreas e vértices", detail: "Selecionar parcela de trabalho", stage: 1, target: "" },
+  { title: "Memorial", detail: "Conferência do descritivo", stage: 2, target: "" },
+  { title: "Planta", detail: "Elementos e composição", stage: 3, target: "" },
+  { title: "Exportações", detail: "Arquivos técnicos revisados", stage: 4, target: "" },
+] as const;
+
 
 const fileSlug = (value: string) => value.trim().replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 80) || "imovel";
 
@@ -295,6 +307,21 @@ export function PecasTecnicasWorkspace({
   loadedTopconDraft, loadedTopconRevision,
 }: Props) {
   const [stage, setStage] = useState(0);
+  const [premiumStep, setPremiumStep] = useState(0);
+  const [workflowNotice, setWorkflowNotice] = useState("");
+  const [sigmaAdvancedOpen, setSigmaAdvancedOpen] = useState(false);
+  const jumpToWorkflow = (index: number) => {
+    const item = premiumSteps[index];
+    setPremiumStep(index);
+    setWorkflowNotice("Etapa selecionada: " + item.title + ". Confira os dados antes de continuar.");
+    setStage(item.stage);
+    window.setTimeout(() => {
+      if (item.target) document.getElementById(item.target)?.scrollIntoView({
+        behavior: "smooth", block: "start",
+      });
+    }, 50);
+  };
+
   const [topconPreview, setTopconPreview] = useState<TopconPreview | null>(null);
   const [topconLoading, setTopconLoading] = useState(false);
   const [topconError, setTopconError] = useState("");
@@ -1196,16 +1223,41 @@ export function PecasTecnicasWorkspace({
 
   return (
     <section className="pecas-workspace" aria-label="Elaboração de peças técnicas">
-      <header className="pecas-header">
+      <header className="pecas-header geo96-header">
         <div>
-          <small>AMAZÔNIKA GEOESPACIAL</small>
-          <h2>Elaboração de peças técnicas</h2>
-          <p>Planta georreferenciada e memorial descritivo — uma única área de trabalho.</p>
+          <small>AMAZÔNIKA GEOESPACIAL · PEÇAS TÉCNICAS</small>
+          <h2>{data.name || "Imóvel em elaboração"}</h2>
+          <p>Planta georreferenciada e memorial descritivo · Rascunho técnico do usuário autenticado</p>
         </div>
         <button className="pecas-return" type="button" onClick={onClose}>
           <X size={17} /> Voltar ao mapa
         </button>
       </header>
+      <div className="geo96-shell">
+        <aside className="geo96-sidebar" aria-label="Progresso e navegação da peça">
+          <div className="geo96-sidebar-brand"><span className="geo96-logo">A</span>
+            <span><strong>AMAZÔNIKA</strong><small>GEOESPACIAL</small></span>
+          </div>
+          <div className="geo96-progress">
+            <div className="geo96-progress-head"><strong>PROGRESSO DO PROJETO</strong>
+              <span>{Math.round(((premiumStep + 1) / premiumSteps.length) * 100)}%</span></div>
+            <div className="geo96-progress-track"><span style={{width: (((premiumStep + 1) / premiumSteps.length) * 100) + "%"}} /></div>
+            <p>Passo {premiumStep + 1} de {premiumSteps.length} · Rascunho em elaboração</p>
+          </div>
+          <nav className="geo96-sidebar-nav" aria-label="Etapas do projeto">
+            {premiumSteps.map((item, index) => (
+              <button type="button" key={item.title} onClick={() => jumpToWorkflow(index)}
+                aria-current={premiumStep === index ? "step" : undefined}
+                className={premiumStep === index ? "current" : index < premiumStep ? "completed" : ""}>
+                <span className="geo96-step-index">{index < premiumStep ? <Check size={13}/> : index + 1}</span>
+                <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+              </button>
+            ))}
+          </nav>
+          <p className="geo96-sidebar-foot">Os dados originais GNSS são preservados. As etapas PS4
+            permanecem preliminares até revisão do responsável técnico.</p>
+        </aside>
+        <div className="geo96-content">
       {(actionError || (actionFeedback && !pa2Mode)) && <div
         role={actionError ? "alert" : "status"} aria-live="polite"
         style={{ padding: "10px 16px", borderRadius: 8, margin: "8px 20px",
@@ -1228,13 +1280,39 @@ export function PecasTecnicasWorkspace({
           </button>
         ))}
       </nav>
-      <main className="pecas-main">
+      <main className="pecas-main" id="geo96-main">
+        {workflowNotice && <div className="geo96-workflow-feedback" role="status">
+          <Check size={16}/><span>{workflowNotice}</span>
+          <button type="button" onClick={() => setWorkflowNotice("")} aria-label="Fechar orientação">×</button>
+        </div>}
         {stage === 0 && (
           <div className="pecas-data-layout">
-            <div className="pecas-card">
-              <h3>1. Identificação do imóvel</h3>
-              <p>As informações abaixo compõem a planta e o memorial. As correções do responsável técnico valem somente para esta peça.</p>
-              <div className="pecas-card" aria-label="Pré-validação do processamento TOPCON Tools">
+            <div className="pecas-card geo96-main-card">
+              <div className="geo96-section-heading">
+                <small>ETAPA {premiumStep + 1} · IMÓVEL</small>
+                <h3>{premiumSteps[premiumStep].stage === 0
+                  ? premiumSteps[premiumStep].title : "Dados do imóvel"}</h3>
+                <p>Selecione o próximo procedimento na navegação à esquerda. O sistema mantém
+                  os resultados GNSS originais e fornece feedback em cada etapa.</p>
+              </div>
+              <div className="geo96-task-strip" aria-label="Atalhos do processamento">
+                {premiumSteps.slice(0,5).map((item,index) => (
+                  <button type="button" key={item.title} onClick={() => jumpToWorkflow(index)}
+                    className={premiumStep===index ? "current" : ""}>
+                    <span>{index+1}</span>{item.title}
+                  </button>
+                ))}
+              </div>
+              <div className="geo96-next-step" role="status">
+                <strong>Próxima ação recomendada:</strong> {topconBoundary.length === 0
+                  ? "Importe o processamento GNSS para iniciar a peça."
+                  : !ps4Ready && ps4Draft.length
+                    ? "Abra Construção PS4, confira o segmento M–V–M e feche a prévia."
+                    : ps4Ready
+                      ? "Prévia PS4 fechada: confira a tabela consolidada e salve a peça."
+                      : "Confira os vértices importados; ajustes de sigmas são facultativos para a prévia."}
+              </div>
+              <div id="geo96-import" className="pecas-card geo96-task-card" aria-label="Pré-validação do processamento TOPCON Tools">
                 <h4>Importar processamento GNSS — TOPCON Tools</h4>
                 <p>Arquivo HTML/HTM, XLSX ou PDF textual. Extração preliminar dos pontos e das precisões; a importação não converte automaticamente estações de controle em vértices SIGEF.</p>
                 <input
@@ -1283,7 +1361,7 @@ export function PecasTecnicasWorkspace({
                         </tbody>
                       </table>
                     </div>
-                    <div className="pecas-card" aria-label="Revisão de perímetro TOPCON">
+                    <div id="geo96-vertices" className="pecas-card geo96-task-card" aria-label="Revisão de perímetro TOPCON">
                       <h4>2. Selecionar, ordenar e validar vértices de divisa</h4>
                       <p>Selecione apenas pontos integrantes do limite, informe os dados técnicos
                         confirmados e organize o percurso horário a partir do vértice mais ao norte.
@@ -1380,7 +1458,7 @@ export function PecasTecnicasWorkspace({
                           </tbody>
                         </table>
                       </div>
-                      <div className="pecas-card" aria-label="Precisões SIGEF">
+                      <div id="geo96-sigmas" className="pecas-card geo96-task-card" aria-label="Precisões SIGEF">
                         <h4>Precisões para certificação SIGEF — etapa opcional na planta preliminar</h4>
                         <p className="pecas-note">As precisões individuais σE/σN são necessárias à pré-validação
                           oficial, mas <strong>não são exigidas para desenhar, fechar e salvar a poligonal preliminar PS4</strong>.
@@ -2621,6 +2699,8 @@ export function PecasTecnicasWorkspace({
           </div>
         </div>
       )}
+        </div>
+      </div>
     </section>
   );
 }
