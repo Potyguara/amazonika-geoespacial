@@ -62,6 +62,34 @@ export function boundsFromPolygon(geometry: Record<string, unknown> | null | und
   return bounds;
 }
 
+function SceneThumbnail({ url, id }: { url: string | null; id: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+  const allowed = url && /^https:\/\/(?:data|www)\.inpe\.br\//i.test(url);
+  if (!allowed || failed) {
+    return (
+      <div style={{
+        height: 138, borderRadius: 7, background: "#eef3f0", display: "grid",
+        placeItems: "center", color: "#526b61", fontSize: 12, padding: 12, textAlign: "center",
+      }} role="img" aria-label="Prévia não disponível">
+        Miniatura não disponível no catálogo INPE
+      </div>
+    );
+  }
+  return (
+    <div style={{ height: 138, borderRadius: 7, overflow: "hidden", background: "#eef3f0" }}>
+      <img
+        src={url}
+        alt={`Miniatura oficial da cena ${id} — INPE`}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        style={{ display: "block", width: "100%", height: "100%", objectFit: "contain" }}
+      />
+    </div>
+  );
+}
+
 type Props = { geometry?: Record<string, unknown> | null; geometryKey?: string };
 
 export function InpeCbersSceneSearch({ geometry, geometryKey = "" }: Props) {
@@ -132,7 +160,11 @@ export function InpeCbersSceneSearch({ geometry, geometryKey = "" }: Props) {
               <p className="pecas-note">{results.warning}</p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
                 {results.scenes.map(scene => (
-                  <article key={scene.id} style={{ border: "1px solid #b6c4c4", borderRadius: 8, padding: 12 }}>
+                  <article key={scene.id} style={{
+                    border: "1px solid #b6c4c4", borderRadius: 8, padding: 12,
+                    display: "flex", flexDirection: "column", gap: 8, minWidth: 0,
+                  }}>
+                    <SceneThumbnail url={scene.thumbnail_url} id={scene.id} />
                     <strong style={{ overflowWrap: "anywhere" }}>{scene.id}</strong>
                     <p>{scene.datetime ? new Date(scene.datetime).toLocaleDateString("pt-BR") : "Data não informada"}</p>
                     <p className="pecas-note">PS4: acurácia pendente de comprovação.</p>
