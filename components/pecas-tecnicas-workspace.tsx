@@ -916,12 +916,12 @@ export function PecasTecnicasWorkspace({
           throw new Error("Valor de precisão inválido em "+label);
         return value;
       };
-      const lookup = new Map<string, TopconBoundaryPoint>();
+      const lookup = new globalThis.Map<string, TopconBoundaryPoint>();
       for(const p of topconBoundary) {
         lookup.set(normalize(p.name),p);
         if(p.sigef_vertex_code)lookup.set(normalize(p.sigef_vertex_code),p);
       }
-      const changes = new Map<string,{e:number;n:number;h:number|null}>();
+      const changes = new globalThis.Map<string,{e:number;n:number;h:number|null}>();
       for(const line of lines.slice(1)){
         const cells=fields(line), id=cells[idCol] || "";
         const point=lookup.get(normalize(id));
