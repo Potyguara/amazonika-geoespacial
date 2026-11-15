@@ -166,6 +166,7 @@ export type TopconDraft = {
   stage: number;
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
   ps4_selected_scene?: string;
+  ps4_ortho_report?: {scene_id:string;reference:string;rms_m:number|null;reviewed_by_rt:boolean};
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
   ps4_draft?: Array<{
@@ -364,6 +365,9 @@ export function PecasTecnicasWorkspace({
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
+  const [ps4OrthoReport,setPs4OrthoReport] = useState<NonNullable<TopconDraft["ps4_ortho_report"]>>({
+    scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false,
+  });
   const [officialOverlap, setOfficialOverlap] = useState<TopconDraft["official_overlap"]>(undefined);
   const [ps4Quality, setPs4Quality] = useState<TopconDraft["ps4_quality"]>(undefined);
   const [ps4QualitySource, setPs4QualitySource] = useState("");
@@ -646,6 +650,7 @@ export function PecasTecnicasWorkspace({
     setPs4SceneId(d.ps4_selected_scene || d.ps4_draft?.[0]?.scene_id ||
       "CBERS4A_WPM_PCA_RGB321_20261016_214_113");
     setPs4Armed(Boolean(d.ps4_draft?.length));
+    setPs4OrthoReport(d.ps4_ortho_report??{scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false});
     setOfficialOverlap(d.official_overlap);
     setPs4Quality(d.ps4_quality);
     setPs4QualitySource(d.ps4_quality?.source ?? "");
@@ -682,6 +687,7 @@ export function PecasTecnicasWorkspace({
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
     ps4_selected_scene: ps4SceneId,
+    ps4_ortho_report: ps4OrthoReport,
     official_overlap:overlapCurrent?officialOverlap:undefined,
     ps4_quality:ps4Quality,
     ps4_closure: { start: ps4Start, confirmed: ps4Ready,
@@ -1091,6 +1097,7 @@ export function PecasTecnicasWorkspace({
     setTopconBoundary([]);
     setPs4Draft([]);
     setPs4Armed(false);
+    setPs4OrthoReport({scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false});
     setOfficialOverlap(undefined);
     setPs4Quality(undefined);
     setPs4QualitySource("");
@@ -2784,7 +2791,41 @@ export function PecasTecnicasWorkspace({
                         {pa2Mode && constructionMethod === "PS4" && <section aria-label="Restituição orbital PS4">
                           <h4>PS4 — Delimitação de feição natural na imagem</h4>
                           <details className="geo97-cbers-panel">
-                            <summary>Acurácia posicional PS4 · controles GNSS independentes</summary>
+                            <summary>Acurácia posicional PS4 · relatório de ortorretificação e controles complementares</summary>
+                            <div className="geo97-ortho-rms">
+                              <h4>Via principal · RMS do relatório de ortorretificação (INCRA 3.4.2)</h4>
+                              <p className="pecas-note">Pontos GNSS independentes são facultativos.
+                                O credenciado deve verificar o relatório de ortorretificação da imagem
+                                efetivamente selecionada e a identificabilidade do limite.</p>
+                              <label className="pecas-field"><span>Identificador do relatório / fornecedor / data</span>
+                                <input value={ps4OrthoReport.reference}
+                                  placeholder="Referência verificável do relatório de ortorretificação"
+                                  onChange={e=>setPs4OrthoReport(p=>({...p,scene_id:ps4SceneId,
+                                    reference:e.target.value,reviewed_by_rt:false}))}/></label>
+                              <label className="pecas-field"><span>RMS horizontal absoluto declarado (m)</span>
+                                <input inputMode="decimal" type="number" step="0.001" min="0"
+                                  value={ps4OrthoReport.rms_m??""}
+                                  onChange={e=>setPs4OrthoReport(p=>({...p,scene_id:ps4SceneId,
+                                    rms_m:e.target.value===""?null:Number(e.target.value),
+                                    reviewed_by_rt:false}))}/></label>
+                              <label className="pecas-check">
+                                <input type="checkbox" checked={ps4OrthoReport.reviewed_by_rt}
+                                  disabled={ps4OrthoReport.scene_id!==ps4SceneId ||
+                                    !ps4OrthoReport.reference.trim() ||
+                                    ps4OrthoReport.rms_m===null || !Number.isFinite(ps4OrthoReport.rms_m) ||
+                                    ps4OrthoReport.rms_m<0}
+                                  onChange={e=>setPs4OrthoReport(p=>({...p,reviewed_by_rt:e.target.checked}))}/>
+                                RT conferiu a origem, a cena correspondente, o RMS e a feição natural
+                              </label>
+                              <p className="pecas-note" role="status">
+                                {ps4OrthoReport.scene_id===ps4SceneId && ps4OrthoReport.reviewed_by_rt
+                                  ? ps4OrthoReport.rms_m!==null && ps4OrthoReport.rms_m<=3
+                                    ? "RMS informado dentro de 3 m e revisão RT registrada; confirmar demais requisitos técnicos antes de qualquer certificação."
+                                    : "RMS informado superior a 3 m. Não atende à referência horizontal de limite natural."
+                                  : "RMS posicional absoluto ainda não conferido para esta cena. PS4 permanece preliminar."}
+                              </p>
+                            </div>
+                            <h4>Via complementar · pontos GNSS independentes (opcional)</h4>
                             <p className="pecas-note">A ortorretificação L4 e o GSD de 2 m NÃO
                               comprovam precisão absoluta de até 3 m. Utilize pontos independentes,
                               bem distribuídos, com coordenadas observadas na imagem e GNSS de referência.</p>
@@ -2833,6 +2874,8 @@ export function PecasTecnicasWorkspace({
                                   setPs4Quality(undefined);setOfficialOverlap(undefined);
                                 }
                                 setPs4SceneId(scene);setPs4Armed(true);
+                                if(scene!==ps4OrthoReport.scene_id)
+                                  setPs4OrthoReport({scene_id:scene,reference:"",rms_m:null,reviewed_by_rt:false});
                                 setPs4Status({kind:"success",message:
                                   "Cena "+scene+" ativada para vetorização. Os pontos V serão vinculados a esta cena."});
                               }}/>
