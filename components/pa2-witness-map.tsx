@@ -26,12 +26,14 @@ type Props = {
   intersection?: { latitude: number | null; longitude: number | null } | null;
   onPick: (name: string) => void;
   method?: "PA1" | "PA2" | "PT8";
+  supportLineMode?: boolean;
   onPositionHint?: (point: { longitude: number; latitude: number }) => void;
   hint?: { longitude: number; latitude: number } | null;
 };
 
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
-export function Pa2WitnessMap({ points, selected, intersection, onPick, method = "PA2", onPositionHint, hint }: Props) {
+export function Pa2WitnessMap({ points, selected, intersection, onPick,
+  method = "PA2", supportLineMode = false, onPositionHint, hint }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -46,7 +48,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick, method =
   hintRef.current = onPositionHint;
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
-  const stateKey = JSON.stringify([points, selected, intersection, method, hint]);
+  const stateKey = JSON.stringify([points, selected, intersection, method, hint, supportLineMode]);
 
   useEffect(() => {
     if (!container.current) return;
@@ -120,7 +122,8 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick, method =
       feature.set("chosen", selected.includes(point.name));
       source.addFeature(feature);
     }
-    for (let i = 0; i + 1 < selected.length && i < (method === "PA2" ? 4 : 2); i += 2) {
+    for (let i = 0; i + 1 < selected.length &&
+      i < (method === "PA2" && !supportLineMode ? 4 : 2); i += 2) {
       const a = positions.get(selected[i]);
       const b = positions.get(selected[i + 1]);
       if (a && b) source.addFeature(new Feature({
@@ -242,7 +245,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick, method =
       <button type="button" onClick={() => changeZoom(1)}>Zoom +</button>
       <button type="button" onClick={() => changeZoom(-1)}>Zoom −</button>
     </div>
-    <div ref={container} style={{ height: 340, width: "100%", borderRadius: 9,
+    <div ref={container} style={{ height: "min(68vh, 700px)", minHeight: 390, width: "100%", borderRadius: 9,
       border: "1px solid #9ca3af", overflow: "hidden" }} aria-label="Mapa de apoio à interseção de retas PA2" />
     {baseError && <p role="status">{baseError}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
