@@ -330,7 +330,9 @@ export function PecasTecnicasWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: verticalModel,
-          points: topconBoundary.map((point) => ({
+          points: topconBoundary
+            .filter((point) => topconPreview?.points.some((original) => original.name === point.name))
+            .map((point) => ({
             name: point.name,
             latitude: point.latitude,
             longitude: point.longitude,
@@ -1617,11 +1619,21 @@ export function PecasTecnicasWorkspace({
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
                             <option value="PA1">PA1 — Paralela (tipo V)</option>
-                            <option value="PA2">PA2 — Interseção de retas (tipo V)</option>
+                            <option value="PA2">PA2 — Vértice virtual (tipo V)</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
                           </select>
                         </label>}
                         {pa2Mode && <>
+                          {constructionMethod === "PA2" && <label className="pecas-field">
+                            <span>Procedimento de construção PA2</span>
+                            <select value={pa2Variant} onChange={(event) => {
+                              setPa2Variant(event.target.value as typeof pa2Variant);
+                              setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
+                            }}>
+                              <option value="SUPPORT_LINE">Linha de apoio entre dois marcos + clique projetado</option>
+                              <option value="INTERSECTION">Interseção geométrica de duas retas (quatro marcos)</option>
+                            </select>
+                          </label>}
                           <p>No mapa à direita, selecione os marcos diretamente posicionados.
                             O clique no terreno é um indicador visual de posição e nunca
                             substitui a distância ou o afastamento medido em campo.</p>
@@ -1654,7 +1666,7 @@ export function PecasTecnicasWorkspace({
                           </>}
                           <p><strong>Alinhamento A:</strong> {pa2Witnesses[0] || "—"}
                             {" → "}{pa2Witnesses[1] || "—"}
-                            {constructionMethod === "PA2" && <>
+                            {constructionMethod === "PA2" && pa2Variant === "INTERSECTION" && <>
                               {" · "}<strong>Alinhamento B:</strong> {pa2Witnesses[2] || "—"}
                               {" → "}{pa2Witnesses[3] || "—"}
                             </>}</p>
@@ -1666,7 +1678,8 @@ export function PecasTecnicasWorkspace({
                           </label>
                           <button type="button" className="pecas-primary"
                             disabled={pa2Busy || !verticalCalculated ||
-                              pa2Witnesses.length !== (constructionMethod === "PA2" ? 4 : 2) ||
+                              pa2Witnesses.length !== (constructionMethod === "PA2" && pa2Variant === "INTERSECTION" ? 4 : 2) ||
+                              (constructionMethod === "PA2" && pa2Variant === "SUPPORT_LINE" && !mapHint) ||
                               (constructionMethod !== "PA2" &&
                                 (!Number.isFinite(Number(constructionDistance)) || constructionDistance === ""))}
                             onClick={() => void calculatePa2()}>
@@ -1679,6 +1692,23 @@ export function PecasTecnicasWorkspace({
                             (PT8 não pode gerar um vértice do tipo V).
                           </label>}
                           {pa2Result && <div role="status">
+                            {pa2Result.physical_altitude_m != null && <p>
+                              <strong>Altitude física interpolada:</strong>{" "}
+                              {pa2Result.physical_altitude_m.toLocaleString("pt-BR",
+                                { minimumFractionDigits: 2, maximumFractionDigits: 4 })} m
+                              {" "}({pa2Result.physical_altitude_type}).
+                              A altura elipsoidal h será determinada separadamente.
+                            </p>}
+                            {pa2Result.sigma_e_m != null && pa2Result.sigma_n_m != null
+                              ? <p>Sigmas sugeridos pelos marcos: σE =
+                                  {pa2Result.sigma_e_m.toLocaleString("pt-BR")} m,
+                                  σN = {pa2Result.sigma_n_m.toLocaleString("pt-BR")} m.
+                                  Sujeitos a conferência da metodologia e do RT.</p>
+                              : <p className="pecas-note">
+                                  Os marcos de apoio não possuem sigmas individuais suficientes
+                                  para calcular as sugestões. Reimporte os desvios-padrão de
+                                  coordenadas ajustadas do TOPCON.</p>}
+
                             <p><strong>{pa2Result.vertex_type} preliminar:</strong> E {pa2Result.easting_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
                               {" · "}N {pa2Result.northing_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
                               {pa2Result.angle_deg_acute != null &&
@@ -1703,7 +1733,8 @@ export function PecasTecnicasWorkspace({
                             </button>
                             <p className="pecas-note">h e sigmas não são estimados sem método altimétrico,
                               matriz de covariância e revisão do responsável técnico.
-                              O vértice permanecerá com pendências de exportação.</p>
+                              O vértice permanecerá com pendências de exportação.
+                              O resultado físico e as sugestões de precisão serão mantidos no rascunho.</p>
                           </div>}
                           {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
                         </>}
@@ -1715,7 +1746,9 @@ export function PecasTecnicasWorkspace({
               <div className="pecas-card">
                   <h4>Mapa ampliado — {constructionMethod}</h4>
                   <Pa2WitnessMap points={topconPreview.points} selected={pa2Witnesses}
-                    method={constructionMethod} intersection={pa2Result}
+                    method={constructionMethod}
+                    supportLineMode={constructionMethod === "PA2" && pa2Variant === "SUPPORT_LINE"}
+                    intersection={pa2Result}
                     hint={mapHint} onPositionHint={point => {
                       setMapHint(point); setPa2Result(null);
                       const a = topconPreview.points.find(p => p.name === pa2Witnesses[0]);
