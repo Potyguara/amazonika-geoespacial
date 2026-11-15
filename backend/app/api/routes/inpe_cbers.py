@@ -123,7 +123,11 @@ def list_inpe_scenes(
 
 # GEO90B: disabled by default; only enable for a dedicated internal-only renderer.
 TILE_ROOT = os.environ.get("INPE_COG_TILES_ROOT", "").rstrip("/")
-TILE_SCENE = "CBERS4A_WPM_PCA_RGB321_20261016_214_113"
+TILE_SCENES = frozenset((
+    "CBERS4A_WPM_PCA_RGB321_20261016_214_113",
+    "CBERS4A_WPM_PCA_RGB321_20260815_214_113",
+    "CBERS4A_WPM_PCA_RGB321_20260715_214_113",
+))
 
 
 @router.get("/tiles/{scene_id}/{z}/{x}/{y}.png")
@@ -131,11 +135,11 @@ def inpe_cbers_tile(scene_id: str, z: int, x: int, y: int):
     """Authenticated fixed-scene tile bridge. The browser never contacts the renderer."""
     if not TILE_ROOT:
         raise HTTPException(503, "Camada CBERS-4A não habilitada neste ambiente.")
-    if scene_id != TILE_SCENE:
+    if scene_id not in TILE_SCENES:
         raise HTTPException(404, "Cena não habilitada para visualização.")
     if not 10 <= z <= 18 or not (0 <= x < 2 ** z and 0 <= y < 2 ** z):
         raise HTTPException(422, "XYZ inválido.")
-    url = f"{TILE_ROOT}/tiles/{z}/{x}/{y}.png"
+    url = f"{TILE_ROOT}/tiles/{scene_id}/{z}/{x}/{y}.png"
     request = Request(url, headers={"Accept": "image/png", "User-Agent": "Amazonika-GEO90B/1.0"})
     try:
         with urlopen(request, timeout=40) as upstream:
