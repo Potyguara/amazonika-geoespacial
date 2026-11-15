@@ -6,6 +6,7 @@ import View from "ol/View";
 import Feature from "ol/Feature";
 import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
+import GeoJSON from "ol/format/GeoJSON";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
@@ -30,14 +31,18 @@ type Props = {
   supportLineMode?: boolean;
   onPositionHint?: (point: { longitude: number; latitude: number }) => void;
   hint?: { longitude: number; latitude: number } | null;
+  polygonGeometry?: Record<string, unknown> | null;
+  polygonKey?: string;
 };
 
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
-  method = "PA2", supportLineMode = false, onPositionHint, hint }: Props) {
+  method = "PA2", supportLineMode = false, onPositionHint, hint,
+  polygonGeometry, polygonKey = "" }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
+  const polygonSourceRef = useRef(new VectorSource());
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const cbersRef = useRef<TileLayer<XYZ> | null>(null);
   const [cbersEnabled, setCbersEnabled] = useState(false);
@@ -54,6 +59,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
   const stateKey = JSON.stringify([points, selected, intersection, method, hint, supportLineMode]);
+  const lastPolygonFitRef = useRef("");
 
   useEffect(() => {
     if (!container.current) return;
@@ -74,6 +80,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       layers: [
         base,
         cbersLayer,
+        new VectorLayer({
+          source: polygonSourceRef.current,
+          style: new Style({
+            fill: new Fill({ color: "rgba(1, 130, 100, 0.12)" }),
+            stroke: new Stroke({ color: "#01d4a0", width: 3 }),
+          }),
+        }),
         new VectorLayer({
           source,
           style: (feature) => {
@@ -121,8 +134,35 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       baseRef.current = null;
       cbersRef.current = null;
       source.clear();
+      polygonSourceRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    const source = polygonSourceRef.current;
+    source.clear();
+    if (polygonGeometry) {
+      try {
+        source.addFeatures(new GeoJSON().readFeatures(polygonGeometry, {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        }));
+      } catch {
+        // Invalid geometry stays unavailable; do not relocate the map to an unrelated place.
+      }
+    }
+    const map = mapRef.current;
+    const extent = source.getExtent();
+    if (map && source.getFeatures().length && extent.every(Number.isFinite)
+        && lastPolygonFitRef.current !== polygonKey) {
+      lastPolygonFitRef.current = polygonKey;
+      map.updateSize();
+      map.getView().fit(extent, {
+        size: map.getSize(), padding: [70, 70, 70, 70],
+        maxZoom: 18, duration: 200,
+      });
+    }
+  }, [polygonKey, polygonGeometry]);
 
   useEffect(() => {
     const source = sourceRef.current;
@@ -167,7 +207,8 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     }
     const map = mapRef.current;
     const fitKey = JSON.stringify(points);
-    if (map && positions.size && lastFitKey.current !== fitKey) {
+    if (map && positions.size && polygonSourceRef.current.getFeatures().length === 0
+        && lastFitKey.current !== fitKey) {
       lastFitKey.current = fitKey;
       map.updateSize();
       const extent = source.getExtent();
@@ -274,6 +315,17 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         <input aria-label="Opacidade da imagem CBERS-4A" type="range" min="0.2" max="1" step="0.1"
           value={cbersOpacity} onChange={e => setCbersOpacity(Number(e.target.value))} />
       </label>}
+      <button type="button" onClick={() => {
+        const map = mapRef.current;
+        if (!map) return;
+        const poly = polygonSourceRef.current;
+        const vertices = sourceRef.current;
+        const extent = poly.getFeatures().length ? poly.getExtent() : vertices.getExtent();
+        if (extent.every(Number.isFinite)) {
+          map.updateSize();
+          map.getView().fit(extent, { size: map.getSize(), padding: [70, 70, 70, 70], maxZoom: 18 });
+        }
+      }}>Enquadrar poligonal</button>
       <button type="button" onClick={() => changeZoom(1)}>Zoom +</button>
       <button type="button" onClick={() => changeZoom(-1)}>Zoom −</button>
     </div>
