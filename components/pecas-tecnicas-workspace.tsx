@@ -165,6 +165,7 @@ export type TopconDraft = {
   registration: string;
   stage: number;
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
+  ps4_selected_scene?: string;
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
   ps4_draft?: Array<{
@@ -361,6 +362,8 @@ export function PecasTecnicasWorkspace({
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
+  const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
+  const [ps4Armed,setPs4Armed] = useState(false);
   const [officialOverlap, setOfficialOverlap] = useState<TopconDraft["official_overlap"]>(undefined);
   const [ps4Quality, setPs4Quality] = useState<TopconDraft["ps4_quality"]>(undefined);
   const [ps4QualitySource, setPs4QualitySource] = useState("");
@@ -375,7 +378,7 @@ export function PecasTecnicasWorkspace({
   const [ps4CandidateName, setPs4CandidateName] = useState("");
   const [ps4Notice, setPs4Notice] = useState("");
   const [ps4ConfirmFeature, setPs4ConfirmFeature] = useState(false);
-  const PS4_SCENE = "CBERS4A_WPM_PCA_RGB321_20261016_214_113";
+  const PS4_SCENE = ps4SceneId;
   const ps4StartIndex = topconBoundary.findIndex(p => p.name === ps4Start);
   const ps4End = ps4StartIndex < 0 ? "" :
     topconBoundary[(ps4StartIndex + 1) % topconBoundary.length]?.name ?? "";
@@ -640,6 +643,9 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(d.preview);
     setTopconBoundary(d.boundary);
     setPs4Draft(d.ps4_draft ?? []);
+    setPs4SceneId(d.ps4_selected_scene || d.ps4_draft?.[0]?.scene_id ||
+      "CBERS4A_WPM_PCA_RGB321_20261016_214_113");
+    setPs4Armed(Boolean(d.ps4_draft?.length));
     setOfficialOverlap(d.official_overlap);
     setPs4Quality(d.ps4_quality);
     setPs4QualitySource(d.ps4_quality?.source ?? "");
@@ -675,6 +681,7 @@ export function PecasTecnicasWorkspace({
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
+    ps4_selected_scene: ps4SceneId,
     official_overlap:overlapCurrent?officialOverlap:undefined,
     ps4_quality:ps4Quality,
     ps4_closure: { start: ps4Start, confirmed: ps4Ready,
@@ -1083,6 +1090,7 @@ export function PecasTecnicasWorkspace({
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setPs4Draft([]);
+    setPs4Armed(false);
     setOfficialOverlap(undefined);
     setPs4Quality(undefined);
     setPs4QualitySource("");
@@ -2800,10 +2808,32 @@ export function PecasTecnicasWorkspace({
                           <details className="geo97-cbers-panel">
                             <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
                             <p className="pecas-note">Escolha a imagem com base no enquadramento do imóvel.
-                              A camada atual de restituição permanece limitada à cena de teste indicada no mapa;
-                              selecionar outro thumbnail não substitui automaticamente o raster.</p>
+                              As cenas RGB disponíveis são carregadas no mapa após a seleção.
+                              A coleção L4 oferece metadados/miniaturas; sua composição multibanda
+                              ainda depende de um renderizador específico.</p>
                             <InpeCbersSceneSearch geometry={displaySituationGeometry}
-                              geometryKey={displaySituationKey}/>
+                              geometryKey={displaySituationKey}
+                              selectedScene={ps4SceneId}
+                              onSelectScene={scene=>{
+                                if (scene!==ps4SceneId && ps4Draft.length>0 &&
+                                  !window.confirm("Trocar de cena remove os pontos V deste rascunho para evitar misturar imagens. Deseja continuar?"))return;
+                                if(scene!==ps4SceneId){
+                                  setPs4Draft([]);setPs4ClosureConfirmed(false);
+                                  setPs4ConfirmedSignature("");setPs4Candidate(null);
+                                  setPs4Quality(undefined);setOfficialOverlap(undefined);
+                                }
+                                setPs4SceneId(scene);setPs4Armed(true);
+                                setPs4Status({kind:"success",message:
+                                  "Cena "+scene+" ativada para vetorização. Os pontos V serão vinculados a esta cena."});
+                              }}/>
+                            <div className="geo96-next-step" role="status">
+                              Cena no mapa: <strong>{ps4SceneId}</strong>.
+                              {ps4Armed?" Vetorização habilitada.":" Selecione a cena acima antes de criar novos V."}
+                            </div>
+                            {!ps4Armed&&<button type="button" className="pecas-primary"
+                              onClick={()=>{setPs4Armed(true);setPs4Status({
+                                kind:"info",message:"Cena atual confirmada. Clique no mapa para criar V."});
+                              }}>Usar cena atual para iniciar vetorização</button>}
                           </details>
                           <p>Marque pontos sucessivos nas margens do curso d'água visível na imagem.
                             A trilha é apenas um rascunho técnico; nenhum ponto será tratado como certificado,
@@ -2811,7 +2841,8 @@ export function PecasTecnicasWorkspace({
                           <p className="pecas-warning">O PS4 depende da cena ortorretificada, relatório RMS,
                             feição identificável, precisão absoluta compatível com o limite e revisão do RT.
                             Não utilize em cerca, vértices M ou mudança de confrontação.</p>
-                          <p><strong>Cena em edição:</strong> CBERS-4A WPM 16/10/2026 (cobertura de teste).</p>
+                          <p><strong>Cena em edição:</strong> {ps4SceneId} ·
+                            {ps4Armed?" vetorização habilitada":" escolha a cena antes de clicar"}.</p>
                           <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
                             background: "#f6faf8", display: "grid", gap: 9 }}>
                             <strong>Fluxo guiado PS4 — 3 etapas</strong>
@@ -3081,10 +3112,15 @@ export function PecasTecnicasWorkspace({
                         }))]}
                     selected={pa2Witnesses}
                     method={constructionMethod}
+                    ps4SceneId={ps4SceneId}
                     ps4Points={ps4Draft}
                     ps4Candidate={ps4Candidate}
                     ps4ClosureGeometry={ps4PreviewGeometry}
                     onPs4Click={point => {
+                      if(!ps4Armed){
+                        setPs4Status({kind:"error",message:"Selecione uma cena INPE e clique em iniciar vetorização antes de marcar V."});
+                        return;
+                      }
                       setPs4Candidate(point);
                       setPs4CandidateName(ps4SuggestedName());
                       setPs4ConfirmFeature(false);
