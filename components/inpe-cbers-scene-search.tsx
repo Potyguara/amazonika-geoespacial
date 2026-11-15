@@ -90,9 +90,21 @@ function SceneThumbnail({ url, id }: { url: string | null; id: string }) {
   );
 }
 
-type Props = { geometry?: Record<string, unknown> | null; geometryKey?: string };
+type Props = {
+  geometry?: Record<string, unknown> | null;
+  geometryKey?: string;
+  selectedScene?: string;
+  onSelectScene?: (sceneId: string) => void;
+};
+const RENDERABLE_SCENES = new Set([
+  "CBERS4A_WPM_PCA_RGB321_20261016_214_113",
+  "CBERS4A_WPM_PCA_RGB321_20260815_214_113",
+  "CBERS4A_WPM_PCA_RGB321_20260715_214_113",
+]);
 
-export function InpeCbersSceneSearch({ geometry, geometryKey = "" }: Props) {
+export function InpeCbersSceneSearch({
+  geometry, geometryKey = "", selectedScene, onSelectScene,
+}: Props) {
   const [kind, setKind] = useState<"rgb" | "ortho">("rgb");
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
@@ -168,6 +180,15 @@ export function InpeCbersSceneSearch({ geometry, geometryKey = "" }: Props) {
                     <strong style={{ overflowWrap: "anywhere" }}>{scene.id}</strong>
                     <p>{scene.datetime ? new Date(scene.datetime).toLocaleDateString("pt-BR") : "Data não informada"}</p>
                     <p className="pecas-note">PS4: acurácia pendente de comprovação.</p>
+                    {onSelectScene && <button type="button"
+                      className={selectedScene===scene.id?"pecas-primary":"pecas-secondary"}
+                      disabled={kind!=="rgb" || !RENDERABLE_SCENES.has(scene.id)}
+                      onClick={()=>onSelectScene(scene.id)}>
+                      {selectedScene===scene.id?"Cena ativa no mapa":
+                        kind!=="rgb"?"L4: composição RGB ainda não habilitada":
+                        !RENDERABLE_SCENES.has(scene.id)?"Raster ainda não habilitado":
+                        "Usar esta cena para vetorizar"}
+                    </button>}
                     <a href={scene.stac_item_url} target="_blank" rel="noopener noreferrer">Ver metadados no INPE</a>
                   </article>
                 ))}
