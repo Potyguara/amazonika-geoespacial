@@ -435,7 +435,7 @@ export function PecasTecnicasWorkspace({
         (verticalModel === "MAPGEO2015"))
         throw new Error("O tipo do fator não corresponde ao modelo selecionado.");
 
-      const known = new Map(topconBoundary.map(point => [norm(point.name), point]));
+      const known = new globalThis.Map(topconBoundary.map(point => [norm(point.name), point]));
       const next: Record<string, string> = {};
       const uncertainties: Record<string, number> = {};
       const warnings: string[] = [];
