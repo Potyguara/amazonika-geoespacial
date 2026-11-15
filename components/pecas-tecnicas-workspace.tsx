@@ -1628,6 +1628,45 @@ export function PecasTecnicasWorkspace({
             <button type="button" className="pecas-secondary"
               onClick={() => setPa2Mode(false)}>Concluir e voltar à peça</button>
           </div>
+          <div role="toolbar" aria-label="Métodos de construção e ferramentas cartográficas"
+            style={{ display: "flex", alignItems: "center", gap: 8,
+              flexWrap: "wrap", paddingBottom: 12, borderBottom: "1px solid #b8cfc5",
+              marginBottom: 12 }}>
+            {(["PA1", "PA2", "PT8"] as const).map(method => <button
+              key={method} type="button"
+              className={constructionMethod === method ? "pecas-primary" : "pecas-secondary"}
+              onClick={() => {
+                setConstructionMethod(method);
+                setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
+                setConstructionSide(method === "PT8" ? "FORWARD" : "LEFT");
+              }}>
+              {method} — {method === "PA1" ? "Paralela"
+                : method === "PA2" ? "Interseção/apoio" : "Alinhamento"}
+            </button>)}
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              Outros métodos:
+              <select defaultValue="" aria-label="Métodos dependentes de fontes georreferenciadas">
+                <option value="">Selecione uma fonte</option>
+                <option value="PS1" disabled>PS1 — Aerofotogrametria (requer projeto fotogramétrico)</option>
+                <option value="PS2" disabled>PS2 — Radar aerotransportado (requer validação)</option>
+                <option value="PS4" disabled>PS4 — Sensores orbitais (requer produto validado)</option>
+                <option value="PB1" disabled>PB1 — Base cartográfica com precisão conhecida</option>
+                <option value="PB2" disabled>PB2 — Base cartográfica sem precisão conhecida</option>
+              </select>
+            </label>
+            <details>
+              <summary>Tutorial do método</summary>
+              {constructionMethod === "PA1" ? <p>Selecione A e B, informe o
+                afastamento perpendicular medido, escolha o lado e indique no mapa
+                a posição aproximada. O cálculo projeta o clique na paralela.</p>
+                : constructionMethod === "PA2" ? <p>Selecione o procedimento:
+                  linha de apoio (dois marcos e clique projetado) ou interseção
+                  geométrica (dois alinhamentos). O resultado precisa de revisão.</p>
+                : <p>Selecione dois marcos e informe a distância medida a partir
+                  do primeiro, observando a direção. PT8 é aplicável a tipo M/P,
+                  não a V automaticamente.</p>}
+            </details>
+          </div>
           <div style={{ flex: 1, minHeight: 0, display: "grid",
             gridTemplateColumns: "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
             <div style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
