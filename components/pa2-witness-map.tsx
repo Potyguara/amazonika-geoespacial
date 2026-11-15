@@ -391,7 +391,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     cbersRef.current?.setSource(new XYZ({
       url: getApiUrl() + "/inpe-cbers/tiles/" + ps4SceneId + "/{z}/{x}/{y}.png",
       crossOrigin:"use-credentials",minZoom:10,maxZoom:18,
-      attributions:"INPE / Brazil Data Cube · CBERS-4A WPM · " + ps4SceneId.slice(28,36),
+      attributions:"INPE / Brazil Data Cube · CBERS-4A WPM · " + ps4SceneId.split("_")[4],
     }));
   }, [ps4SceneId]);
 
