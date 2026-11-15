@@ -145,6 +145,7 @@ export type TopconDraft = {
   boundary: TopconBoundaryPoint[];
   vertical_model: "hgeoHNOR2020" | "MAPGEO2015";
   vertical_factors: Record<string, string>;
+  vertical_factor_uncertainty?: Record<string, number>;
   vertical_origin: string;
   vertical_confirmed: Record<string, boolean>;
   vertical_calculated: Array<{
@@ -366,6 +367,7 @@ export function PecasTecnicasWorkspace({
   const [pa2Error, setPa2Error] = useState("");
   const [verticalModel, setVerticalModel] = useState<"hgeoHNOR2020" | "MAPGEO2015">("hgeoHNOR2020");
   const [verticalFactors, setVerticalFactors] = useState<Record<string, string>>({});
+  const [verticalFactorUncertainty, setVerticalFactorUncertainty] = useState<Record<string, number>>({});
   const [verticalOrigin, setVerticalOrigin] = useState("IBGE - fator informado manualmente");
   const [verticalConfirmed, setVerticalConfirmed] = useState<Record<string, boolean>>({});
   const [verticalCalculated, setVerticalCalculated] = useState<Array<{
@@ -398,48 +400,108 @@ export function PecasTecnicasWorkspace({
   const importIbgeBatch = async (file: File) => {
     setIbgeBatchNotice("");
     try {
-      if (file.size > 1_000_000) throw new Error("Arquivo excede o limite de 1 MB.");
+      if (file.size > 1_000_000) throw new Error("Arquivo excede 1 MB.");
       const raw = (await file.text()).replace(/^\uFEFF/, "").trim();
-      const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-      if (lines.length < 2) throw new Error("Arquivo sem cabeçalho e linhas de resultados.");
-      const delimiter = lines[0].includes(";") ? ";" : lines[0].includes("\t") ? "\t" : ",";
-      const fields = (line: string) => line.split(delimiter).map(value => value.trim().replace(/^"|"$/g, ""));
-      const normal = (s: string) => s.toUpperCase().normalize("NFD")
+      const lines = raw.split(/\r?\n/).map(line => line.trim())
+        .filter(line => line && !line.startsWith("#"));
+      if (!lines.length) throw new Error("Arquivo de resultados vazio.");
+      const norm = (text: string) => text.toUpperCase().normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
-      const header = fields(lines[0]).map(normal);
-      const idIndex = header.findIndex(value => ["ID", "PONTO", "NAME", "IDENTIFICACAO"].includes(value));
-      const factorIndex = header.findIndex(value => ["FATCOR", "ETAM", "ETA", "ONDGEO", "NM"].includes(value));
-      const modelIndex = header.findIndex(value => ["MODELO", "MODEL"].includes(value));
+      const split = (line: string, delim: string) => (delim === " "
+        ? line.trim().split(/\s+/)
+        : line.split(delim).map(v => v.trim().replace(/^"|"$/g, "")));
+      // Official hgeoHNOR2020 saida.txt: ID LAT LON ETA SIGMA GRADE, no header.
+      const first = lines[0];
+      const isOfficialTxt = !/[;,]/.test(first)
+        && /^\S+\s+[-+]?\d+(?:\.\d+)?\s+[-+]?\d+(?:\.\d+)?\s+[-+]?\d+(?:\.\d+)?\s+[-+]?\d+(?:\.\d+)?\s+\S+/.test(first);
+      const delimiter = isOfficialTxt ? " " :
+        first.includes(";") ? ";" : first.includes("\t") ? "\t" : ",";
+      const header = isOfficialTxt ? [] : split(first, delimiter).map(norm);
+      const idIndex = isOfficialTxt ? 0 : header.findIndex(v =>
+        ["ID", "PONTO", "NAME", "IDENTIFICACAO"].includes(v));
+      const factorIndex = isOfficialTxt ? 3 : header.findIndex(v =>
+        ["FATCOR", "ETAM", "ETA", "ONDGEO", "NM"].includes(v));
+      const latIndex = isOfficialTxt ? 1 : header.findIndex(v => ["LAT", "LATITUDE"].includes(v));
+      const lonIndex = isOfficialTxt ? 2 : header.findIndex(v => ["LON", "LONG", "LONGITUDE"].includes(v));
+      const sigmaIndex = isOfficialTxt ? 4 : header.findIndex(v =>
+        ["SIGMA", "SIGMAM", "INCERTEZA", "INCERTEZAM"].includes(v));
+      const modelIndex = isOfficialTxt ? 5 : header.findIndex(v =>
+        ["MODELO", "MODEL", "GRADE"].includes(v));
       if (idIndex < 0 || factorIndex < 0)
-        throw new Error("Cabeçalho esperado: ID;FATCOR (IBGE hgeoHNOR2020) ou ID;ONDGEO (MAPGEO2015).");
-      const mapgeo = ["ONDGEO", "NM"].includes(header[factorIndex]);
-      if (mapgeo !== (verticalModel === "MAPGEO2015"))
-        throw new Error("O tipo de fator no arquivo difere do modelo escolhido.");
-      const known = new Set(topconBoundary.map(point => point.name));
+        throw new Error("Formato não reconhecido. Use saida.txt oficial ou CSV com ID;FATCOR (ou ID;ETA_M).");
+      if (isOfficialTxt && verticalModel !== "hgeoHNOR2020")
+        throw new Error("O arquivo oficial é de hgeoHNOR2020, mas o modelo selecionado é diferente.");
+      if (!isOfficialTxt && ["ONDGEO", "NM"].includes(header[factorIndex]) !==
+        (verticalModel === "MAPGEO2015"))
+        throw new Error("O tipo do fator não corresponde ao modelo selecionado.");
+
+      const known = new Map(topconBoundary.map(point => [norm(point.name), point]));
       const next: Record<string, string> = {};
-      for (const line of lines.slice(1)) {
-        const values = fields(line);
-        const id = values[idIndex];
-        if (!known.has(id)) continue;
-        if (Object.prototype.hasOwnProperty.call(next, id)) throw new Error(`Ponto duplicado: ${id}`);
-        const value = (values[factorIndex] ?? "").replace(",", ".");
-        if (!value || !Number.isFinite(Number(value))) throw new Error(`Fator inválido: ${id}`);
-        if (modelIndex >= 0) {
-          const model = normal(values[modelIndex] ?? "");
-          if (verticalModel === "hgeoHNOR2020" && model && !model.includes("HGEOHNOR"))
-            throw new Error(`Modelo divergente no ponto ${id}.`);
-          if (verticalModel === "MAPGEO2015" && model && !model.includes("MAPGEO2015"))
-            throw new Error(`Modelo divergente no ponto ${id}.`);
+      const uncertainties: Record<string, number> = {};
+      const warnings: string[] = [];
+      for (const [index, line] of lines.entries()) {
+        if (!isOfficialTxt && index === 0) continue;
+        const values = split(line, delimiter);
+        const id = norm(values[idIndex] ?? "");
+        const point = known.get(id);
+        if (!point) {
+          warnings.push(values[idIndex] ?? "sem ID");
+          continue;
         }
-        next[id] = value;
+        if (Object.prototype.hasOwnProperty.call(next, point.name))
+          throw new Error("Identificador duplicado no arquivo: " + point.name);
+        const factor = Number((values[factorIndex] ?? "").replace(",", "."));
+        if (!Number.isFinite(factor) || (values[factorIndex] ?? "") === "")
+          throw new Error("Fator η inválido em " + point.name);
+        if (latIndex >= 0 && lonIndex >= 0) {
+          const latitude = Number((values[latIndex] ?? "").replace(",", "."));
+          const longitude = Number((values[lonIndex] ?? "").replace(",", "."));
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude))
+            throw new Error("Coordenadas inválidas no arquivo para " + point.name);
+          if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude))
+            throw new Error("Coordenadas GNSS indisponíveis para conferir " + point.name);
+          // ~2 m latitude/longitude guard against attaching a factor from a different location.
+          if (Math.abs(latitude - Number(point.latitude)) > 0.00002 ||
+              Math.abs(longitude - Number(point.longitude)) > 0.00002)
+            throw new Error("Coordenadas do IBGE divergentes do ponto " + point.name +
+              ". Confira ordem, época e sistema de referência.");
+        }
+        if (modelIndex >= 0 && values[modelIndex]) {
+          const model = norm(values[modelIndex]);
+          if (verticalModel === "hgeoHNOR2020" &&
+              !model.includes("HGEOHNOR") && !model.includes("SANTANA") &&
+              !model.includes("IMBITUBA"))
+            throw new Error("Grade/modelo inesperado no ponto " + point.name);
+          if (verticalModel === "MAPGEO2015" && !model.includes("MAPGEO2015"))
+            throw new Error("Modelo inesperado no ponto " + point.name);
+        }
+        if (sigmaIndex >= 0 && values[sigmaIndex]) {
+          const sigma = Number(values[sigmaIndex].replace(",", "."));
+          if (!Number.isFinite(sigma) || sigma < 0)
+            throw new Error("Incerteza de fator inválida no ponto " + point.name);
+          uncertainties[point.name] = sigma;
+        }
+        next[point.name] = String(factor);
       }
-      if (!Object.keys(next).length) throw new Error("Nenhum ID do arquivo corresponde aos vértices selecionados.");
-      setVerticalFactors(old => ({ ...old, ...next }));
-      setVerticalOrigin(`Fatores declarados como ${verticalModel} — arquivo importado ${file.name}; origem a conferir pelo RT`);
+      const accepted = Object.keys(next);
+      if (!accepted.length)
+        throw new Error("Nenhum identificador do arquivo corresponde aos vértices selecionados.");
+      const missing = topconBoundary.filter(point =>
+        !Object.prototype.hasOwnProperty.call(next, point.name)).map(point => point.name);
+      // Commit all factors together; never retain stale values for points missing from this file.
+      setVerticalFactors(next);
+      setVerticalFactorUncertainty(uncertainties);
+      setVerticalOrigin("Arquivo " + file.name + " — " + verticalModel +
+        " (resultado declarado; origem e referencial sujeitos a conferência pelo RT)");
       setVerticalCalculated(null);
-      setIbgeBatchNotice(`Importados ${Object.keys(next).length} fator(es) por ID. Confirme as alturas h SIRGAS2000 antes de calcular.`);
+      setVerticalError("");
+      setIbgeBatchNotice("Importação concluída: " + accepted.length +
+        " fator(es) preenchido(s) automaticamente." +
+        (missing.length ? " Faltam: " + missing.join(", ") + "." : " Todos os pontos encontrados.") +
+        (warnings.length ? " IDs não selecionados ignorados: " + warnings.join(", ") + "." : "") +
+        " A confirmação de h SIRGAS2000 permanece independente.");
     } catch (err) {
-      setIbgeBatchNotice(err instanceof Error ? err.message : "Arquivo de fatores inválido.");
+      setIbgeBatchNotice(err instanceof Error ? err.message : "Falha ao interpretar o resultado do IBGE.");
     }
   };
   const calculateVertical = async () => {
@@ -461,6 +523,7 @@ export function PecasTecnicasWorkspace({
             ellipsoidal_height_m: point.ellipsoidal_height_m,
             height_reference_confirmed: Boolean(verticalConfirmed[point.name]),
             conversion_factor_m: verticalFactors[point.name] ?? "",
+            factor_uncertainty_m: verticalFactorUncertainty[point.name] ?? null,
             factor_origin: verticalOrigin,
           })),
         }),
@@ -497,6 +560,7 @@ export function PecasTecnicasWorkspace({
     setPs4Candidate(null);
     setVerticalModel(d.vertical_model);
     setVerticalFactors(d.vertical_factors);
+    setVerticalFactorUncertainty(d.vertical_factor_uncertainty ?? {});
     setVerticalOrigin(d.vertical_origin);
     setVerticalConfirmed(d.vertical_confirmed);
     setVerticalCalculated(d.vertical_calculated);
@@ -522,6 +586,7 @@ export function PecasTecnicasWorkspace({
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
     vertical_model: verticalModel, vertical_factors: verticalFactors,
+    vertical_factor_uncertainty: verticalFactorUncertainty,
     vertical_origin: verticalOrigin, vertical_confirmed: verticalConfirmed,
     vertical_calculated: verticalCalculated,
     municipalities: sigefMunicipalities, situation: sigefSituation,
@@ -850,6 +915,7 @@ export function PecasTecnicasWorkspace({
     setPs4Candidate(null);
     setTopconReview(null);
     setVerticalFactors({});
+    setVerticalFactorUncertainty({});
     setVerticalConfirmed({});
     setVerticalCalculated(null);
     setSigefParcelReview(null);
@@ -1368,7 +1434,7 @@ export function PecasTecnicasWorkspace({
                         </div>
                         {ibgeBatchNotice && <p className="pecas-note" role="status">{ibgeBatchNotice}</p>}
                         <p className="pecas-note">
-                          hgeoHNOR2020: no serviço IBGE selecione ID LAT LON (grau decimal).
+                          hgeoHNOR2020: no serviço IBGE selecione ID LAT LON (grau decimal). O saida.txt oficial com 6 colunas é reconhecido automaticamente.
                           Importe os resultados com cabeçalho ID;FATCOR;MODELO ou ID;ETA_M.
                           MAPGEO2015: utilize ID;ONDGEO;MODELO. Os valores são vinculados pelo ID, sem alterar h.
                           Os fatores continuam sujeitos à conferência de origem e qualidade pelo RT.
@@ -1385,6 +1451,9 @@ export function PecasTecnicasWorkspace({
                                 inputMode="decimal" value={verticalFactors[point.name] ?? ""}
                                 onChange={(e) => {
                                   setVerticalFactors((old) => ({ ...old, [point.name]: e.target.value }));
+                                  setVerticalFactorUncertainty(old => {
+                                    const updated = { ...old }; delete updated[point.name]; return updated;
+                                  });
                                   setVerticalCalculated(null);
                                 }} /></td>
                               <td><input type="checkbox" aria-label={`Confirmar h SIRGAS2000 ${point.name}`}
