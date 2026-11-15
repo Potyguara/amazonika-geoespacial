@@ -261,6 +261,7 @@ def _native_topcon_tables(text: str) -> dict | None:
     observations = []
     occupations = []
     seen_points = False
+    point_sigma_indices: dict[str, int] = {}
     for line in text.splitlines():
         key = re.sub(r"\s+", " ", _norm(line))
         if key in titles:
@@ -271,6 +272,17 @@ def _native_topcon_tables(text: str) -> dict | None:
         cells = _cells(line)
         if not cells:
             continue
+        if state == "points" and any("desv padrao" in _norm(cell) for cell in cells):
+            for index, cell in enumerate(cells):
+                normalized = re.sub(r"\s+", " ", _norm(cell))
+                for coordinate, aliases in {
+                    "n": ("desv padrao n", "desvio padrao n"),
+                    "e": ("desv padrao e", "desvio padrao e"),
+                    "u": ("desv padrao u", "desvio padrao u"),
+                }.items():
+                    if normalized in aliases:
+                        point_sigma_indices[coordinate] = index
+            continue
         if state == "points" and len(cells) >= 7 and _point_name(cells[0]):
             try:
                 northing, easting, elevation = map(_number, cells[1:4])
@@ -279,7 +291,17 @@ def _native_topcon_tables(text: str) -> dict | None:
                 ellip_reported = _number(cells[6])
             except (ValueError, TypeError):
                 continue
+            sigma_point = {}
+            for coord, index in point_sigma_indices.items():
+                if index < len(cells):
+                    try:
+                        value = _number(cells[index])
+                        if value >= 0:
+                            sigma_point[coord] = value
+                    except (ValueError, TypeError):
+                        pass
             point_rows[cells[0]] = {
+                "sigma_point": sigma_point,
                 "northing": northing, "easting": easting,
                 "elevation": elevation, "latitude": lat,
                 "longitude": lon, "ellip_reported": ellip_reported,
@@ -355,6 +377,13 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
                       for name, p in native["points"].items()}
         observations = native["observations"]
         sessions = native["occupations"]
+        for name, row in native["points"].items():
+            values = row.get("sigma_point", {})
+            if all(k in values for k in ("n", "e", "u")):
+                sigma[name] = [
+                    values["n"], values["e"],
+                    math.hypot(values["n"], values["e"]), values["u"],
+                ]
     if not utm or not geographic:
         raise ValueError(
             "Não foram identificadas as tabelas de coordenadas UTM e geográficas. "
@@ -433,6 +462,14 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
                 warnings.append(f"{name}: transformação UTM não pôde ser conferida.")
         points.append(point)
     if native is not None:
+        available_individual = sum(
+            1 for p in points if p["sigma_e_m"] is not None and p["sigma_n_m"] is not None
+        )
+        if available_individual:
+            warnings.append(
+                f"Precisões individuais ajustadas extraídas de Point Summary: {available_individual} ponto(s). "
+                "Conferir referencial, época e qualidade do ajustamento antes de confirmar."
+            )
         warnings.append(
             "O relatório nativo apresenta RMS dos vetores, não precisões "
             "individuais das coordenadas; preencher σ Longitude/Latitude/h "
