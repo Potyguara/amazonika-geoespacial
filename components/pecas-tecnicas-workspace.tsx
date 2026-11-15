@@ -1977,11 +1977,31 @@ export function PecasTecnicasWorkspace({
             </div>
             <button type="button" className="pecas-secondary"
               disabled={actionBusy}
+              onClick={() => {
+                if (constructionMethod === "PS4" && !ps4Ready) {
+                  setPs4Status({kind:"error",message:ps4Closure.valid
+                    ? "Ainda falta confirmar o segmento e o fechamento da prévia PS4 (etapa 2)."
+                    : "Não é possível concluir: " + ps4Closure.message +
+                      " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
+                  return;
+                }
+                void runAction(async () => {
+                  setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
+                  await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
+                  setPa2Mode(false);
+                  setSavedPieceNotice(constructionMethod === "PS4"
+                    ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
+                    : "Construção salva e prévia atualizada");
+                });
+              }}>{actionBusy ? "Salvando..." : "Concluir, salvar e voltar à peça"}</button>
+            {constructionMethod === "PS4" && <button type="button" className="pecas-secondary"
+              disabled={actionBusy}
               onClick={() => void runAction(async () => {
+                setPs4Status({kind:"info",message:"Salvando rascunho PS4 sem fechamento..."});
                 await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
                 setPa2Mode(false);
-                setSavedPieceNotice("Construção e rascunhos PS4 salvos; prévia atualizada");
-              })}>Concluir, salvar e voltar à peça</button>
+                setSavedPieceNotice("Rascunho PS4 salvo sem fechamento; complete antes da planta");
+              })}>Salvar rascunho sem fechar</button>}
           </div>
           <div role="toolbar" aria-label="Métodos de construção e ferramentas cartográficas"
             style={{ display: "flex", alignItems: "center", gap: 8,
@@ -1992,6 +2012,9 @@ export function PecasTecnicasWorkspace({
               className={constructionMethod === method ? "pecas-primary" : "pecas-secondary"}
               onClick={() => {
                 setConstructionMethod(method);
+                setPs4Status({kind:"info",message: method === "PS4"
+                  ? "Método PS4 ativado. Etapa 1: clique sobre a feição na imagem CBERS-4A."
+                  : `Método ${method} selecionado. Confira o procedimento e as entradas exigidas.`});
                 setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                 setConstructionSide(method === "PT8" ? "FORWARD" : "LEFT");
               }}>
@@ -2069,7 +2092,93 @@ export function PecasTecnicasWorkspace({
                             feição identificável, precisão absoluta compatível com o limite e revisão do RT.
                             Não utilize em cerca, vértices M ou mudança de confrontação.</p>
                           <p><strong>Cena em edição:</strong> CBERS-4A WPM 16/10/2026 (cobertura de teste).</p>
-                          <p><strong>Vértices provisórios:</strong> {ps4Draft.length}</p>
+                          <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
+                            background: "#f6faf8", display: "grid", gap: 9 }}>
+                            <strong>Fluxo guiado PS4 — 3 etapas</strong>
+                            <div aria-label="Andamento da restituição PS4" style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                              <span style={{ fontWeight: 700 }}>1. Marcar V {ps4Draft.length >= 2 ? "✓" : "•"}</span>
+                              <span>→</span>
+                              <span style={{ fontWeight: 700 }}>2. Fechar perímetro {ps4Ready ? "✓" : "•"}</span>
+                              <span>→</span>
+                              <span style={{ fontWeight: 700 }}>3. Salvar e revisar</span>
+                            </div>
+                            <p style={{ margin: 0 }}>{ps4Draft.length < 2
+                              ? "Clique na imagem para adicionar pelo menos dois vértices V na sequência da feição."
+                              : !ps4Ready
+                                ? "Os pontos V já estão ligados. Selecione agora o segmento entre dois marcos para fechar a prévia do imóvel."
+                                : "Prévia fechada em azul: confira a geometria, salve o rascunho e retorne à peça."}</p>
+                            <div role={ps4Status.kind === "error" ? "alert" : "status"}
+                              aria-live="polite" style={{ borderRadius: 8, padding: "9px 11px",
+                                background: ps4Status.kind === "error" ? "#fff1ed" : "#e8f3ed",
+                                color: ps4Status.kind === "error" ? "#942d19" : "#12513b" }}>
+                              {ps4Status.message}
+                            </div>
+                            <strong>Vértices V provisórios: {ps4Draft.length}</strong>
+                            {ps4Draft.length > 0 && <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                              <button type="button" className="pecas-secondary"
+                                onClick={() => {
+                                  const last = ps4Draft[ps4Draft.length - 1];
+                                  setPs4Draft(old => old.slice(0,-1));
+                                  setPs4ClosureConfirmed(false);
+                                  setPs4Status({kind:"info",message:`Último vértice ${last.name} desfeito. A prévia de fechamento precisa ser confirmada novamente.`});
+                                }}>Desfazer último V</button>
+                              <button type="button" className="pecas-secondary"
+                                onClick={() => {
+                                  if (!window.confirm("Remover todos os pontos V deste rascunho PS4?")) return;
+                                  setPs4Draft([]);
+                                  setPs4ClosureConfirmed(false);
+                                  setPs4Candidate(null);
+                                  setPs4Status({kind:"info",message:"Rascunho PS4 limpo. Marque o primeiro vértice na imagem."});
+                                }}>Limpar traçado V</button>
+                            </div>}
+                          </div>
+                          <div className="pecas-card" style={{ marginTop: 12 }} aria-label="Fechar prévia da poligonal">
+                            <h4>Etapa 2 · Fechar prévia da poligonal</h4>
+                            <p>O imóvel já tem os marcos de divisa. Selecione qual <strong>segmento entre marcos consecutivos</strong>
+                              deve ser substituído pela sequência V. O sistema conecta o primeiro e último V aos respectivos
+                              marcos, conserva os demais limites e fecha a poligonal para revisão, sem alterar o perímetro oficial.</p>
+                            <label className="pecas-field"><span>Segmento natural a substituir (início → fim)</span>
+                              <select aria-label="Segmento entre marcos para PS4"
+                                value={ps4Start} onChange={e => {
+                                  setPs4Start(e.target.value);
+                                  setPs4ClosureConfirmed(false);
+                                  setPs4Status({kind:"info",message:"Segmento selecionado. Confira se os pontos V seguem do marco inicial ao final antes de confirmar."});
+                                }}>
+                                <option value="">Selecione o segmento...</option>
+                                {topconBoundary.map((p,i) => {
+                                  const end = topconBoundary[(i+1)%topconBoundary.length];
+                                  return <option key={p.name} value={p.name}>
+                                    {p.sigef_vertex_code || p.name} → {end.sigef_vertex_code || end.name}
+                                  </option>;
+                                })}
+                              </select>
+                            </label>
+                            <p className="pecas-note">Ordem adotada: {ps4Start
+                              ? (topconBoundary.find(p=>p.name===ps4Start)?.sigef_vertex_code || ps4Start) +
+                                " → " + ps4Draft.map(p=>p.name).join(" → ") + " → " +
+                                (topconBoundary.find(p=>p.name===ps4End)?.sigef_vertex_code || ps4End)
+                              : "nenhum segmento selecionado"}</p>
+                            {ps4Start && <p className={ps4Closure.valid ? "pecas-note" : "pecas-warning"}
+                              role={ps4Closure.valid ? "status" : "alert"}>{ps4Closure.message}</p>}
+                            <label className="pecas-check"><input type="checkbox"
+                              disabled={!ps4Closure.valid}
+                              checked={ps4ClosureConfirmed && ps4Closure.valid}
+                              onChange={e => {
+                                setPs4ClosureConfirmed(e.target.checked);
+                                setPs4Status(e.target.checked
+                                  ? {kind:"success",message:"Prévia de poligonal fechada! Confira o contorno azul no mapa. Ainda pendente de validação técnica PS4."}
+                                  : {kind:"info",message:"Prévia de fechamento desmarcada. Selecione o segmento e confirme."});
+                              }}/>
+                              Confirmo a sequência dos V e a ligação com esses dois marcos (somente prévia).
+                            </label>
+                            <button type="button" className="pecas-primary" disabled={!ps4Ready}
+                              onClick={() => setPs4Status({kind:"success",message:
+                                "Fechamento revisado geometricamente. Próximo: Concluir, salvar e voltar à peça; depois revisar a planta provisória."})}>
+                              Verificar prévia fechada
+                            </button>
+                            <p className="pecas-note">Contorno azul tracejado = poligonal proposta, não certificada.
+                              A precisão PS4 e os dados oficiais do perímetro ainda dependem de revisão do RT.</p>
+                          </div>
                           {ps4Candidate && <div className="pecas-card" role="group" aria-label="Nomear vértice PS4">
                             <p>Posição clicada: {ps4Candidate.latitude.toFixed(8)}°, {ps4Candidate.longitude.toFixed(8)}°.</p>
                             <label className="pecas-field"><span>Código do novo vértice V</span>
@@ -2085,7 +2194,10 @@ export function PecasTecnicasWorkspace({
                             <button type="button" className="pecas-primary" onClick={addPs4DraftPoint}>
                               Adicionar V ao rascunho
                             </button>
-                            <button type="button" className="pecas-secondary" onClick={() => setPs4Candidate(null)}>
+                            <button type="button" className="pecas-secondary" onClick={() => {
+                              setPs4Candidate(null);
+                              setPs4Status({kind:"info",message:"Ponto candidato cancelado. Nenhum vértice foi criado."});
+                            }}>
                               Cancelar ponto
                             </button>
                           </div>}
@@ -2096,7 +2208,11 @@ export function PecasTecnicasWorkspace({
                                 <td>{point.name}</td><td>{point.latitude.toFixed(8)}</td>
                                 <td>{point.longitude.toFixed(8)}</td>
                                 <td><button type="button" className="pecas-secondary"
-                                  onClick={() => setPs4Draft(old => old.filter((_, i) => i !== index))}>
+                                  onClick={() => {
+                                    setPs4Draft(old => old.filter((_, i) => i !== index));
+                                    setPs4ClosureConfirmed(false);
+                                    setPs4Status({kind:"info",message:`Vértice ${point.name} removido. Confira e feche novamente a poligonal.`});
+                                  }}>
                                   Remover
                                 </button></td>
                               </tr>)}</tbody>
@@ -2246,11 +2362,13 @@ export function PecasTecnicasWorkspace({
                     method={constructionMethod}
                     ps4Points={ps4Draft}
                     ps4Candidate={ps4Candidate}
+                    ps4ClosureGeometry={ps4PreviewGeometry}
                     onPs4Click={point => {
                       setPs4Candidate(point);
                       setPs4CandidateName(ps4SuggestedName());
                       setPs4ConfirmFeature(false);
                       setPs4Notice("");
+                      setPs4Status({ kind: "info", message: "Ponto localizado na imagem. Confirme a feição e o nome antes de adicionar V." });
                     }}
                     supportLineMode={constructionMethod === "PA2" && pa2Variant === "SUPPORT_LINE"}
                     intersection={pa2Result}
