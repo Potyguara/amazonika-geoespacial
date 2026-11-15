@@ -872,7 +872,7 @@ export function PecasTecnicasWorkspace({
       const parcels = parcelsForOds();
       if (!parcels.length) throw new Error("Selecione ao menos uma parcela.");
       if (topconBoundary.some(point => !point.sigma_reference_confirmed)) {
-        throw new Error("Confirme os sigmas individuais para cada vértice antes da pré-validação SIGEF.");
+        throw new Error("Pendência de pré-validação SIGEF: faltam os sigmas individuais das coordenadas ajustadas (σ Longitude/σ Latitude). O cálculo das altitudes HN está independente e não precisa ser repetido.");
       }
       const reviews: Array<{ number: string; name: string; review: TopconReview }> = [];
       for (const parcel of parcels) {
@@ -1128,7 +1128,7 @@ export function PecasTecnicasWorkspace({
                   }}
                 />
                 {topconLoading && <p role="status">Interpretando relatório de processamento...</p>}
-                {topconError && <p className="pecas-warning" role="alert">{topconError}</p>}
+                {topconError && <p className={topconError.startsWith("Pendência de pré-validação SIGEF") ? "pecas-note" : "pecas-warning"} role="status">{topconError}</p>}
                 {topconPreview && (
                   <div>
                     <p><strong>{topconPreview.point_count} pontos extraídos</strong> de {topconPreview.filename}.
