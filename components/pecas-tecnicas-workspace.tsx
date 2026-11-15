@@ -953,8 +953,9 @@ export function PecasTecnicasWorkspace({
                             <th>Parcela nº</th><th>Denominação da parcela</th><th>Altura elipsoidal (m)</th><th>Método</th><th>Tipo limite</th>
                             <th>Confrontante seguinte</th><th>Ordem</th></tr></thead>
                           <tbody>
-                            {topconPreview.points.filter((point) => point.point_role !== "CONTROL")
-                              .map((point) => {
+                            {[...topconPreview.points.filter((point) => point.point_role !== "CONTROL"),
+                               ...topconBoundary.filter((point) => !topconPreview.points.some((source) => source.name === point.name))]
+                               .map((point) => {
                                 const index = topconBoundary.findIndex((selected) => selected.name === point.name);
                                 const selected = index >= 0 ? topconBoundary[index] : null;
                                 return <tr key={point.name}>
@@ -974,7 +975,10 @@ export function PecasTecnicasWorkspace({
                                           sigef_method: "", boundary_type: "", confrontant: "" }]
                                         : current.filter((item) => item.name !== point.name));
                                     }} /></td>
-                                  <td>{point.name}</td>
+                                  <td>{point.name}
+                                     {!topconPreview.points.some((source) => source.name === point.name)
+                                       && <small> · calculado</small>}
+                                   </td>
                                   <td><input aria-label={`Código SIGEF ${point.name}`} disabled={!selected}
                                     value={selected?.sigef_vertex_code ?? ""}
                                     onChange={(event) => updateBoundaryPoint(index, { sigef_vertex_code: event.target.value })} /></td>
