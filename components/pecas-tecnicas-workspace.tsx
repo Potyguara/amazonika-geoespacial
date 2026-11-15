@@ -1283,6 +1283,8 @@ export function PecasTecnicasWorkspace({
                           {topconBoundary.filter((p) => p.height_reference_confirmed).length}
                           /{topconBoundary.length} alturas confirmadas.</p>
                         <p>Os RMS das linhas de base são detectados automaticamente.
+                          A incerteza η importada do IBGE refere-se à conversão vertical e não preenche
+                          σ Longitude/σ Latitude. Esta pendência não invalida a conversão HN já concluída.
                           Para sugerir sigmas individuais, importe no TOPCON o quadro
                           de desvios-padrão dos pontos ajustados (N, E e U) ou a matriz
                           de covariância. A conferência de referencial e a confirmação
@@ -1472,7 +1474,9 @@ export function PecasTecnicasWorkspace({
                         </button>
                         {verticalError && <p className="pecas-warning" role="alert">{verticalError}</p>}
                         {verticalCalculated && <div role="status">
-                          <p><strong>Conversão concluída. Nenhuma coordenada ou h foi alterada.</strong></p>
+                          <p><strong>Conversão altimétrica concluída. Nenhuma coordenada ou h foi alterada.</strong></p>
+                          <p className="pecas-note">A conferência dos sigmas horizontais dos vértices é uma
+                            etapa independente para a pré-validação SIGEF.</p>
                           {verticalCalculated.map((point) => <p key={point.name}>
                             {point.name}: h = {point.ellipsoidal_height_m.toLocaleString("pt-BR")} m;
                             {" "}{verticalModel === "hgeoHNOR2020" ? "HN" : "H"} =
@@ -1684,7 +1688,24 @@ export function PecasTecnicasWorkspace({
                   vertexNames={displayVertexNames}
                   showVertices={Boolean(previewTopconGeometry)}
                   previewBasemap={previewTopconGeometry ? "osm" : "satellite"}
+                  ps4Draft={ps4Draft}
                  />
+                 {ps4Draft.length > 0 && <div className="pecas-card" aria-label="Resumo de restituição PS4 provisória">
+                   <h4>Restituição PS4 — pontos provisórios</h4>
+                   <p>{ps4Draft.length} ponto(s) restituído(s) visualmente. O traçado aparece em vermelho no mapa
+                     de situação. Estes pontos não substituem automaticamente os vértices oficiais nem são enviados
+                     ao SIGEF enquanto não houver validação da acurácia orbital e revisão do RT.</p>
+                   <div style={{ overflowX: "auto" }}>
+                     <table className="pecas-table"><thead><tr>
+                       <th>Vértice</th><th>Latitude</th><th>Longitude</th><th>Cena</th>
+                     </tr></thead><tbody>{ps4Draft.map(point => <tr key={point.name}>
+                       <td>{point.name}</td>
+                       <td>{point.latitude.toFixed(8)}</td>
+                       <td>{point.longitude.toFixed(8)}</td>
+                       <td>{point.scene_id}</td>
+                     </tr>)}</tbody></table>
+                   </div>
+                 </div>}
           </div>
         )}
 
@@ -1927,7 +1948,12 @@ export function PecasTecnicasWorkspace({
               <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais</p>
             </div>
             <button type="button" className="pecas-secondary"
-              onClick={() => setPa2Mode(false)}>Concluir e voltar à peça</button>
+              disabled={actionBusy}
+              onClick={() => void runAction(async () => {
+                await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
+                setPa2Mode(false);
+                setSavedPieceNotice("Construção e rascunhos PS4 salvos; prévia atualizada");
+              })}>Concluir, salvar e voltar à peça</button>
           </div>
           <div role="toolbar" aria-label="Métodos de construção e ferramentas cartográficas"
             style={{ display: "flex", alignItems: "center", gap: 8,
@@ -2176,11 +2202,15 @@ export function PecasTecnicasWorkspace({
                   <Pa2WitnessMap
                     polygonGeometry={displaySituationGeometry}
                     polygonKey={displaySituationKey}
-                    points={[...topconPreview.points,
+                    points={[...topconPreview.points.map(point => ({
+                      ...point,
+                      label: topconBoundary.find(p => p.name === point.name)?.sigef_vertex_code || point.name,
+                    })),
                       ...topconBoundary.filter(point =>
                         !topconPreview.points.some(p => p.name === point.name))
                         .map(point => ({
-                          name: point.sigef_vertex_code || point.name,
+                          name: point.name,
+                          label: point.sigef_vertex_code || point.name,
                           longitude: point.longitude, latitude: point.latitude,
                           virtual: true,
                         }))]}
