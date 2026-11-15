@@ -99,6 +99,12 @@ export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_re
   point_role: "BOUNDARY";
   parcel_number: string;
   parcel_name: string;
+  derived_physical_altitude_m?: number | null;
+  derived_physical_model?: "HN" | "H" | null;
+  sigma_suggestion_e_m?: number | null;
+  sigma_suggestion_n_m?: number | null;
+  sigma_suggestion_h_m?: number | null;
+  derived_calculation?: Record<string, unknown> | null;
 };
 type TopconReview = {
   ready_for_ods: boolean;
@@ -278,6 +284,7 @@ export function PecasTecnicasWorkspace({
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8">("PA2");
+  const [pa2Variant, setPa2Variant] = useState<"SUPPORT_LINE" | "INTERSECTION">("SUPPORT_LINE");
   const [constructionDistance, setConstructionDistance] = useState("");
   const [pt8PointConfirmed, setPt8PointConfirmed] = useState(false);
   const [constructionSide, setConstructionSide] = useState<"LEFT" | "RIGHT" | "FORWARD" | "BACKWARD">("LEFT");
@@ -290,6 +297,12 @@ export function PecasTecnicasWorkspace({
     easting_m: number; northing_m: number;
     latitude: number | null; longitude: number | null;
     angle_deg_acute?: number; height_m: number | null;
+    physical_altitude_m?: number | null;
+    physical_altitude_type?: "HN" | "H" | null;
+    fraction?: number;
+    distance_a_v_m?: number;
+    distance_a_b_m?: number;
+    witnesses?: string[];
     sigma_e_m: number | null; sigma_n_m: number | null; sigma_h_m: number | null;
     warnings: string[]; ready_for_sigef: boolean;
   } | null>(null);
@@ -467,36 +480,57 @@ export function PecasTecnicasWorkspace({
   const pickPa2Witness = (name: string) => {
     setPa2Result(null);
     setPa2Error("");
-    const limit = constructionMethod === "PA2" ? 4 : 2;
+    const limit = constructionMethod === "PA2" && pa2Variant === "INTERSECTION" ? 4 : 2;
     setPa2Witnesses((old) => old.includes(name) ? old.filter((n) => n !== name)
       : old.length >= limit ? [name] : [...old, name]);
   };
   const calculatePa2 = async () => {
     if (!topconPreview || !verticalCalculated ||
-        pa2Witnesses.length !== (constructionMethod === "PA2" ? 4 : 2)) return;
+        pa2Witnesses.length !== (constructionMethod === "PA2" && pa2Variant === "INTERSECTION" ? 4 : 2)) return;
     setPa2Busy(true); setPa2Error(""); setPa2Result(null);
     try {
       const witnesses = pa2Witnesses.map((name) => topconPreview.points.find((p) => p.name === name));
       if (witnesses.some((point) => !point)) throw new Error("Marco de apoio não encontrado no relatório.");
       const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/${
-        constructionMethod === "PA2" ? "pa2-intersection" : "constructed-vertex"
+        constructionMethod === "PA2"
+          ? (pa2Variant === "SUPPORT_LINE" ? "pa2-support-line" : "pa2-intersection")
+          : "constructed-vertex"
       }`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          witnesses: witnesses.map((point) => ({
-            name: point?.name, easting_m: point?.easting_m, northing_m: point?.northing_m,
-          })),
+          ...(constructionMethod === "PA2" && pa2Variant === "SUPPORT_LINE" ? {
+            supports: witnesses.map((point) => {
+              const physical = verticalCalculated.find((v) => v.name === point?.name);
+              const boundary = topconBoundary.find((v) => v.name === point?.name);
+              return {
+                name: point?.name,
+                easting_m: point?.easting_m, northing_m: point?.northing_m,
+                physical_altitude_m: verticalModel === "hgeoHNOR2020"
+                  ? physical?.normal_height_m : physical?.orthometric_height_m,
+                sigma_e_m: boundary?.sigma_lon_m ?? null,
+                sigma_n_m: boundary?.sigma_lat_m ?? null,
+                sigma_h_m: boundary?.sigma_h_m ?? null,
+              };
+            }),
+            hint_longitude: mapHint?.longitude,
+            hint_latitude: mapHint?.latitude,
+            altitude_type: verticalModel === "hgeoHNOR2020" ? "HN" : "H",
+          } : {
+            witnesses: witnesses.map((point) => ({
+              name: point?.name, easting_m: point?.easting_m, northing_m: point?.northing_m,
+            })),
+            ...(constructionMethod === "PA2" ? {} : {
+              method: constructionMethod, distance_m: Number(constructionDistance),
+              side: constructionSide,
+              ...(constructionMethod === "PA1" && mapHint
+                ? { hint_longitude: mapHint.longitude, hint_latitude: mapHint.latitude }
+                : {}),
+            }),
+          }),
           utm_zone: topconPreview.project.utm_zone,
           hemisphere: topconPreview.project.hemisphere,
           sirgas2000_confirmed: pa2ConfirmedCrs,
-          ...(constructionMethod === "PA2" ? {} : {
-            method: constructionMethod, distance_m: Number(constructionDistance),
-            side: constructionSide,
-            ...(constructionMethod === "PA1" && mapHint
-              ? { hint_longitude: mapHint.longitude, hint_latitude: mapHint.latitude }
-              : {}),
-          }),
         }),
       });
       const payload = await response.json().catch(() => null);
@@ -533,6 +567,12 @@ export function PecasTecnicasWorkspace({
       northing_m: pa2Result.northing_m, easting_m: pa2Result.easting_m,
       latitude: pa2Result.latitude, longitude: pa2Result.longitude,
       elevation_reported_m: null, ellipsoidal_height_reported_m: null,
+      derived_physical_altitude_m: pa2Result.physical_altitude_m ?? null,
+      derived_physical_model: pa2Result.physical_altitude_type ?? null,
+      sigma_suggestion_e_m: pa2Result.sigma_e_m,
+      sigma_suggestion_n_m: pa2Result.sigma_n_m,
+      sigma_suggestion_h_m: pa2Result.sigma_h_m,
+      derived_calculation: { ...pa2Result, generated_at: new Date().toISOString() },
       ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
       sigma_hz_m: null, sigma_u_m: null,
       sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
