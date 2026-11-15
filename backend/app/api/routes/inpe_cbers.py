@@ -12,6 +12,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from fastapi.responses import Response
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.services.auth import require_permission
 
@@ -118,3 +120,37 @@ def list_inpe_scenes(
         raise HTTPException(422, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(502, str(exc)) from exc
+
+# GEO90B: disabled by default; only enable for a dedicated internal-only renderer.
+TILE_ROOT = os.environ.get("INPE_COG_TILES_ROOT", "").rstrip("/")
+TILE_SCENE = "CBERS4A_WPM_PCA_RGB321_20261016_214_113"
+
+
+@router.get("/tiles/{scene_id}/{z}/{x}/{y}.png")
+def inpe_cbers_tile(scene_id: str, z: int, x: int, y: int):
+    """Authenticated fixed-scene tile bridge. The browser never contacts the renderer."""
+    if not TILE_ROOT:
+        raise HTTPException(503, "Camada CBERS-4A não habilitada neste ambiente.")
+    if scene_id != TILE_SCENE:
+        raise HTTPException(404, "Cena não habilitada para visualização.")
+    if not 10 <= z <= 18 or not (0 <= x < 2 ** z and 0 <= y < 2 ** z):
+        raise HTTPException(422, "XYZ inválido.")
+    url = f"{TILE_ROOT}/tiles/{z}/{x}/{y}.png"
+    request = Request(url, headers={"Accept": "image/png", "User-Agent": "Amazonika-GEO90B/1.0"})
+    try:
+        with urlopen(request, timeout=40) as upstream:
+            if upstream.status != 200 or upstream.headers.get_content_type() != "image/png":
+                raise HTTPException(502, "Resposta inesperada do renderizador.")
+            body = upstream.read(500_001)
+    except HTTPError as exc:
+        if exc.code in (404, 429):
+            raise HTTPException(exc.code, "Tile fora da cena ou renderizador ocupado.") from exc
+        raise HTTPException(502, "Renderizador temporariamente indisponível.") from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise HTTPException(502, "Falha de acesso ao renderizador privado.") from exc
+    if len(body) > 500_000 or not body.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        raise HTTPException(502, "Tile PNG inválido ou excessivamente grande.")
+    return Response(content=body, media_type="image/png", headers={
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+    })
