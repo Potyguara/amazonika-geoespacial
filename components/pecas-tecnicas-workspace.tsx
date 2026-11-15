@@ -320,7 +320,6 @@ export function PecasTecnicasWorkspace({
   const ps4Closure = buildPs4Closure(topconBoundary, ps4Draft, ps4Start, ps4End);
   const ps4Ready = ps4ClosureConfirmed && ps4Closure.valid;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
-  const ps4PreviewKey = ps4Ready ? JSON.stringify(ps4PreviewGeometry) : "";
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const prefix = code.length >= 3 && code.length <= 6 ? code : "VIRTUAL";
@@ -984,6 +983,7 @@ export function PecasTecnicasWorkspace({
   const [pdfError, setPdfError] = useState("");
   const [actionError, setActionError] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState("");
   const [editableMemorial, setEditableMemorial] = useState("");
   const [memorialSaved, setMemorialSaved] = useState(false);
   const [memorialDirty, setMemorialDirty] = useState(false);
@@ -1094,11 +1094,14 @@ export function PecasTecnicasWorkspace({
 
   const runAction = async (fn: () => Promise<void>) => {
     setActionError("");
+    setActionFeedback("Executando ação...");
     setActionBusy(true);
     try {
       await fn();
+      setActionFeedback("Ação concluída. Confira as informações atualizadas.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha na operação.";
+      setActionFeedback("");
       setActionError(message);
       setPs4Status({ kind: "error", message: "Operação não concluída: " + message });
     } finally {
@@ -1118,6 +1121,16 @@ export function PecasTecnicasWorkspace({
           <X size={17} /> Voltar ao mapa
         </button>
       </header>
+      {(actionError || (actionFeedback && !pa2Mode)) && <div
+        role={actionError ? "alert" : "status"} aria-live="polite"
+        style={{ padding: "10px 16px", borderRadius: 8, margin: "8px 20px",
+          background: actionError ? "#fff1ed" : "#e8f3ed",
+          color: actionError ? "#942d19" : "#12513b", fontWeight: 600 }}>
+        {actionError || actionFeedback}
+        <button type="button" aria-label="Dispensar mensagem" onClick={() => {
+          setActionFeedback(""); setActionError("");
+        }} style={{ marginLeft: 12 }}>Fechar</button>
+      </div>}
       <nav className="pecas-stepper" aria-label="Etapas de elaboração">
         {stages.map((name, index) => (
           <button type="button" key={name} aria-current={index === stage ? "step" : undefined}
