@@ -312,12 +312,24 @@ export function PecasTecnicasWorkspace({
   const jumpToWorkflow = (index: number) => {
     const item = premiumSteps[index];
     setPremiumStep(index);
-    setWorkflowNotice("Etapa selecionada: " + item.title + ". Confira os dados antes de continuar.");
     setStage(item.stage);
+    if (index === 4) {
+      if (topconBoundary.length < 2) {
+        setWorkflowNotice("Para iniciar PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
+        return;
+      }
+      setConstructionMethod("PS4");
+      setPa2Mode(true);
+      setWorkflowNotice("Mapa PS4 aberto: marque os vértices V, escolha o segmento entre marcos e confirme o fechamento.");
+      return;
+    }
+    setWorkflowNotice("Etapa selecionada: " + item.title + ". Confira os dados antes de continuar.");
     window.setTimeout(() => {
-      if (item.target) document.getElementById(item.target)?.scrollIntoView({
-        behavior: "smooth", block: "start",
-      });
+      if (item.target) {
+        const target = document.getElementById(item.target);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        else setWorkflowNotice("Esta seção aparece após importar o levantamento GNSS correspondente.");
+      }
     }, 50);
   };
 
@@ -1724,12 +1736,16 @@ export function PecasTecnicasWorkspace({
                           espaço de trabalho para criar ou revisar vértices pelo método
                           PA1, PA2 ou PT8, sobre as bases cartográficas disponíveis.</p>
                         <button type="button" className="pecas-primary"
-                          disabled={!verticalCalculated}
-                          onClick={() => { setPa2Mode(true); setPa2Error(""); }}>
+                          disabled={topconBoundary.length < 2}
+                          onClick={() => {
+                            if (!verticalCalculated) setConstructionMethod("PS4");
+                            setPa2Mode(true); setPa2Error("");
+                            setWorkflowNotice("Espaço de trabalho aberto. O PS4 pode criar rascunhos sem altitude calculada.");
+                          }}>
                           Abrir espaço de trabalho cartográfico
                         </button>
                         {!verticalCalculated && <p className="pecas-note">
-                          Conclua primeiro a conversão altimétrica dos marcos de apoio.
+                          Para PA1, PA2 e PT8, conclua a conversão altimétrica dos marcos de apoio.
                         </p>}
                       </div>
                       <div className="pecas-card" aria-label="Validação do perímetro TOPCON" style={{marginTop:12}}>
