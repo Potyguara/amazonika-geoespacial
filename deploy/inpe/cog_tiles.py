@@ -13,6 +13,10 @@ from threading import BoundedSemaphore
 from collections import OrderedDict
 from threading import Lock
 import re
+from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+from urllib.error import URLError, HTTPError
+import json
 
 from PIL import Image
 import numpy as np
@@ -29,17 +33,68 @@ COG = (
     "CBERS4A_WPM_PCA_RGB321_20261016_214_113.tif"
 )
 SCENE_ID = "CBERS4A_WPM_PCA_RGB321_20261016_214_113"
+# Fixed scene IDs, but actual COG locations must come from the INPE STAC tci asset.
+# Historical file locations must NEVER be inferred from YYYY/MM.
 SCENE_COGS = {
-    "CBERS4A_WPM_PCA_RGB321_20261016_214_113": COG,
-    "CBERS4A_WPM_PCA_RGB321_20260815_214_113": (
-        "https://data.inpe.br/bdc/data/CB4A-WPM-PCA-FUSED/"
-        "v001/214/113/2026/08/CBERS4A_WPM_PCA_RGB321_20260815_214_113.tif"
-    ),
-    "CBERS4A_WPM_PCA_RGB321_20260715_214_113": (
-        "https://data.inpe.br/bdc/data/CB4A-WPM-PCA-FUSED/"
-        "v001/214/113/2026/07/CBERS4A_WPM_PCA_RGB321_20260715_214_113.tif"
-    ),
+    SCENE_ID: COG,
+    "CBERS4A_WPM_PCA_RGB321_20260815_214_113": None,
+    "CBERS4A_WPM_PCA_RGB321_20260715_214_113": None,
 }
+STAC_COLLECTION = "CB4A-WPM-PCA-FUSED-1"
+STAC_PREFIX = "https://data.inpe.br/bdc/stac/v1/collections/"
+ASSET_PREFIX = "https://data.inpe.br/bdc/data/CB4A-WPM-PCA-FUSED/"
+ASSET_LOCK = Lock()
+RESOLVED_ASSETS = {SCENE_ID: COG}
+
+
+def resolve_scene_cog(scene_id: str) -> str:
+    """Fetch the authoritative tci asset for a fixed, allowlisted scene ID.
+
+    No dynamic host, path, redirect or user-supplied asset is accepted.
+    A 404 is explicit; do not turn a missing scene into the October image.
+    """
+    if scene_id not in SCENE_COGS:
+        raise ValueError("Cena não autorizada.")
+    with ASSET_LOCK:
+        if scene_id in RESOLVED_ASSETS:
+            return RESOLVED_ASSETS[scene_id]
+        item_url = (
+            STAC_PREFIX + STAC_COLLECTION + "/items/" + scene_id
+        )
+        request = Request(item_url, headers={
+            "Accept": "application/geo+json, application/json",
+            "User-Agent": "Amazonika-GEO98/1.1",
+        })
+        # Fixed official host, with redirects not allowed to arbitrary domains.
+        from urllib.request import build_opener, HTTPRedirectHandler
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, request, fp, code, msg, headers, newurl):
+                return None
+        try:
+            with build_opener(NoRedirect).open(request, timeout=15) as response:
+                raw = response.read(1_000_001)
+        except (HTTPError, URLError, TimeoutError) as exc:
+            raise RuntimeError("Item STAC do INPE indisponível: " + scene_id) from exc
+        if len(raw) > 1_000_000:
+            raise RuntimeError("Metadados STAC excederam o limite.")
+        item = json.loads(raw)
+        if not isinstance(item, dict) or item.get("id") != scene_id:
+            raise RuntimeError("Item STAC inesperado.")
+        tci = (item.get("assets") or {}).get("tci")
+        href = tci.get("href") if isinstance(tci, dict) else None
+        parsed = urlparse(href) if isinstance(href, str) else None
+        if (
+            parsed is None or parsed.scheme != "https"
+            or parsed.netloc != "data.inpe.br"
+            or parsed.username or parsed.password
+            or parsed.query or parsed.fragment
+            or not parsed.path.startswith("/bdc/data/CB4A-WPM-PCA-FUSED/")
+            or not parsed.path.endswith("/" + scene_id + ".tif")
+        ):
+            raise RuntimeError("Asset COG fora da origem, coleção ou ID autorizados.")
+        RESOLVED_ASSETS[scene_id] = href
+        return href
+
 
 # From INPE STAC scene bbox; use an initial geographical guard even before GDAL.
 W, S, E, N = -51.251767, -0.504223, -50.256565, 0.471441
@@ -86,7 +141,7 @@ def png_tile(z: int, x: int, y: int, scene_id: str = SCENE_ID):
         VSI_CACHE="FALSE",
         GDAL_NUM_THREADS="1",
     ):
-        with rasterio.open("/vsicurl/" + SCENE_COGS[scene_id]) as src:
+        with rasterio.open("/vsicurl/" + resolve_scene_cog(scene_id)) as src:
             with WarpedVRT(src, crs="EPSG:3857", resampling=Resampling.bilinear) as vrt:
                 window = from_bounds(*merc, transform=vrt.transform)
                 data = vrt.read(
