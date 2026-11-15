@@ -1,0 +1,9 @@
+# GEO98: overlays are staging-only and retain GEO97 auth/db configuration.
+ARG BASE_API_IMAGE=amazonika-api-inpe:geo97-overlaps
+FROM ${BASE_API_IMAGE}
+COPY backend/app/api/routes/inpe_cbers.py /app/app/api/routes/inpe_cbers.py
+COPY backend/app/api/routes/tools.py /app/app/api/routes/tools.py
+COPY backend/app/services/topcon_perimeter_review.py /app/app/services/topcon_perimeter_review.py
+COPY backend/app/services/plant_memorial_v2.py /app/app/services/plant_memorial_v2.py
+COPY backend/app/services/plant_memorial_v3.py /app/app/services/plant_memorial_v3.py
+COPY backend/app/services/preliminary_pdf_stamp.py /app/app/services/preliminary_pdf_stamp.py
