@@ -155,6 +155,17 @@ export type TopconDraft = {
   cns: string;
   registration: string;
   stage: number;
+  construction?: {
+    method: "PA1" | "PA2" | "PT8";
+    pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
+    witnesses: string[];
+    distance: string;
+    side: "LEFT" | "RIGHT" | "FORWARD" | "BACKWARD";
+    crs_confirmed: boolean;
+    insert_after: string;
+    hint: { longitude: number; latitude: number } | null;
+    last_result: Record<string, unknown> | null;
+  };
 };
 
 const SIGEF_POSITION_METHODS = [
@@ -385,8 +396,15 @@ export function PecasTecnicasWorkspace({
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     setPa2Mode(false);
-    setPa2Result(null);
-    setPa2Witnesses([]);
+    setConstructionMethod(d.construction?.method ?? "PA2");
+    setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
+    setPa2Witnesses(d.construction?.witnesses ?? []);
+    setConstructionDistance(d.construction?.distance ?? "");
+    setConstructionSide(d.construction?.side ?? "LEFT");
+    setPa2ConfirmedCrs(Boolean(d.construction?.crs_confirmed));
+    setPa2InsertAfter(d.construction?.insert_after ?? "");
+    setMapHint(d.construction?.hint ?? null);
+    setPa2Result((d.construction?.last_result ?? null) as typeof pa2Result);
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary,
@@ -395,6 +413,13 @@ export function PecasTecnicasWorkspace({
     vertical_calculated: verticalCalculated,
     municipalities: sigefMunicipalities, situation: sigefSituation,
     cns: sigefCns, registration: sigefRegistration, stage,
+    construction: {
+      method: constructionMethod, pa2_variant: pa2Variant,
+      witnesses: pa2Witnesses, distance: constructionDistance,
+      side: constructionSide, crs_confirmed: pa2ConfirmedCrs,
+      insert_after: pa2InsertAfter, hint: mapHint,
+      last_result: pa2Result,
+    },
   });
 
   const [reviewedOdsError, setReviewedOdsError] = useState("");
