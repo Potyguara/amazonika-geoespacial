@@ -38,12 +38,15 @@ type Props = {
   hint?: { longitude: number; latitude: number } | null;
   polygonGeometry?: Record<string, unknown> | null;
   polygonKey?: string;
+  ps4SceneId?: string;
 };
 
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
-  polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate, ps4ClosureGeometry, onPs4Click }: Props) {
+  polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate,
+  ps4ClosureGeometry, onPs4Click,
+  ps4SceneId = "CBERS4A_WPM_PCA_RGB321_20261016_214_113" }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -380,12 +383,25 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   }, [method]);
 
   useEffect(() => {
+    if (!/^CBERS4A_WPM_PCA_RGB321_2026(?:1016|0815|0715)_214_113$/.test(ps4SceneId)) {
+      setCbersError("Cena não disponibilizada no renderizador GEO98.");
+      cbersRef.current?.setVisible(false);
+      return;
+    }
+    cbersRef.current?.setSource(new XYZ({
+      url: getApiUrl() + "/inpe-cbers/tiles/" + ps4SceneId + "/{z}/{x}/{y}.png",
+      crossOrigin:"use-credentials",minZoom:10,maxZoom:18,
+      attributions:"INPE / Brazil Data Cube · CBERS-4A WPM · " + ps4SceneId.slice(28,36),
+    }));
+  }, [ps4SceneId]);
+
+  useEffect(() => {
     cbersActiveRef.current = cbersEnabled;
     cbersRef.current?.setVisible(cbersEnabled);
     cbersRef.current?.setOpacity(cbersOpacity);
-    if (cbersEnabled) setCbersError("Camada experimental restrita à cena de 16/10/2026. Não comprova acurácia PS4.");
+    if (cbersEnabled) setCbersError("Cena selecionada " + ps4SceneId + " · PS4 experimental sem acurácia demonstrada.");
     else setCbersError("");
-  }, [cbersEnabled, cbersOpacity]);
+  }, [cbersEnabled, cbersOpacity, ps4SceneId]);
 
   const changeZoom = (delta: number) => {
     const map = mapRef.current;
