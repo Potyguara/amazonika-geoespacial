@@ -22,6 +22,7 @@ export type TechnicalPieceSnapshot = {
   memorial_edited?: string;
   generated_pdf_id?: string | null;
   situation?: Record<string, unknown> | null;
+  topcon?: Record<string, unknown> | null;
 };
 
 type Props = {
