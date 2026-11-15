@@ -136,10 +136,6 @@ Control Tie Analysis: success
             "Nome\tMalha Norte\tMalha Este\tElevação\tLatitude WGS84\tLongitude WGS84\tAlt Elip WGS84\tDesv Padrão n\tDesv Padrão e\tDesv Padrão u",
             'M578\t45165,067\t513957,616\t-17,695\t0°24\'31,03731751"N\t50°52\'28,42808961"W\t-17,695\t0,013\t0,021\t0,032',
         ]
-        # As coordenadas são preservadas e as precisões são do ponto,
-        # não do quadro de linhas de base GNSS.
-        lines[-1] = lines[-1].replace("0°24'31,03731751", "0°24\\u002731,03731751")
-        # Evitar ambiguidade de escapes: colunas derivadas da tabela original.
         raw = "<html><body>" + "<br>".join(lines) + "</body></html>"
         result = parse_topcon_report(raw.encode("utf-8"), "sigma.html")
         self.assertEqual(result["point_count"], 1)
