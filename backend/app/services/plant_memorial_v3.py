@@ -223,7 +223,7 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size, *, row_star
          f"{transformer.transform(lon,lat)[1]:.3f}",
          _br_number(p.altitudes[i],2) if p.altitudes[i] is not None else (
              "HN~"+_br_number(p.normal_altitudes[i],2)
-             if p.normal_altitudes[i] is not None else "—"),
+             if len(p.normal_altitudes)>i and p.normal_altitudes[i] is not None else "—"),
          _azimuth_minutes(seg["azimuth"]),
          _br_number(seg["distance"],2))
         for p in parcels
