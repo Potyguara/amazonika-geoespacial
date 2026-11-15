@@ -2166,8 +2166,9 @@ export function PecasTecnicasWorkspace({
                         </div>}
                       </div>
                       {topconReview && <div role="status">
-                        <p><strong>{topconReview.ready_for_ods
-                          ? "Pré-validação aprovada" : "Pré-validação com pendências"}</strong>
+                        <p><strong>{topconReview.ready_for_geometry
+                          ? "Geometria aprovada · ODS sujeita a requisitos adicionais"
+                          : "Pré-validação geométrica com pendências"}</strong>
                           {" · "}{topconReview.vertex_count} vértices
                           {" · "}{topconReview.area_ha?.toLocaleString("pt-BR") ?? "—"} ha
                           {" · "}{topconReview.perimeter_m?.toLocaleString("pt-BR") ?? "—"} m</p>
@@ -2551,7 +2552,7 @@ export function PecasTecnicasWorkspace({
         {stage === 4 && (
           <div className="pecas-card">
             {premiumStep === 8 && <>
-              {topconReview?.ready_for_ods && topconReview.geometry && (
+              {topconReview?.geometry && (
                           <div className="pecas-card" id="geo97-legal" aria-label="Revisão final de identificação SIGEF">
                             <h4>9. Identificação e situação jurídica — revisão final SIGEF</h4>
                             <p>Preencha os dados do titular e imóvel nos campos gerais acima.
@@ -2607,7 +2608,7 @@ export function PecasTecnicasWorkspace({
                             </div>}
                           </div>
                         )}
-              {!topconReview?.ready_for_ods && <div className="pecas-warning" role="status">
+              {!topconReview?.geometry && <div className="pecas-warning" role="status">
                 A revisão cadastral para SIGEF depende da pré-validação TOPCON.
                 Isso não impede a planta e o memorial preliminares.
               </div>}
@@ -2905,12 +2906,27 @@ export function PecasTecnicasWorkspace({
                                 kind:"info",message:"Cena atual confirmada. Clique no mapa para criar V."});
                               }}>Usar cena atual para iniciar vetorização</button>}
                           </details>
-                          <p>Marque pontos sucessivos nas margens do curso d'água visível na imagem.
-                            A trilha é apenas um rascunho técnico; nenhum ponto será tratado como certificado,
-                            nem transferido automaticamente para ODS ou memorial.</p>
-                          <p className="pecas-warning">O PS4 depende da cena ortorretificada, relatório RMS,
-                            feição identificável, precisão absoluta compatível com o limite e revisão do RT.
-                            Não utilize em cerca, vértices M ou mudança de confrontação.</p>
+                          <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
+                            selecionada. A prévia será vinculada à cena e poderá compor a planta
+                            PRELIMINAR, sem substituir automaticamente a validação SIGEF.</p>
+                          <p className={ps4OrthoReport.reviewed_by_rt &&
+                            ps4OrthoReport.scene_id===ps4SceneId &&
+                            ps4OrthoReport.rms_m!==null &&
+                            ps4OrthoReport.rms_m<=3?"geo96-next-step":"pecas-warning"}
+                            role="status">
+                            {ps4OrthoReport.reviewed_by_rt &&
+                              ps4OrthoReport.scene_id===ps4SceneId &&
+                              ps4OrthoReport.rms_m!==null &&
+                              ps4OrthoReport.rms_m<=3
+                              ? "Relatório da cena e RMS de ortorretificação conferidos pelo RT. " +
+                                "Compatibilidade métrica em avaliação; conferir também o tipo de limite, " +
+                                "feição visível, data, documentação e confrontantes. " +
+                                "A conferência não transforma automaticamente os V em certificados."
+                              : "Pendente: relatório RMS de ortorretificação da cena, precisão absoluta " +
+                                "compatível com limite natural e conferência do RT. " +
+                                "GSD 2 m não substitui acurácia. PS4 não se aplica a cercas, marcos M " +
+                                "ou mudança de confrontação."}
+                          </p>
                           <p><strong>Cena em edição:</strong> {ps4SceneId} ·
                             {ps4Armed?" vetorização habilitada":" escolha a cena antes de clicar"}.</p>
                           <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
