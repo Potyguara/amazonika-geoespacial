@@ -25,10 +25,17 @@ router = APIRouter(
     dependencies=[Depends(require_permission("analysis.execute"))],
 )
 
+class CandidateVertex(BaseModel):
+    name: str = Field(min_length=3, max_length=40)
+    longitude: float = Field(ge=-180, le=180)
+    latitude: float = Field(ge=-90, le=90)
+
 class OverlapRequest(BaseModel):
     geometry: dict[str, Any]
     include_touching: bool = True
     near_m: float = Field(default=3, ge=0, le=30)
+    max_adjust_m: float = Field(default=0.5, ge=0, le=9)
+    ps4_vertices: list[CandidateVertex] = Field(default_factory=list, max_length=100)
 
 def _valid_polygon(geojson: dict):
     if geojson.get("type") not in ("Polygon", "MultiPolygon"):
@@ -66,6 +73,7 @@ def check_official_overlaps(payload: OverlapRequest, db: Session = Depends(get_d
         "SIGEF Brasil": {"checked": False, "status": "SEM_VERSAO_VETORIAL_READY"},
     }
     matches = []
+    suggestions = []
     for source in sources:
         token = (source.slug + " " + source.name).lower()
         kind = ("SIGEF Mensais" if "mens" in token else
@@ -132,6 +140,46 @@ def check_official_overlaps(payload: OverlapRequest, db: Session = Depends(get_d
                 "bbox_geojson": row["bbox_geojson"],
                 "adjustment": "SUGESTAO_SOMENTE_REVISAO_RT",
             })
+        # Sugestões geométricas de encaixe, sem escrita em banco. Executadas
+        # apenas se uma versão oficial vetorial estiver efetivamente disponível.
+        if payload.max_adjust_m > 0:
+            for vertex in payload.ps4_vertices:
+                proposed = db.execute(text("""
+                    WITH pt AS (
+                      SELECT ST_SetSRID(ST_MakePoint(:lon,:lat),4674) AS geom
+                    )
+                    SELECT f.external_id, f.name,
+                           ST_X(ST_ClosestPoint(ST_Boundary(f.geom),pt.geom)) AS proposed_lon,
+                           ST_Y(ST_ClosestPoint(ST_Boundary(f.geom),pt.geom)) AS proposed_lat,
+                           ST_Distance(ST_Boundary(f.geom)::geography,
+                                       pt.geom::geography) AS displacement_m
+                    FROM geo_features f CROSS JOIN pt
+                    WHERE f.version_id=:version_id
+                      AND f.geom && ST_Expand(pt.geom,:near_deg)
+                      AND ST_DWithin(ST_Boundary(f.geom)::geography,
+                                     pt.geom::geography,:max_shift)
+                    ORDER BY displacement_m ASC LIMIT 1
+                """), {
+                    "lon": vertex.longitude, "lat": vertex.latitude,
+                    "version_id": version.id,
+                    "near_deg": payload.max_adjust_m / 100000 + 1e-6,
+                    "max_shift": payload.max_adjust_m,
+                }).mappings().first()
+                if proposed:
+                    delta = float(proposed["displacement_m"])
+                    suggestions.append({
+                        "vertex": vertex.name,
+                        "source": kind, "neighbor_id": proposed["external_id"],
+                        "neighbor_name": proposed["name"],
+                        "old_lon": vertex.longitude,
+                        "old_lat": vertex.latitude,
+                        "proposed_lon": float(proposed["proposed_lon"]),
+                        "proposed_lat": float(proposed["proposed_lat"]),
+                        "displacement_m": round(delta, 3),
+                        "classification": "ATE_0_50_M_REVISAO_RT"
+                          if delta <= 0.5 else "ACIMA_0_50_M_EXIGE_ANALISE",
+                        "applied": False,
+                    })
         status[kind] = {
             "checked": True,
             "status": "TRUNCADO" if truncated else "CONSULTADO",
@@ -150,6 +198,7 @@ def check_official_overlaps(payload: OverlapRequest, db: Session = Depends(get_d
         "complete": complete,
         "sources": status,
         "matches": matches,
+        "suggestions": suggestions,
         "count": len(matches),
         "auto_adjustment_applied": False,
         "note": "Conferência local por versão de base, não substitui consulta e validação SIGEF oficial. "
