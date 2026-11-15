@@ -32,6 +32,7 @@ SCENE_ID = "CBERS4A_WPM_PCA_RGB321_20261016_214_113"
 # From INPE STAC scene bbox; use an initial geographical guard even before GDAL.
 W, S, E, N = -51.251767, -0.504223, -50.256565, 0.471441
 MAX_CONCURRENT = BoundedSemaphore(1)
+MAX_WAITERS = BoundedSemaphore(4)
 CACHE = OrderedDict()
 CACHE_LOCK = Lock()
 CACHE_LIMIT = 64
@@ -109,7 +110,10 @@ class Handler(BaseHTTPRequestHandler):
                 CACHE.move_to_end(key)
         if result is not None:
             return self.respond(200, result, "image/png", max_age=600)
+        if not MAX_WAITERS.acquire(blocking=False):
+            return self.respond(503, b'{"error":"renderer queue full"}', "application/json")
         if not MAX_CONCURRENT.acquire(timeout=30):
+            MAX_WAITERS.release()
             return self.respond(503, b'{"error":"renderer busy"}', "application/json")
         try:
             # Second lookup: another worker might already have rendered the same tile.
@@ -131,6 +135,7 @@ class Handler(BaseHTTPRequestHandler):
                         CACHE.popitem(last=False)
         finally:
             MAX_CONCURRENT.release()
+            MAX_WAITERS.release()
         return self.respond(200, result, "image/png", max_age=600)
 
     def respond(self, status: int, body: bytes, content_type: str, max_age=0):
