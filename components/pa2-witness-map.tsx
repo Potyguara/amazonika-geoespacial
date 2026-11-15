@@ -385,7 +385,6 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     <p style={{ fontSize: 12, marginTop: 8 }}>
       {method === "PS4"
         ? "PS4 experimental: clique sucessivamente sobre a feição natural visível na cena CBERS-4A. Pontos são rascunhos e não possuem acurácia comprovada."
-        : "Clique nos marcos"} para definir o alinhamento. Um clique no terreno indica posição aproximada, lado ou sentido; não é uma medição topográfica. Use o zoom para escolher visualmente o local."}
-    </p>
-  </div>;
+        : "Clique nos marcos para definir o alinhamento. Um clique no terreno indica posição aproximada, lado ou sentido; não é uma medição topográfica. Use o zoom para escolher visualmente o local."}
+    </p>  </div>;
 }
