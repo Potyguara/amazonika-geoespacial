@@ -27,7 +27,9 @@ type Props = {
   selected: string[];
   intersection?: { latitude: number | null; longitude: number | null } | null;
   onPick: (name: string) => void;
-  method?: "PA1" | "PA2" | "PT8";
+  method?: "PA1" | "PA2" | "PT8" | "PS4";
+  ps4Points?: Array<{ name: string; latitude: number; longitude: number }>;
+  onPs4Click?: (point: { longitude: number; latitude: number }) => void;
   supportLineMode?: boolean;
   onPositionHint?: (point: { longitude: number; latitude: number }) => void;
   hint?: { longitude: number; latitude: number } | null;
@@ -38,11 +40,16 @@ type Props = {
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
-  polygonGeometry, polygonKey = "" }: Props) {
+  polygonGeometry, polygonKey = "", ps4Points = [], onPs4Click }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
   const polygonSourceRef = useRef(new VectorSource());
+  const ps4SourceRef = useRef(new VectorSource());
+  const ps4ClickRef = useRef(onPs4Click);
+  ps4ClickRef.current = onPs4Click;
+  const methodRef = useRef(method);
+  methodRef.current = method;
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const cbersRef = useRef<TileLayer<XYZ> | null>(null);
   const [cbersEnabled, setCbersEnabled] = useState(false);
@@ -88,6 +95,22 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
           }),
         }),
         new VectorLayer({
+          source: ps4SourceRef.current,
+          style: (feature) => new Style({
+            stroke: new Stroke({ color: "#e11d48", width: 3 }),
+            image: new CircleStyle({
+              radius: 7, fill: new Fill({ color: "#fff1f2" }),
+              stroke: new Stroke({ color: "#be123c", width: 2 }),
+            }),
+            text: new TextStyle({
+              text: String(feature.get("label") || ""),
+              offsetY: -19, font: "bold 12px sans-serif",
+              fill: new Fill({ color: "#9f1239" }),
+              stroke: new Stroke({ color: "#fff", width: 4 }),
+            }),
+          }),
+        }),
+        new VectorLayer({
           source,
           style: (feature) => {
             const isLine = feature.getGeometry() instanceof LineString;
@@ -115,6 +138,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     });
     mapRef.current = map;
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
+      if (methodRef.current === "PS4" && ps4ClickRef.current) {
+        const [longitude, latitude] = toLonLat(event.coordinate);
+        if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
+          ps4ClickRef.current({ longitude, latitude });
+        }
+        return;
+      }
       const feature = map.forEachFeatureAtPixel(event.pixel, (candidate) =>
         typeof candidate.get("pointName") === "string" ? candidate : undefined, {
         hitTolerance: 12,
@@ -135,6 +165,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       cbersRef.current = null;
       source.clear();
       polygonSourceRef.current.clear();
+      ps4SourceRef.current.clear();
     };
   }, []);
 
@@ -287,6 +318,23 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   }, [basemap]);
 
   useEffect(() => {
+    const source = ps4SourceRef.current;
+    source.clear();
+    for (const point of ps4Points) {
+      if (!Number.isFinite(point.longitude) || !Number.isFinite(point.latitude)) continue;
+      const feature = new Feature({
+        geometry: new Point(fromLonLat([point.longitude, point.latitude])),
+      });
+      feature.set("label", point.name);
+      source.addFeature(feature);
+    }
+    if (ps4Points.length > 1) {
+      const coords = ps4Points.map(p => fromLonLat([p.longitude, p.latitude]));
+      source.addFeature(new Feature({ geometry: new LineString(coords) }));
+    }
+  }, [JSON.stringify(ps4Points)]);
+
+  useEffect(() => {
     cbersRef.current?.setVisible(cbersEnabled);
     cbersRef.current?.setOpacity(cbersOpacity);
     if (cbersEnabled) setCbersError("Camada experimental restrita à cena de 16/10/2026. Não comprova acurácia PS4.");
@@ -335,9 +383,9 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     {cbersError && <p role="status" style={{ fontSize: 12 }}>{cbersError}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
     <p style={{ fontSize: 12, marginTop: 8 }}>
-      Clique nos marcos para definir o alinhamento. Um clique no terreno indica
-      posição aproximada, lado ou sentido; não é uma medição topográfica.
-      Use o zoom para escolher visualmente o local.
+      {method === "PS4"
+        ? "PS4 experimental: clique sucessivamente sobre a feição natural visível na cena CBERS-4A. Pontos são rascunhos e não possuem acurácia comprovada."
+        : "Clique nos marcos"} para definir o alinhamento. Um clique no terreno indica posição aproximada, lado ou sentido; não é uma medição topográfica. Use o zoom para escolher visualmente o local."}
     </p>
   </div>;
 }
