@@ -37,6 +37,7 @@ type Props = {
   showVertices?: boolean;
   previewBasemap?: "osm" | "satellite";
   ps4Draft?: Array<{ name: string; latitude: number; longitude: number }>;
+  ps4ClosureGeometry?: { type: "Polygon"; coordinates: number[][][] } | null;
 };
 
 const polygonStyle = new Style({
@@ -44,12 +45,14 @@ const polygonStyle = new Style({
   stroke: new Stroke({ color: "#00b782", width: 3 }),
 });
 
-export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vertexNames = [], showVertices = false, previewBasemap = "satellite", ps4Draft = [] }: Props) {
+export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vertexNames = [], showVertices = false, previewBasemap = "satellite", ps4Draft = [], ps4ClosureGeometry = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const vertexSourceRef = useRef(new VectorSource());
   const ps4SourceRef = useRef(new VectorSource());
+  const closureSourceRef = useRef(new VectorSource());
+  const closureLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
   const ps4LayerRef = useRef<VectorLayer<VectorSource> | null>(null);
   const vertexNamesKey = JSON.stringify(vertexNames);
   const [basemap, setBasemap] = useState<"osm" | "satellite" | "google" | "mapbox">(saved?.basemap ?? previewBasemap);
@@ -164,10 +167,19 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       }),
     });
     ps4LayerRef.current = ps4Layer;
+    const closureLayer = new VectorLayer({
+      source: closureSourceRef.current,
+      style: new Style({
+        stroke: new Stroke({ color: "#2563eb", width: 3, lineDash: [8, 6] }),
+        fill: new Fill({ color: "rgba(37,99,235,0.07)" }),
+      }),
+    });
+    closureLayerRef.current = closureLayer;
     const map = new Map({
       target: container.current,
       layers: [
         base, new VectorLayer({ source, style: polygonStyle }),
+        closureLayer,
         ps4Layer,
         new VectorLayer({
           source: vertexSourceRef.current,
@@ -206,6 +218,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       mapRef.current = null;
       baseRef.current = null;
       ps4LayerRef.current = null;
+      closureLayerRef.current = null;
     };
     // Reconstrói o mapa ao alterar as geometrias; usa a captura anterior
     // apenas se o identificador geométrico ainda for o mesmo.
@@ -284,6 +297,21 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
     })));
   }, [ps4Key]);
 
+  const closureKey = JSON.stringify(ps4ClosureGeometry);
+  useEffect(() => {
+    const source = closureSourceRef.current;
+    source.clear();
+    if (!ps4ClosureGeometry) return;
+    try {
+      const features = new GeoJSON().readFeatures(ps4ClosureGeometry, {
+        dataProjection: "EPSG:4326", featureProjection: "EPSG:3857",
+      });
+      source.addFeatures(features);
+    } catch {
+      // Prévia descartada se a geometria não for válida.
+    }
+  }, [closureKey]);
+
   const fit = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -315,6 +343,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
     setMessage("");
     // A restituição PS4 experimental é apenas prévia: nunca incorporá-la ao PDF oficial.
     ps4LayerRef.current?.setVisible(false);
+    closureLayerRef.current?.setVisible(false);
     try {
       const size = map.getSize();
       if (!size || !size[0] || !size[1]) throw new Error("Mapa de situação ainda não está pronto.");
@@ -376,6 +405,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       setMessage(error instanceof Error ? error.message : "Falha ao capturar a planta de situação.");
     } finally {
       ps4LayerRef.current?.setVisible(true);
+      closureLayerRef.current?.setVisible(true);
       setBusy(false);
     }
   };
@@ -392,6 +422,10 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
         <span>Mostrar nomes dos vértices na Planta de Situação</span>
       </label>
       <div className="pecas-situation-map" ref={container} aria-label="Mapa interativo de enquadramento" />
+      {ps4ClosureGeometry && <p className="pecas-note" role="status">
+        Contorno azul tracejado: polígono PS4 fechado apenas para revisão cartográfica.
+        A captura para PDF oficial permanece bloqueada para este traçado.
+      </p>}
       {ps4Draft.length > 0 && <p className="pecas-note" role="status">
         {ps4Draft.length} vértice(s) PS4 provisório(s) exibido(s) em vermelho —
         somente prévia; não incluídos na planta PDF, memorial ou ODS SIGEF.
