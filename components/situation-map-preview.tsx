@@ -7,13 +7,14 @@ import GeoJSON from "ol/format/GeoJSON";
 import Feature from "ol/Feature";
 import Point from "ol/geom/Point";
 import Polygon from "ol/geom/Polygon";
+import LineString from "ol/geom/LineString";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import OSM from "ol/source/OSM";
 import XYZ from "ol/source/XYZ";
 import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "ol/style";
-import { toLonLat } from "ol/proj";
+import { toLonLat, fromLonLat } from "ol/proj";
 import { getApiUrl } from "@/lib/api";
 
 export type SituationSnapshot = {
@@ -35,6 +36,7 @@ type Props = {
   vertexNames?: string[][];
   showVertices?: boolean;
   previewBasemap?: "osm" | "satellite";
+  ps4Draft?: Array<{ name: string; latitude: number; longitude: number }>;
 };
 
 const polygonStyle = new Style({
@@ -42,11 +44,13 @@ const polygonStyle = new Style({
   stroke: new Stroke({ color: "#00b782", width: 3 }),
 });
 
-export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vertexNames = [], showVertices = false, previewBasemap = "satellite" }: Props) {
+export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vertexNames = [], showVertices = false, previewBasemap = "satellite", ps4Draft = [] }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const vertexSourceRef = useRef(new VectorSource());
+  const ps4SourceRef = useRef(new VectorSource());
+  const ps4LayerRef = useRef<VectorLayer<VectorSource> | null>(null);
   const vertexNamesKey = JSON.stringify(vertexNames);
   const [basemap, setBasemap] = useState<"osm" | "satellite" | "google" | "mapbox">(saved?.basemap ?? previewBasemap);
   const [situationLabels, setSituationLabels] = useState<boolean>(saved?.show_vertex_labels ?? showVertices);
@@ -143,10 +147,28 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       ? [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2]
       : [0, 0];
     const useSaved = saved?.geometry_key === geometryKey;
+    const ps4Layer = new VectorLayer({
+      source: ps4SourceRef.current,
+      style: feature => new Style({
+        stroke: new Stroke({ color: "#be123c", width: 2 }),
+        image: new CircleStyle({
+          radius: 5, fill: new Fill({ color: "#fff1f2" }),
+          stroke: new Stroke({ color: "#be123c", width: 2 }),
+        }),
+        text: new TextStyle({
+          text: String(feature.get("label") ?? ""),
+          font: "700 10px sans-serif", offsetY: -13,
+          fill: new Fill({ color: "#9f1239" }),
+          stroke: new Stroke({ color: "#fff", width: 3 }),
+        }),
+      }),
+    });
+    ps4LayerRef.current = ps4Layer;
     const map = new Map({
       target: container.current,
       layers: [
         base, new VectorLayer({ source, style: polygonStyle }),
+        ps4Layer,
         new VectorLayer({
           source: vertexSourceRef.current,
           style: (feature) => new Style({
@@ -183,6 +205,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
       map.setTarget(undefined);
       mapRef.current = null;
       baseRef.current = null;
+      ps4LayerRef.current = null;
     };
     // Reconstrói o mapa ao alterar as geometrias; usa a captura anterior
     // apenas se o identificador geométrico ainda for o mesmo.
@@ -247,6 +270,20 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
     }
   }, [geometryKey, vertexNamesKey, situationLabels]);
 
+  const ps4Key = JSON.stringify(ps4Draft);
+  useEffect(() => {
+    const source = ps4SourceRef.current;
+    source.clear();
+    const points = ps4Draft.filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
+    const coords = points.map(p => fromLonLat([p.longitude, p.latitude]));
+    if (coords.length >= 2)
+      source.addFeature(new Feature({ geometry: new LineString(coords) }));
+    points.forEach((point, index) => source.addFeature(new Feature({
+      geometry: new Point(coords[index]),
+      label: point.name,
+    })));
+  }, [ps4Key]);
+
   const fit = () => {
     const map = mapRef.current;
     if (!map) return;
@@ -276,6 +313,8 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
     if (!map) return;
     setBusy(true);
     setMessage("");
+    // A restituição PS4 experimental é apenas prévia: nunca incorporá-la ao PDF oficial.
+    ps4LayerRef.current?.setVisible(false);
     try {
       const size = map.getSize();
       if (!size || !size[0] || !size[1]) throw new Error("Mapa de situação ainda não está pronto.");
@@ -336,6 +375,7 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Falha ao capturar a planta de situação.");
     } finally {
+      ps4LayerRef.current?.setVisible(true);
       setBusy(false);
     }
   };
@@ -352,6 +392,10 @@ export function SituationMapPreview({ geometry, geometryKey, saved, onSave, vert
         <span>Mostrar nomes dos vértices na Planta de Situação</span>
       </label>
       <div className="pecas-situation-map" ref={container} aria-label="Mapa interativo de enquadramento" />
+      {ps4Draft.length > 0 && <p className="pecas-note" role="status">
+        {ps4Draft.length} vértice(s) PS4 provisório(s) exibido(s) em vermelho —
+        somente prévia; não incluídos na planta PDF, memorial ou ODS SIGEF.
+      </p>}
       <div className="pecas-situation-actions">
         <select aria-label="Base cartográfica" value={basemap}
           onChange={(event) => {
