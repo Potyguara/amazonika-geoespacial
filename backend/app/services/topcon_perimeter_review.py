@@ -35,6 +35,7 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
     codes: list[str] = []
     coords: list[tuple[float, float]] = []
     safe_vertices: list[dict] = []
+    missing_precisions: list[str] = []
     for index, point in enumerate(points, 1):
         if not isinstance(point, dict):
             errors.append(f"Linha {index}: registro inválido.")
@@ -74,8 +75,14 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
             errors.append(f"Linha {index} ({name}): informe confrontante do segmento seguinte.")
         if not _finite(height):
             errors.append(f"Linha {index} ({name}): confirme altura elipsoidal; elevação Topcon não é substituta.")
+        if not (_finite(sigma_lon) and _finite(sigma_lat)
+                and _finite(point.get("sigma_h_m"))
+                and sigma_lon > 0 and sigma_lat > 0 and point["sigma_h_m"] > 0):
+            missing_precisions.append(code or name)
+        # A falta de precisões por eixo é pendência exclusiva da exportação ODS;
+        # não invalida a geometria topológica ou a peça preliminar.
         if not _finite(sigma_hz) or sigma_hz < 0:
-            errors.append(f"Linha {index} ({name}): precisão horizontal não confirmada (informe σ Longitude e σ Latitude do vértice).")
+            warnings.append(f"Linha {index} ({name}): precisão horizontal não informada.")
         if not (_finite(longitude) and _finite(latitude) and -75 <= longitude <= -30 and -35 <= latitude <= 7):
             errors.append(f"Linha {index} ({name}): coordenada fora da abrangência brasileira.")
             continue
@@ -115,8 +122,13 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
         warnings.append("Nenhum ponto selecionado; a estação base deve permanecer fora do perímetro.")
     if any(str(p.get("point_role") or "") == "UNCLASSIFIED" for p in points if isinstance(p, dict)):
         warnings.append("Existem pontos originalmente não classificados; confirme seu vínculo à divisa.")
+    if missing_precisions:
+        warnings.append("ODS: precisões individuais por eixo pendentes para " +
+                        ", ".join(missing_precisions[:20]) + ".")
     return {
-        "ready_for_ods": not errors,
+        "ready_for_geometry": not errors,
+        "ready_for_ods": not errors and not missing_precisions,
+        "missing_sigmas": missing_precisions,
         "errors": errors, "warnings": warnings,
         "vertex_count": len(points), "vertices": safe_vertices,
         "geometry": geometry if not errors else None,
