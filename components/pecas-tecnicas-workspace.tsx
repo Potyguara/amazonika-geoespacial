@@ -322,7 +322,7 @@ export function PecasTecnicasWorkspace({
       return;
     }
     const name = ps4CandidateName.trim().toUpperCase();
-    if (!/^[A-Z0-9]{3,12}-V-\\d{4}$/.test(name)) {
+    if (!new RegExp("^[A-Z0-9]{3,12}-V-[0-9]{4}$").test(name)) {
       setPs4Notice("Use o formato CODIGO-V-0001. Confira o código do credenciado no perfil.");
       return;
     }
@@ -1914,9 +1914,9 @@ export function PecasTecnicasWorkspace({
                           PA1 usa dois marcos, distância perpendicular e lado; PA2 utiliza
                           quatro marcos em duas retas; PT8 usa dois marcos e distância
                           medida a partir do primeiro. O mapa permite escolher visualmente
-                          um local, mas o cálculo mantém as restrições geométricas do método.</p>
+                          um local, mas o cálculo mantém as restrições geométricas do método. PS4 é independente da conversão altimétrica para criar rascunhos, mas exige acurácia comprovada para exportação.</p>
                         <label className="pecas-check"><input type="checkbox"
-                          disabled={!verticalCalculated && constructionMethod !== "PS4"} checked={pa2Mode}
+                          checked={pa2Mode}
                           onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
                           Preciso construir vértices adicionais</label>
                         {pa2Mode && <label className="pecas-field">
