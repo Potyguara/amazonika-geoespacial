@@ -1100,123 +1100,20 @@ export function PecasTecnicasWorkspace({
                         <p>Consulte o fator no serviço hgeoHNOR2020 do IBGE e transcreva-o
                           para cada ponto. O sistema ainda não consulta automaticamente esse serviço.</p>
                       </div>
-                      <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
-                        <h4>Construção de vértices por geometria analítica — PA1, PA2 ou PT8</h4>
-                        <p>Esta etapa sucede a conversão altimétrica. Método PT8 gera
-                          vértices M/P conforme a tabela oficial de compatibilidade; PA1/PA2
-                          permitem vértice V, sujeito à conferência técnica.</p>
-                        {!verticalCalculated && <p className="pecas-warning">
-                          Conclua primeiro o cálculo das altitudes normais/ortométricas dos marcos
-                          de apoio para habilitar a construção dos vértices.</p>}
-                        <p>Após calcular as altitudes físicas, selecione o método adequado.
-                          PA1 usa dois marcos, distância perpendicular e lado; PA2 utiliza
-                          quatro marcos em duas retas; PT8 usa dois marcos e distância
-                          medida a partir do primeiro. O mapa permite escolher visualmente
-                          um local, mas o cálculo mantém as restrições geométricas do método.</p>
-                        <label className="pecas-check"><input type="checkbox"
-                          disabled={!verticalCalculated} checked={pa2Mode}
-                          onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
-                          Preciso construir vértices adicionais</label>
-                        {pa2Mode && <label className="pecas-field">
-                          <span>Método de posicionamento</span>
-                          <select value={constructionMethod} onChange={e => {
-                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8");
-                            setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
-                            setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
-                          }}>
-                            <option value="PA1">PA1 — Paralela (tipo V)</option>
-                            <option value="PA2">PA2 — Interseção de retas (tipo V)</option>
-                            <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
-                          </select>
-                        </label>}
-                        {pa2Mode && <>
-                          <p>No mapa à direita, selecione os marcos diretamente posicionados.
-                            O clique no terreno é um indicador visual de posição e nunca
-                            substitui a distância ou o afastamento medido em campo.</p>
-                          {constructionMethod !== "PA2" && <>
-                            <label className="pecas-field"><span>
-                              {constructionMethod === "PA1" ? "Afastamento perpendicular medido (m)"
-                                : "Distância medida a partir do primeiro marco (m)"}
-                            </span>
-                              <input type="number" min="0" step="any"
-                                value={constructionDistance}
-                                onChange={e => { setConstructionDistance(e.target.value); setPa2Result(null); }} />
-                            </label>
-                            <label className="pecas-field"><span>Direção geométrica</span>
-                              <select value={constructionSide} onChange={e => {
-                                setConstructionSide(e.target.value as typeof constructionSide);
-                                setPa2Result(null);
-                              }}>
-                                {constructionMethod === "PA1" ? <>
-                                  <option value="LEFT">Esquerda de A → B</option>
-                                  <option value="RIGHT">Direita de A → B</option>
-                                </> : <>
-                                  <option value="FORWARD">No sentido A → B</option>
-                                  <option value="BACKWARD">No sentido contrário</option>
-                                </>}
-                              </select>
-                            </label>
-                            {mapHint && <p>Posição aproximada clicada: {mapHint.latitude.toFixed(7)}°,
-                              {" "}{mapHint.longitude.toFixed(7)}°. Informe a distância medida,
-                              pois o clique não define coordenada para certificação.</p>}
-                          </>}
-                          <p><strong>Alinhamento A:</strong> {pa2Witnesses[0] || "—"}
-                            {" → "}{pa2Witnesses[1] || "—"}
-                            {constructionMethod === "PA2" && <>
-                              {" · "}<strong>Alinhamento B:</strong> {pa2Witnesses[2] || "—"}
-                              {" → "}{pa2Witnesses[3] || "—"}
-                            </>}</p>
-                          <label className="pecas-check">
-                            <input type="checkbox" checked={pa2ConfirmedCrs}
-                              onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPa2Result(null); }} />
-                            Confirmo que os marcos estão no mesmo referencial SIRGAS2000,
-                            na zona e hemisfério indicados pelo processamento.
-                          </label>
-                          <button type="button" className="pecas-primary"
-                            disabled={pa2Busy || !verticalCalculated ||
-                              pa2Witnesses.length !== (constructionMethod === "PA2" ? 4 : 2) ||
-                              (constructionMethod !== "PA2" &&
-                                (!Number.isFinite(Number(constructionDistance)) || constructionDistance === ""))}
-                            onClick={() => void calculatePa2()}>
-                            {pa2Busy ? "Calculando..." : "Calcular " + constructionMethod}
-                          </button>
-                          {constructionMethod === "PT8" && <label className="pecas-check">
-                            <input type="checkbox" checked={pt8PointConfirmed}
-                              onChange={event => setPt8PointConfirmed(event.target.checked)} />
-                            Confirmo em campo a caracterização do ponto como vértice do tipo P
-                            (PT8 não pode gerar um vértice do tipo V).
-                          </label>}
-                          {pa2Result && <div role="status">
-                            <p><strong>{pa2Result.vertex_type} preliminar:</strong> E {pa2Result.easting_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
-                              {" · "}N {pa2Result.northing_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
-                              {pa2Result.angle_deg_acute != null &&
-                                <>{" · "}Ângulo agudo {pa2Result.angle_deg_acute.toLocaleString("pt-BR")}°</>}</p>
-                            {pa2Result.warnings.map((warning, i) => <p key={i} className="pecas-note">{warning}</p>)}
-                            <label className="pecas-field">
-                              <span>Inserir V após qual vértice de limite?</span>
-                              <select value={pa2InsertAfter} onChange={(event) => setPa2InsertAfter(event.target.value)}>
-                                <option value="">Selecione o segmento do perímetro</option>
-                                {topconBoundary.map((point) => <option key={point.name} value={point.name}>
-                                  Após {point.name} — parcela {point.parcel_number}
-                                </option>)}
-                              </select>
-                            </label>
-                            <button type="button" className="pecas-secondary"
-                              disabled={!pa2ConfirmedCrs || (constructionMethod === "PT8" && !pt8PointConfirmed) ||
-                                !pa2InsertAfter || !Number.isFinite(pa2Result.latitude)}
-                              onClick={addProvisionalPa2}>
-                              {constructionMethod === "PT8"
-                                ? "Adicionar P provisório e renomear na tabela"
-                                : "Adicionar V provisório e renomear na tabela"}
-                            </button>
-                            <p className="pecas-note">h e sigmas não são estimados sem método altimétrico,
-                              matriz de covariância e revisão do responsável técnico.
-                              O vértice permanecerá com pendências de exportação.</p>
-                          </div>}
-                          {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
-                        </>}
+                      <div className="pecas-card">
+                        <h4>Construção de vértices e ajustes cartográficos</h4>
+                        <p>Depois de concluir a conversão de altitudes, abra o
+                          espaço de trabalho para criar ou revisar vértices pelo método
+                          PA1, PA2 ou PT8, sobre as bases cartográficas disponíveis.</p>
+                        <button type="button" className="pecas-primary"
+                          disabled={!verticalCalculated}
+                          onClick={() => { setPa2Mode(true); setPa2Error(""); }}>
+                          Abrir espaço de trabalho cartográfico
+                        </button>
+                        {!verticalCalculated && <p className="pecas-note">
+                          Conclua primeiro a conversão altimétrica dos marcos de apoio.
+                        </p>}
                       </div>
-
                       <button type="button" className="pecas-primary"
                         disabled={topconReviewBusy || topconBoundary.length < 3}
                         onClick={() => void validateTopconBoundary()}>
@@ -1395,38 +1292,7 @@ export function PecasTecnicasWorkspace({
                 </div>
               )}
             </div>
-            {topconPreview && pa2Mode && Boolean(verticalCalculated)
-              ? <div className="pecas-card">
-                  <h4>Mapa ampliado — {constructionMethod}</h4>
-                  <Pa2WitnessMap points={topconPreview.points} selected={pa2Witnesses}
-                    method={constructionMethod} intersection={pa2Result}
-                    hint={mapHint} onPositionHint={point => {
-                      setMapHint(point); setPa2Result(null);
-                      const a = topconPreview.points.find(p => p.name === pa2Witnesses[0]);
-                      const b = topconPreview.points.find(p => p.name === pa2Witnesses[1]);
-                      if (constructionMethod !== "PA2" && a && b && Number.isFinite(a.longitude)
-                          && Number.isFinite(a.latitude) && Number.isFinite(b.longitude)
-                          && Number.isFinite(b.latitude)) {
-                        const cosine = Math.cos((a.latitude as number) * Math.PI / 180);
-                        const dx = ((b.longitude as number) - (a.longitude as number)) * cosine;
-                        const dy = (b.latitude as number) - (a.latitude as number);
-                        const px = (point.longitude - (a.longitude as number)) * cosine;
-                        const py = point.latitude - (a.latitude as number);
-                        if (constructionMethod === "PA1") {
-                          setConstructionSide(dx * py - dy * px >= 0 ? "LEFT" : "RIGHT");
-                        } else setConstructionSide(dx * px + dy * py >= 0 ? "FORWARD" : "BACKWARD");
-                      }
-                    }}
-                    onPick={pickPa2Witness} />
-                  <button type="button" className="pecas-secondary"
-                    onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
-                    Limpar testemunhos selecionados
-                  </button>
-                  <p className="pecas-note">Clique nos marcos no mapa e amplie o zoom para
-                    conferir o alinhamento. O local clicado não equivale a levantamento de campo,
-                    nem fornece altura elipsoidal ou precisão topográfica.</p>
-                </div>
-              : <SituationMapPreview
+<SituationMapPreview
                   geometry={displaySituationGeometry}
                   geometryKey={displaySituationKey}
                   saved={previewTopconGeometry ? null : situationSaved}
@@ -1434,7 +1300,7 @@ export function PecasTecnicasWorkspace({
                   vertexNames={displayVertexNames}
                   showVertices={Boolean(previewTopconGeometry)}
                   previewBasemap={previewTopconGeometry ? "osm" : "satellite"}
-                />}
+                 />
           </div>
         )}
 
@@ -1665,6 +1531,177 @@ export function PecasTecnicasWorkspace({
           </button>}
         </div>
       </footer>
+      {topconPreview && pa2Mode && Boolean(verticalCalculated) && (
+        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico"
+          style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
+            border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
+            flexDirection: "column", padding: 16, boxShadow: "0 10px 50px #0005" }}>
+          <div style={{ display: "flex", gap: 16, alignItems: "center",
+            justifyContent: "space-between", marginBottom: 12 }}>
+            <div>
+              <strong>Espaço de trabalho — Construção de vértices</strong>
+              <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção de Retas · PT8 Alinhamento</p>
+            </div>
+            <button type="button" className="pecas-secondary"
+              onClick={() => setPa2Mode(false)}>Concluir e voltar à peça</button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, display: "grid",
+            gridTemplateColumns: "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+            <div style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
+                      <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
+                        <h4>Construção de vértices por geometria analítica — PA1, PA2 ou PT8</h4>
+                        <p>Esta etapa sucede a conversão altimétrica. Método PT8 gera
+                          vértices M/P conforme a tabela oficial de compatibilidade; PA1/PA2
+                          permitem vértice V, sujeito à conferência técnica.</p>
+                        {!verticalCalculated && <p className="pecas-warning">
+                          Conclua primeiro o cálculo das altitudes normais/ortométricas dos marcos
+                          de apoio para habilitar a construção dos vértices.</p>}
+                        <p>Após calcular as altitudes físicas, selecione o método adequado.
+                          PA1 usa dois marcos, distância perpendicular e lado; PA2 utiliza
+                          quatro marcos em duas retas; PT8 usa dois marcos e distância
+                          medida a partir do primeiro. O mapa permite escolher visualmente
+                          um local, mas o cálculo mantém as restrições geométricas do método.</p>
+                        <label className="pecas-check"><input type="checkbox"
+                          disabled={!verticalCalculated} checked={pa2Mode}
+                          onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
+                          Preciso construir vértices adicionais</label>
+                        {pa2Mode && <label className="pecas-field">
+                          <span>Método de posicionamento</span>
+                          <select value={constructionMethod} onChange={e => {
+                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8");
+                            setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
+                            setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
+                          }}>
+                            <option value="PA1">PA1 — Paralela (tipo V)</option>
+                            <option value="PA2">PA2 — Interseção de retas (tipo V)</option>
+                            <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
+                          </select>
+                        </label>}
+                        {pa2Mode && <>
+                          <p>No mapa à direita, selecione os marcos diretamente posicionados.
+                            O clique no terreno é um indicador visual de posição e nunca
+                            substitui a distância ou o afastamento medido em campo.</p>
+                          {constructionMethod !== "PA2" && <>
+                            <label className="pecas-field"><span>
+                              {constructionMethod === "PA1" ? "Afastamento perpendicular medido (m)"
+                                : "Distância medida a partir do primeiro marco (m)"}
+                            </span>
+                              <input type="number" min="0" step="any"
+                                value={constructionDistance}
+                                onChange={e => { setConstructionDistance(e.target.value); setPa2Result(null); }} />
+                            </label>
+                            <label className="pecas-field"><span>Direção geométrica</span>
+                              <select value={constructionSide} onChange={e => {
+                                setConstructionSide(e.target.value as typeof constructionSide);
+                                setPa2Result(null);
+                              }}>
+                                {constructionMethod === "PA1" ? <>
+                                  <option value="LEFT">Esquerda de A → B</option>
+                                  <option value="RIGHT">Direita de A → B</option>
+                                </> : <>
+                                  <option value="FORWARD">No sentido A → B</option>
+                                  <option value="BACKWARD">No sentido contrário</option>
+                                </>}
+                              </select>
+                            </label>
+                            {mapHint && <p>Posição aproximada clicada: {mapHint.latitude.toFixed(7)}°,
+                              {" "}{mapHint.longitude.toFixed(7)}°. Informe a distância medida,
+                              pois o clique não define coordenada para certificação.</p>}
+                          </>}
+                          <p><strong>Alinhamento A:</strong> {pa2Witnesses[0] || "—"}
+                            {" → "}{pa2Witnesses[1] || "—"}
+                            {constructionMethod === "PA2" && <>
+                              {" · "}<strong>Alinhamento B:</strong> {pa2Witnesses[2] || "—"}
+                              {" → "}{pa2Witnesses[3] || "—"}
+                            </>}</p>
+                          <label className="pecas-check">
+                            <input type="checkbox" checked={pa2ConfirmedCrs}
+                              onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPa2Result(null); }} />
+                            Confirmo que os marcos estão no mesmo referencial SIRGAS2000,
+                            na zona e hemisfério indicados pelo processamento.
+                          </label>
+                          <button type="button" className="pecas-primary"
+                            disabled={pa2Busy || !verticalCalculated ||
+                              pa2Witnesses.length !== (constructionMethod === "PA2" ? 4 : 2) ||
+                              (constructionMethod !== "PA2" &&
+                                (!Number.isFinite(Number(constructionDistance)) || constructionDistance === ""))}
+                            onClick={() => void calculatePa2()}>
+                            {pa2Busy ? "Calculando..." : "Calcular " + constructionMethod}
+                          </button>
+                          {constructionMethod === "PT8" && <label className="pecas-check">
+                            <input type="checkbox" checked={pt8PointConfirmed}
+                              onChange={event => setPt8PointConfirmed(event.target.checked)} />
+                            Confirmo em campo a caracterização do ponto como vértice do tipo P
+                            (PT8 não pode gerar um vértice do tipo V).
+                          </label>}
+                          {pa2Result && <div role="status">
+                            <p><strong>{pa2Result.vertex_type} preliminar:</strong> E {pa2Result.easting_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
+                              {" · "}N {pa2Result.northing_m.toLocaleString("pt-BR", {maximumFractionDigits:4})} m
+                              {pa2Result.angle_deg_acute != null &&
+                                <>{" · "}Ângulo agudo {pa2Result.angle_deg_acute.toLocaleString("pt-BR")}°</>}</p>
+                            {pa2Result.warnings.map((warning, i) => <p key={i} className="pecas-note">{warning}</p>)}
+                            <label className="pecas-field">
+                              <span>Inserir V após qual vértice de limite?</span>
+                              <select value={pa2InsertAfter} onChange={(event) => setPa2InsertAfter(event.target.value)}>
+                                <option value="">Selecione o segmento do perímetro</option>
+                                {topconBoundary.map((point) => <option key={point.name} value={point.name}>
+                                  Após {point.name} — parcela {point.parcel_number}
+                                </option>)}
+                              </select>
+                            </label>
+                            <button type="button" className="pecas-secondary"
+                              disabled={!pa2ConfirmedCrs || (constructionMethod === "PT8" && !pt8PointConfirmed) ||
+                                !pa2InsertAfter || !Number.isFinite(pa2Result.latitude)}
+                              onClick={addProvisionalPa2}>
+                              {constructionMethod === "PT8"
+                                ? "Adicionar P provisório e renomear na tabela"
+                                : "Adicionar V provisório e renomear na tabela"}
+                            </button>
+                            <p className="pecas-note">h e sigmas não são estimados sem método altimétrico,
+                              matriz de covariância e revisão do responsável técnico.
+                              O vértice permanecerá com pendências de exportação.</p>
+                          </div>}
+                          {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
+                        </>}
+                      </div>
+
+
+            </div>
+            <div style={{ overflow: "auto", minHeight: 0 }}>
+              <div className="pecas-card">
+                  <h4>Mapa ampliado — {constructionMethod}</h4>
+                  <Pa2WitnessMap points={topconPreview.points} selected={pa2Witnesses}
+                    method={constructionMethod} intersection={pa2Result}
+                    hint={mapHint} onPositionHint={point => {
+                      setMapHint(point); setPa2Result(null);
+                      const a = topconPreview.points.find(p => p.name === pa2Witnesses[0]);
+                      const b = topconPreview.points.find(p => p.name === pa2Witnesses[1]);
+                      if (constructionMethod !== "PA2" && a && b && Number.isFinite(a.longitude)
+                          && Number.isFinite(a.latitude) && Number.isFinite(b.longitude)
+                          && Number.isFinite(b.latitude)) {
+                        const cosine = Math.cos((a.latitude as number) * Math.PI / 180);
+                        const dx = ((b.longitude as number) - (a.longitude as number)) * cosine;
+                        const dy = (b.latitude as number) - (a.latitude as number);
+                        const px = (point.longitude - (a.longitude as number)) * cosine;
+                        const py = point.latitude - (a.latitude as number);
+                        if (constructionMethod === "PA1") {
+                          setConstructionSide(dx * py - dy * px >= 0 ? "LEFT" : "RIGHT");
+                        } else setConstructionSide(dx * px + dy * py >= 0 ? "FORWARD" : "BACKWARD");
+                      }
+                    }}
+                    onPick={pickPa2Witness} />
+                  <button type="button" className="pecas-secondary"
+                    onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
+                    Limpar testemunhos selecionados
+                  </button>
+                  <p className="pecas-note">Clique nos marcos no mapa e amplie o zoom para
+                    conferir o alinhamento. O local clicado não equivale a levantamento de campo,
+                    nem fornece altura elipsoidal ou precisão topográfica.</p>
+                </div>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
