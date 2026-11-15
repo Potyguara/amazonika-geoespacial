@@ -1119,7 +1119,30 @@ export function PecasTecnicasWorkspace({
                               <th>σ Latitude (m)</th><th>σ h (m)</th><th>h confirmada</th>
                               <th>CNS confrontante</th><th>Matrícula confrontante</th></tr></thead>
                             <tbody>{topconBoundary.map((point, index) => <tr key={point.name}>
-                              <td>{point.sigef_vertex_code || point.name}</td>
+                              <td>{point.sigef_vertex_code || point.name}
+                                {point.derived_physical_altitude_m != null && <p>
+                                  {point.derived_physical_model}:{" "}
+                                  {point.derived_physical_altitude_m.toLocaleString("pt-BR")} m
+                                  <small> (h elipsoidal pendente)</small>
+                                </p>}
+                                {point.sigma_suggestion_e_m != null &&
+                                  point.sigma_suggestion_n_m != null && <div>
+                                    <small>Calculados: E={point.sigma_suggestion_e_m.toLocaleString("pt-BR")},
+                                      N={point.sigma_suggestion_n_m.toLocaleString("pt-BR")} m</small>
+                                    <button type="button" className="pecas-secondary"
+                                      onClick={() => {
+                                        if (!window.confirm(
+                                          "Confirmo que conferi o cálculo e a metodologia dos sigmas " +
+                                          "para " + point.name + " e aprovo seu uso no rascunho técnico."
+                                        )) return;
+                                        updateBoundaryPoint(index, {
+                                          sigma_lon_m: point.sigma_suggestion_e_m ?? null,
+                                          sigma_lat_m: point.sigma_suggestion_n_m ?? null,
+                                          sigma_h_m: point.sigma_suggestion_h_m ?? null,
+                                        });
+                                      }}>Confirmar sigmas calculados</button>
+                                  </div>}
+                              </td>
                               {(["sigma_lon_m", "sigma_lat_m", "sigma_h_m"] as const)
                                 .map((field) => <td key={field}>
                                   <input key={`${point.name}:${field}:${loadedTopconRevision ?? 0}`}
