@@ -13,7 +13,10 @@ from app.api.routes.tile_budget import router as tile_budget_router
 from app.api.routes.thematic_maps import router as thematic_maps_router
 from app.api.routes.layer_search import router as layer_search_router
 from app.api.routes.inpe_cbers import router as inpe_cbers_router
+from app.api.routes.official_overlaps import router as official_overlaps_router
 api_router=APIRouter(prefix="/api/v1")
 api_router.include_router(auth_router); api_router.include_router(security_router); api_router.include_router(users_router); api_router.include_router(sources_router); api_router.include_router(analyses_router); api_router.include_router(reports_router); api_router.include_router(tools_router); api_router.include_router(technical_pieces_router); api_router.include_router(google_tiles_router); api_router.include_router(mapbox_satellite_router); api_router.include_router(tile_budget_router); api_router.include_router(thematic_maps_router)
 api_router.include_router(layer_search_router)
 api_router.include_router(inpe_cbers_router)
+
+api_router.include_router(official_overlaps_router)
