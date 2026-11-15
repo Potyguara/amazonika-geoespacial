@@ -26,6 +26,11 @@ def stamp_preliminary_pdf(raw_pdf: bytes) -> bytes:
             w / 2, 13,
             "RESTITUICAO PS4 PROVISORIA - SEM VALIDACAO DE ACURACIA PARA SIGEF",
         )
+        overlay.setFont("Helvetica", 7)
+        overlay.drawCentredString(
+            w / 2, 25,
+            "HN~ = altitude normal interpolada entre marcos GNSS; NAO medida e NAO usada como h SIGEF.",
+        )
         overlay.save()
         buffer.seek(0)
         stamp_page = PdfReader(buffer).pages[0]
