@@ -113,7 +113,9 @@ export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_re
   derived_calculation?: Record<string, unknown> | null;
 };
 type TopconReview = {
+  ready_for_geometry?: boolean;
   ready_for_ods: boolean;
+  missing_sigmas?: string[];
   errors: string[];
   warnings: string[];
   vertex_count: number;
@@ -1032,15 +1034,8 @@ export function PecasTecnicasWorkspace({
     try {
       const parcels = parcelsForOds();
       if (!parcels.length) throw new Error("Nenhuma parcela TOPCON válida foi formada. Confira os marcos de limite, sua ordem e a identificação de parcela.");
-      const withoutSigmas = topconBoundary.filter(point =>
-        ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
-          .every(value => typeof value === "number" && Number.isFinite(value) && value > 0));
-      if (withoutSigmas.length) {
-        throw new Error("A ODS requer precisões individuais por eixo (σ Longitude, σ Latitude e σ h): " +
-          withoutSigmas.map(point => point.sigef_vertex_code || point.name).join(", ") +
-          ". A revisão manual é opcional quando o Point Summary do TOPCON já fornece os três valores." +
-          " O RMS de vetores e o fator η do IBGE não os substituem.");
-      }
+      // A pré-validação geométrica não exige edição manual de sigmas.
+      // A ODS segue sujeita às verificações completas do serviço específico.
       const reviews: Array<{ number: string; name: string; review: TopconReview }> = [];
       for (const parcel of parcels) {
         const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/perimeter-review`, {
@@ -1055,11 +1050,12 @@ export function PecasTecnicasWorkspace({
       }
       const errors = reviews.flatMap(({ number, review }) => review.errors.map((msg) => `Parcela ${number}: ${msg}`));
       const warnings = reviews.flatMap(({ number, review }) => review.warnings.map((msg) => `Parcela ${number}: ${msg}`));
-      const ready = errors.length === 0 && reviews.every(({ review }) => review.ready_for_ods && review.geometry);
+      const ready = errors.length === 0 && reviews.every(({ review }) =>
+        (review.ready_for_geometry ?? review.ready_for_ods) && review.geometry);
       setTopconReviewFeedback({
         status: ready ? "success" : "error",
         message: ready
-          ? "Pré-validação TOPCON aprovada para os marcos GNSS. Não inclui os V PS4 provisórios."
+          ? "Geometria TOPCON conferida. Sigmas individuais continuam facultativos nesta etapa; ODS exige verificação separada. Não inclui os V PS4."
           : "Pré-validação TOPCON executada com " + errors.length + " pendência(s). Leia os detalhes abaixo.",
       });
       setTopconReview({
@@ -1849,6 +1845,11 @@ export function PecasTecnicasWorkspace({
                             setTopconReview(null); setSigefParcelReview(null);
                             setSigefValidatedSignature("");
                           }}>Confirmar sigmas individuais preenchidos</button>
+                        <p className="pecas-note" role="status">A ação confirma apenas valores
+                          já presentes. Para preencher automaticamente os campos avançados,
+                          importe o quadro de pontos ajustados do TOPCON; quando não existem
+                          sigmas individuais, os campos permanecem vazios e facultativos.
+                          A validação geométrica não depende desta ação.</p>
                         <p><strong>Revisão assistida:</strong> {topconBoundary.filter((p) =>
                           p.sigma_lon_m !== null && p.sigma_lat_m !== null).length}
                           /{topconBoundary.length} vértices com sigmas horizontalmente preenchidos;
