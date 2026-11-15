@@ -1,0 +1,4 @@
+ARG BASE_API_IMAGE=amazonika-api-topcon:geo89-20261114
+FROM ${BASE_API_IMAGE}
+COPY backend/app/api/router.py /app/app/api/router.py
+COPY backend/app/api/routes/inpe_cbers.py /app/app/api/routes/inpe_cbers.py
