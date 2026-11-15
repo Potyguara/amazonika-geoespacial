@@ -7,9 +7,10 @@ type Source = { checked: boolean; status: string; source?: string; reference_dat
 type Match = { source: string; name?: string | null; external_id?: string | null; relation: string; overlap_m2: number; distance_m: number; bbox_geojson?: string };
 type Report = { status: string; complete: boolean; sources: Record<string, Source>; matches: Match[]; note: string; auto_adjustment_applied: boolean };
 
-export function OfficialOverlapCheck({ geometry, onNext }: {
+export function OfficialOverlapCheck({ geometry, onNext, onReport }: {
   geometry: {type:"Polygon";coordinates:number[][][]} | null;
   onNext?: () => void;
+  onReport?: (report: {status:string; complete:boolean; count:number}) => void;
 }) {
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
@@ -29,6 +30,7 @@ export function OfficialOverlapCheck({ geometry, onNext }: {
       if(!res.ok)throw new Error(typeof payload?.detail==="string"?payload.detail:
         "Serviço SIGEF indisponível nesta homologação. Nenhuma verificação foi declarada.");
       setReport(payload as Report);
+      onReport?.({status:payload.status,complete:Boolean(payload.complete),count:Number(payload.count||0)});
     }catch(e){setError(e instanceof Error?e.message:"Falha de verificação.");}
     finally{setLoading(false);}
   };
