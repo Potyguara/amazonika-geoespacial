@@ -672,8 +672,15 @@ export function PecasTecnicasWorkspace({
   };
   const downloadReviewedOds = async () => {
     if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
-    if (topconBoundary.some(point => !point.sigma_reference_confirmed)) {
-      setReviewedOdsError("Confirme os sigmas individuais de todos os vértices antes de gerar ODS.");
+    // Original adjusted-point precisions from TOPCON are retained. Manual adjustment
+    // and a second confirmation click are optional; mandatory SIGEF columns are not.
+    const incomplete = topconBoundary.filter(point =>
+      ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
+        .every(value => typeof value === "number" && Number.isFinite(value) && value > 0));
+    if (incomplete.length) {
+      setReviewedOdsError("Não é possível produzir a ODS: faltam σ Longitude, σ Latitude ou σ h para " +
+        incomplete.map(point => point.sigef_vertex_code || point.name).join(", ") +
+        ". Importe o Point Summary com as precisões individuais ajustadas; nenhum valor será inventado.");
       return;
     }
     if (!sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()) {
@@ -986,13 +993,14 @@ export function PecasTecnicasWorkspace({
     try {
       const parcels = parcelsForOds();
       if (!parcels.length) throw new Error("Nenhuma parcela TOPCON válida foi formada. Confira os marcos de limite, sua ordem e a identificação de parcela.");
-      const unconfirmed = topconBoundary.filter(point => !point.sigma_reference_confirmed);
-      if (unconfirmed.length) {
-        throw new Error("Pré-validação SIGEF ainda bloqueada: " + unconfirmed.length +
-          " marco(s) sem confirmação de σ Longitude e σ Latitude (" +
-          unconfirmed.map(point => point.sigef_vertex_code || point.name).join(", ") +
-          "). Informe as precisões individuais das coordenadas ajustadas; os fatores η do IBGE NÃO as substituem." +
-          (ps4Ready ? " A poligonal PS4 está fechada somente como prévia cartográfica e não integra esta validação TOPCON." : ""));
+      const withoutSigmas = topconBoundary.filter(point =>
+        ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
+          .every(value => typeof value === "number" && Number.isFinite(value) && value > 0));
+      if (withoutSigmas.length) {
+        throw new Error("A ODS requer precisões individuais por eixo (σ Longitude, σ Latitude e σ h): " +
+          withoutSigmas.map(point => point.sigef_vertex_code || point.name).join(", ") +
+          ". A revisão manual é opcional quando o Point Summary do TOPCON já fornece os três valores." +
+          " O RMS de vetores e o fator η do IBGE não os substituem.");
       }
       const reviews: Array<{ number: string; name: string; review: TopconReview }> = [];
       for (const parcel of parcels) {
@@ -1743,7 +1751,9 @@ export function PecasTecnicasWorkspace({
                         <p className="pecas-note">Esta ação confere somente os marcos GNSS do levantamento.
                           O fechamento PS4 em azul é uma prévia independente e NÃO é enviado como geometria certificada.</p>
                         <p className="pecas-note">Marcos disponíveis: {topconBoundary.length} ·
-                          Sigmas confirmados: {topconBoundary.filter(point => point.sigma_reference_confirmed).length}/{topconBoundary.length} ·
+                          Precisões por eixo disponíveis: {topconBoundary.filter(point =>
+                          [point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
+                            .every(value => typeof value === "number" && Number.isFinite(value) && value > 0)).length}/{topconBoundary.length} ·
                           PS4: {ps4Ready ? "fechamento preliminar confirmado" : "fechamento pendente"}.</p>
                         <button type="button" className="pecas-primary"
                           disabled={topconReviewBusy || topconBoundary.length < 3}
