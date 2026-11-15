@@ -92,6 +92,7 @@ export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_re
   ellipsoidal_height_m: number | null;
   sigma_lon_m: number | null;
   sigma_lat_m: number | null;
+  sigma_reference_confirmed?: boolean;
   sigma_h_m: number | null;
   confrontant_cns: string;
   confrontant_registration: string;
@@ -441,6 +442,10 @@ export function PecasTecnicasWorkspace({
   };
   const downloadReviewedOds = async () => {
     if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
+    if (topconBoundary.some(point => !point.sigma_reference_confirmed)) {
+      setReviewedOdsError("Confirme os sigmas individuais de todos os vértices antes de gerar ODS.");
+      return;
+    }
     if (!sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()) {
       setReviewedOdsError("Dados alterados: refaça a pré-validação SIGEF antes da exportação.");
       return;
@@ -638,6 +643,7 @@ export function PecasTecnicasWorkspace({
       ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
       sigma_hz_m: null, sigma_u_m: null,
       sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+      sigma_reference_confirmed: false,
       height_reference_confirmed: false,
       sigef_vertex_code: "", sigef_method: constructionMethod, boundary_type: previous.boundary_type,
       confrontant: previous.confrontant, confrontant_cns: previous.confrontant_cns,
@@ -659,6 +665,9 @@ export function PecasTecnicasWorkspace({
       .some((field) => field in patch)) {
       setVerticalCalculated(null);
       setPa2Result(null);
+    }
+    if (["sigma_lon_m", "sigma_lat_m", "sigma_h_m"].some(key => key in patch)) {
+      patch.sigma_reference_confirmed = false;
     }
     setTopconBoundary((current) => current.map((point, i) =>
       i === index ? { ...point, ...patch } : point));
@@ -684,6 +693,9 @@ export function PecasTecnicasWorkspace({
     try {
       const parcels = parcelsForOds();
       if (!parcels.length) throw new Error("Selecione ao menos uma parcela.");
+      if (topconBoundary.some(point => !point.sigma_reference_confirmed)) {
+        throw new Error("Confirme os sigmas individuais para cada vértice antes da pré-validação SIGEF.");
+      }
       const reviews: Array<{ number: string; name: string; review: TopconReview }> = [];
       for (const parcel of parcels) {
         const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/perimeter-review`, {
@@ -1004,7 +1016,10 @@ export function PecasTecnicasWorkspace({
                                           sigef_vertex_code: "", parcel_number: "1",
                                            parcel_name: data.title || "Parcela 1",
                                            ellipsoidal_height_m: point.ellipsoidal_height_reported_m ?? null,
-                                          sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+                                          sigma_lon_m: point.sigma_e_m ?? null,
+                                          sigma_lat_m: point.sigma_n_m ?? null,
+                                          sigma_h_m: point.sigma_u_m ?? null,
+                                          sigma_reference_confirmed: false,
                                           height_reference_confirmed: false,
                                           confrontant_cns: "", confrontant_registration: "",
                                           sigef_method: "", boundary_type: "", confrontant: "" }]
@@ -1063,6 +1078,22 @@ export function PecasTecnicasWorkspace({
                       </div>
                       <div className="pecas-card" aria-label="Precisões SIGEF">
                         <h4>Precisões e referências dos confrontantes</h4>
+                        <p><strong>Valores individuais:</strong> {topconBoundary.filter(p =>
+                          p.sigma_lon_m !== null && p.sigma_lat_m !== null).length}
+                          /{topconBoundary.length} vértices com valores disponíveis.
+                          {topconBoundary.filter(p => p.sigma_reference_confirmed).length}
+                          /{topconBoundary.length} confirmações técnicas registradas.</p>
+                        <button type="button" className="pecas-secondary"
+                          disabled={!topconBoundary.length}
+                          onClick={() => {
+                            if (!window.confirm("Confirmo que conferi os desvios padrão individuais extraídos do TOPCON, sua referência e o resultado do ajustamento. Desejo aprovar os valores já preenchidos?")) return;
+                            setTopconBoundary(old => old.map(point =>
+                              point.sigma_lon_m !== null && point.sigma_lat_m !== null
+                                ? { ...point, sigma_reference_confirmed: true } : point
+                            ));
+                            setTopconReview(null); setSigefParcelReview(null);
+                            setSigefValidatedSignature("");
+                          }}>Confirmar sigmas individuais preenchidos</button>
                         <p><strong>Revisão assistida:</strong> {topconBoundary.filter((p) =>
                           p.sigma_lon_m !== null && p.sigma_lat_m !== null).length}
                           /{topconBoundary.length} vértices com sigmas horizontalmente preenchidos;
