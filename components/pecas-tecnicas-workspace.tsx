@@ -1454,8 +1454,13 @@ export function PecasTecnicasWorkspace({
         </div>}
         {stage === 0 && !showAllTasks && premiumStep === 4 && <OfficialOverlapCheck
           geometry={ps4PreviewGeometry}
+          vertices={ps4Draft}
           onReport={result=>setOfficialOverlap({...result,signature:ps4Signature})}
-          onNext={() => jumpToWorkflow(5)} />}
+          onNext={() => jumpToWorkflow(5)}
+          onOpenMap={() => {
+            setWorkflowNotice("Abra as camadas auxiliares no mapa principal e retorne à peça para continuar a análise.");
+            onClose();
+          }} />}
         {stage === 0 && !showAllTasks && premiumStep !== 4 && (
           <div className="pecas-data-layout geo97-focus-layout">
             <div className="pecas-card geo96-main-card geo97-focused-card">
