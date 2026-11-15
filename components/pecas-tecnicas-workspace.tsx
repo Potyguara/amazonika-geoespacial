@@ -1239,14 +1239,23 @@ export function PecasTecnicasWorkspace({
       }));
     return features.length ? { type: "FeatureCollection", features } : null;
   })();
-  const displaySituationGeometry = previewTopconGeometry ?? situationGeometry;
-  const displaySituationKey = previewTopconGeometry
-    ? JSON.stringify(previewTopconGeometry) : situationKey;
-  const displayVertexNames = previewTopconGeometry
-    ? [...new Set(topconBoundary.map((point) => point.parcel_number))]
-      .map((number) => topconBoundary.filter((point) => point.parcel_number === number)
-        .map((point) => point.sigef_vertex_code || point.name))
-    : chosen.map((polygon) => polygon.vertices);
+  // Parcela já selecionada no mapa é a fonte de verdade da Planta e do Memorial.
+  // A prévia TOPCON/PS4 só assume o enquadramento quando ainda não há parcela aplicada.
+  const displaySituationGeometry = chosen.length ? situationGeometry :
+    ps4PreviewGeometry ? { type:"FeatureCollection",features:[
+      {type:"Feature",properties:{status:"PRELIMINAR_PS4"},geometry:ps4PreviewGeometry},
+    ]} : (previewTopconGeometry ?? situationGeometry);
+  const displaySituationKey = chosen.length ? situationKey :
+    JSON.stringify(displaySituationGeometry);
+  const displayVertexNames = chosen.length
+    ? chosen.map(polygon => polygon.vertices)
+    : ps4Ready ? [ps4Closure.names.map(name =>
+      topconBoundary.find(p=>p.name===name)?.sigef_vertex_code || name)]
+    : previewTopconGeometry
+      ? [...new Set(topconBoundary.map(point => point.parcel_number))]
+        .map(number => topconBoundary.filter(point => point.parcel_number === number)
+          .map(point => point.sigef_vertex_code || point.name))
+      : [];
   const commonKey = JSON.stringify({
     selected: selectedIds,
     polygons: chosen,
@@ -1553,10 +1562,10 @@ export function PecasTecnicasWorkspace({
               <SituationMapPreview
                 geometry={displaySituationGeometry}
                 geometryKey={displaySituationKey}
-                saved={previewTopconGeometry?null:situationSaved}
+                saved={chosen.length?situationSaved:null}
                 onSave={onSaveSituation}
                 vertexNames={displayVertexNames}
-                showVertices={Boolean(previewTopconGeometry)}
+                showVertices={Boolean(previewTopconGeometry || chosen.length)}
                 previewBasemap={previewTopconGeometry?"osm":"satellite"}
                 ps4Draft={ps4Draft}
                 ps4ClosureGeometry={ps4PreviewGeometry}
@@ -2177,11 +2186,11 @@ export function PecasTecnicasWorkspace({
 <SituationMapPreview
                   geometry={displaySituationGeometry}
                   geometryKey={displaySituationKey}
-                  saved={previewTopconGeometry ? null : situationSaved}
+                  saved={chosen.length ? situationSaved : null}
                   onSave={onSaveSituation}
                   vertexNames={displayVertexNames}
-                  showVertices={Boolean(previewTopconGeometry)}
-                  previewBasemap={previewTopconGeometry ? "osm" : "satellite"}
+                  showVertices={Boolean(previewTopconGeometry || chosen.length)}
+                  previewBasemap={previewTopconGeometry || chosen.length ? "osm" : "satellite"}
                   ps4Draft={ps4Draft}
                   ps4ClosureGeometry={ps4PreviewGeometry}
                  />
