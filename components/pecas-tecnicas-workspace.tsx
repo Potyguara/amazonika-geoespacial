@@ -333,6 +333,72 @@ export function PecasTecnicasWorkspace({
   }> | null>(null);
   const [verticalError, setVerticalError] = useState("");
   const [verticalLoading, setVerticalLoading] = useState(false);
+  const [ibgeBatchNotice, setIbgeBatchNotice] = useState("");
+  const exportIbgeBatch = () => {
+    setIbgeBatchNotice("");
+    if (verticalModel !== "hgeoHNOR2020") {
+      setIbgeBatchNotice("A exportação é destinada ao hgeoHNOR2020. Selecione esse modelo.");
+      return;
+    }
+    const points = topconBoundary.filter(point =>
+      Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+    if (!points.length) {
+      setIbgeBatchNotice("Selecione os vértices com latitude e longitude SIRGAS2000.");
+      return;
+    }
+    const lines = points.map(point =>
+      `${point.name} ${Number(point.latitude).toFixed(9)} ${Number(point.longitude).toFixed(9)}`);
+    downloadBlob(new Blob([lines.join("\\n") + "\\n"], { type: "text/plain;charset=utf-8" }),
+      "amazonika_hgeoHNOR2020_entrada_IBGE.txt");
+    setIbgeBatchNotice(`Arquivo para consulta IBGE: ${points.length} ponto(s), ordem ID LAT LON (grau decimal). Confira o referencial SIRGAS2000.`);
+  };
+  const importIbgeBatch = async (file: File) => {
+    setIbgeBatchNotice("");
+    try {
+      if (file.size > 1_000_000) throw new Error("Arquivo excede o limite de 1 MB.");
+      const raw = (await file.text()).replace(/^\\uFEFF/, "").trim();
+      const lines = raw.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+      if (lines.length < 2) throw new Error("Arquivo sem cabeçalho e linhas de resultados.");
+      const delimiter = lines[0].includes(";") ? ";" : lines[0].includes("\\t") ? "\\t" : ",";
+      const fields = (line: string) => line.split(delimiter).map(value => value.trim().replace(/^"|"$/g, ""));
+      const normal = (s: string) => s.toUpperCase().normalize("NFD")
+        .replace(/[\\u0300-\\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
+      const header = fields(lines[0]).map(normal);
+      const idIndex = header.findIndex(value => ["ID", "PONTO", "NAME", "IDENTIFICACAO"].includes(value));
+      const factorIndex = header.findIndex(value => ["FATCOR", "ETAM", "ETA", "FATOR", "FATORCONVERSAO", "ONDGEO", "NM"].includes(value));
+      const modelIndex = header.findIndex(value => ["MODELO", "MODEL"].includes(value));
+      if (idIndex < 0 || factorIndex < 0)
+        throw new Error("Cabeçalho esperado: ID;FATCOR (IBGE hgeoHNOR2020) ou ID;ONDGEO (MAPGEO2015).");
+      const mapgeo = ["ONDGEO", "NM"].includes(header[factorIndex]);
+      if (mapgeo !== (verticalModel === "MAPGEO2015"))
+        throw new Error("O tipo de fator no arquivo difere do modelo escolhido.");
+      const known = new Set(topconBoundary.map(point => point.name));
+      const next: Record<string, string> = {};
+      for (const line of lines.slice(1)) {
+        const values = fields(line);
+        const id = values[idIndex];
+        if (!known.has(id)) continue;
+        if (Object.prototype.hasOwnProperty.call(next, id)) throw new Error(`Ponto duplicado: ${id}`);
+        const value = (values[factorIndex] ?? "").replace(",", ".");
+        if (!value || !Number.isFinite(Number(value))) throw new Error(`Fator inválido: ${id}`);
+        if (modelIndex >= 0) {
+          const model = normal(values[modelIndex] ?? "");
+          if (verticalModel === "hgeoHNOR2020" && model && !model.includes("HGE OHNOR".replace(" ", "")) && !model.includes("HGEONOR"))
+            throw new Error(`Modelo divergente no ponto ${id}.`);
+          if (verticalModel === "MAPGEO2015" && model && !model.includes("MAPGEO2015"))
+            throw new Error(`Modelo divergente no ponto ${id}.`);
+        }
+        next[id] = value;
+      }
+      if (!Object.keys(next).length) throw new Error("Nenhum ID do arquivo corresponde aos vértices selecionados.");
+      setVerticalFactors(old => ({ ...old, ...next }));
+      setVerticalOrigin(`IBGE ${verticalModel} — importação em lote de ${file.name}`);
+      setVerticalCalculated(null);
+      setIbgeBatchNotice(`Importados ${Object.keys(next).length} fator(es) por ID. Confirme as alturas h SIRGAS2000 antes de calcular.`);
+    } catch (err) {
+      setIbgeBatchNotice(err instanceof Error ? err.message : "Arquivo de fatores inválido.");
+    }
+  };
   const calculateVertical = async () => {
     setVerticalLoading(true);
     setVerticalCalculated(null);
@@ -1237,6 +1303,29 @@ export function PecasTecnicasWorkspace({
                             setVerticalOrigin(event.target.value); setVerticalCalculated(null);
                           }} />
                         </label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                          <button type="button" className="pecas-secondary" onClick={exportIbgeBatch}
+                            disabled={topconBoundary.length === 0 || verticalModel !== "hgeoHNOR2020"}>
+                            Exportar todos os pontos para o IBGE (.txt)
+                          </button>
+                          <label className="pecas-field">
+                            <span>Importar fatores em lote (.csv / .txt delimitado)</span>
+                            <input type="file" accept=".csv,.txt,text/csv,text/plain"
+                              aria-label="Selecionar arquivo de fatores IBGE"
+                              onChange={event => {
+                                const file = event.currentTarget.files?.[0];
+                                if (file) void importIbgeBatch(file);
+                                event.currentTarget.value = "";
+                              }} />
+                          </label>
+                        </div>
+                        {ibgeBatchNotice && <p className="pecas-note" role="status">{ibgeBatchNotice}</p>}
+                        <p className="pecas-note">
+                          hgeoHNOR2020: no serviço IBGE selecione ID LAT LON (grau decimal).
+                          Importe os resultados com cabeçalho ID;FATCOR;MODELO ou ID;ETA_M.
+                          MAPGEO2015: utilize ID;ONDGEO;MODELO. Os valores são vinculados pelo ID, sem alterar h.
+                          Os fatores continuam sujeitos à conferência de origem e qualidade pelo RT.
+                        </p>
                         <div style={{ overflowX: "auto" }}>
                           <table>
                             <thead><tr><th>Ponto</th><th>h confirmado (m)</th>
@@ -1274,8 +1363,9 @@ export function PecasTecnicasWorkspace({
                             {" "}{(point.normal_height_m ?? point.orthometric_height_m)?.toLocaleString("pt-BR")} m
                           </p>)}
                         </div>}
-                        <p>Consulte o fator no serviço hgeoHNOR2020 do IBGE e transcreva-o
-                          para cada ponto. O sistema ainda não consulta automaticamente esse serviço.</p>
+                        <p>O Amazonika não calcula η por uma API do IBGE nesta etapa:
+                          a exportação e importação em lote preservam os fatores oficiais fornecidos pelo usuário.
+                          A interpolação local das grades IBGE dependerá de validação metodológica independente.</p>
                       </div>
                       <div className="pecas-card">
                         <h4>Construção de vértices e ajustes cartográficos</h4>
