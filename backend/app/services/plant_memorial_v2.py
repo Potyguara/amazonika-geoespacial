@@ -40,6 +40,7 @@ class Parcel:
     segments: list[dict]
     confrontants: list[str]
     altitudes: list[float | None]
+    normal_altitudes: list[float | None]
 
 
 def prepare_parcels(raw: list[dict]) -> list[Parcel]:
@@ -73,7 +74,9 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
         area, perimeter = geod.geometry_area_perimeter(polygon)
         confrontants = data.get("confrontants") or [""] * len(points)
         altitudes = data.get("altitudes_m") or [None] * len(points)
-        if len(confrontants) != len(points) or len(altitudes) != len(points):
+        normal_altitudes = data.get("normal_altitudes_m") or [None] * len(points)
+        if (len(confrontants) != len(points) or len(altitudes) != len(points)
+                or len(normal_altitudes) != len(points)):
             raise ValueError(f"Área {index + 1}: confrontantes/altitudes não correspondem aos vértices.")
         segments = []
         for i, (lon, lat) in enumerate(points):
@@ -95,6 +98,7 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
             perimeter=perimeter, segments=segments,
             confrontants=[str(item or "").strip()[:250] for item in confrontants],
             altitudes=[float(item) if item is not None else None for item in altitudes],
+            normal_altitudes=[float(item) if item is not None else None for item in normal_altitudes],
         ))
     return output
 
