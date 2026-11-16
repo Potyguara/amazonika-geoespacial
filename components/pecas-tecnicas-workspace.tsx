@@ -414,7 +414,6 @@ export function PecasTecnicasWorkspace({
     draft: ps4Draft.map(p => [p.name, p.longitude, p.latitude, p.scene_id]),
   });
   const ps4Ready = ps4ClosureConfirmed && ps4ConfirmedSignature === ps4Signature && ps4Closure.valid;
-  const overlapCurrent = officialOverlap?.signature === ps4Signature;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -1484,6 +1483,28 @@ export function PecasTecnicasWorkspace({
     ]} : (previewTopconGeometry ?? situationGeometry);
   const displaySituationKey = chosen.length ? situationKey :
     JSON.stringify(displaySituationGeometry);
+  // SIGEF compara a parcela selecionada, independente de haver vertices V.
+  // Se nenhuma parcela foi selecionada, somente uma poligonal de previa
+  // inequivoca pode ser analisada; nunca supor ausencia de sobreposicao.
+  const overlapGeometry = (() => {
+    const selected = chosen.filter(p => p.coordinates && p.coordinates.length >= 3);
+    if (chosen.length === 1 && selected.length === 1) {
+      const coords = selected[0].coordinates!;
+      const ring = [...coords];
+      if (ring[0][0] !== ring[ring.length - 1][0] ||
+          ring[0][1] !== ring[ring.length - 1][1]) ring.push(ring[0]);
+      return { type: "Polygon" as const, coordinates: [ring] };
+    }
+    if (chosen.length > 1) return null;
+    if (ps4Ready) return ps4Closure.geometry;
+    if (previewTopconGeometry?.features.length === 1) {
+      return previewTopconGeometry.features[0].geometry;
+    }
+    return null;
+  })();
+  const overlapSignature = JSON.stringify(overlapGeometry);
+  const overlapCurrent = officialOverlap?.signature === overlapSignature;
+
   const displayVertexNames = chosen.length
     ? chosen.map(polygon => polygon.vertices)
     : ps4Ready ? [ps4Closure.names.map(name =>
@@ -1647,9 +1668,10 @@ export function PecasTecnicasWorkspace({
           <button type="button" onClick={() => setWorkflowNotice("")} aria-label="Fechar orientação">×</button>
         </div>}
         {stage === 0 && !showAllTasks && premiumStep === 4 && <OfficialOverlapCheck
-          geometry={ps4PreviewGeometry}
+          key={overlapSignature}
+          geometry={overlapGeometry}
           vertices={ps4Draft}
-          onReport={result=>setOfficialOverlap({...result,signature:ps4Signature})}
+          onReport={result=>setOfficialOverlap({...result,signature:overlapSignature})}
           onNext={() => jumpToWorkflow(5)}
           onOpenMap={() => {
             setWorkflowNotice("Abra as camadas auxiliares no mapa principal e retorne à peça para continuar a análise.");
@@ -2877,7 +2899,7 @@ export function PecasTecnicasWorkspace({
             disabled={selectedIds.length === 0 || (stage === 3 && (!pdfReady || pdfBusy))}
             onClick={() => {
               if(stage===0)jumpToWorkflow(5);
-              else jumpToWorkflow(([0,0,6,7,9] as const)[stage]);
+              else jumpToWorkflow(([0,6,7,8,9] as const)[stage]);
             }}>
             Avançar <ArrowRight size={16} />
           </button>}
