@@ -45,6 +45,14 @@ def _remove_replaced_assets(user_id, piece_id, old_ps4: dict, new_result: dict) 
             stored_file_path(user_id, piece_id, "raster", old_digest).unlink(missing_ok=True)
         except (OSError, ValueError) as exc:
             print(f"[ps4-inpe-worker] aviso limpeza raster antigo: {type(exc).__name__}", flush=True)
+    # O novo recorte não herda o laudo PDF da cena anterior.
+    old_report = (old_ps4.get("assets") or {}).get("report") or {}
+    old_report_digest = old_report.get("sha256")
+    if isinstance(old_report_digest, str):
+        try:
+            stored_file_path(user_id, piece_id, "report", old_report_digest).unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            print(f"[ps4-inpe-worker] aviso limpeza PDF antigo: {type(exc).__name__}", flush=True)
     old_xml = ((old_ps4.get("source_provenance") or {}).get("technical_xml") or {})
     new_xml = ((new_result["provenance"].get("technical_xml") or {}))
     old_xml_digest = old_xml.get("sha256")
