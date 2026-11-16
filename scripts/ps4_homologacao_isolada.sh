@@ -30,6 +30,11 @@ git branch --show-current
 git fetch --no-tags origin feat/geo90-ps4-evidencias-20261115
 git rev-parse --verify "$REF^{commit}" >/dev/null
 
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "ERRO: tag de homologação já existe; não sobrescrever: $IMAGE"
+  exit 2
+fi
+
 if [ -e "$STAGE" ]; then
   echo "ERRO: staging já existe; não sobrescrever: $STAGE"
   exit 2
@@ -39,7 +44,6 @@ printf '\n=== Criar checkout separado de homologação ===\n'
 git worktree add --detach "$STAGE" "$REF"
 
 printf '\n=== Verificar isolamento ===\n'
-test "$(git -C "$REPO" rev-parse --short HEAD)" = "$(git -C "$REPO" rev-parse --short HEAD)"
 git -C "$STAGE" log -1 --format='Commit candidato: %h %s'
 git -C "$REPO" status --short
 
