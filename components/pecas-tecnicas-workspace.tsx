@@ -1456,7 +1456,7 @@ export function PecasTecnicasWorkspace({
     Boolean(topconPreview),
     topconBoundary.length>=3,
     Boolean(verticalCalculated?.length),
-    ps4Ready,
+    Boolean(ps4Ready || constructionSkipped),
     Boolean(overlapCurrent && officialOverlap?.complete && officialOverlap?.count===0),
     selectedIds.length>0,
     Boolean(memorialText || editableMemorial),
@@ -1729,7 +1729,7 @@ export function PecasTecnicasWorkspace({
                   Preciso construir vértices adicionais (facultativo)
                 </label>
                 <p className="geo96-next-step">{ps4Draft.length} vértices V registrados.
-                  Fechamento: {ps4Ready?"confirmado para prévia":"pendente"}.</p>
+                  Fechamento: {constructionSkipped?"dispensado pelo usuário":ps4Ready?"confirmado para prévia":"pendente"}.</p>
                 <button type="button" className="pecas-primary"
                   disabled={!topconPreview||topconBoundary.length<2}
                   onClick={()=>{
