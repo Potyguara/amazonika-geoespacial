@@ -14,6 +14,7 @@ import re
 import subprocess
 import shutil
 import tempfile
+import time
 from threading import BoundedSemaphore
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -53,6 +54,32 @@ def _allowed_asset_url(value: str) -> str:
             "Use o download manual ou avalie a configuração de origem."
         )
     return value
+
+
+def cleanup_stale_crop_temporaries(*, max_age_seconds: int = 7200) -> int:
+    """Limpa exclusivamente diretórios temporários PS4 após interrupção.
+
+    Nunca alcança evidências persistidas, XML, PDF ou jobs. O serviço
+    executa essa limpeza apenas durante a inicialização do worker.
+    """
+    if max_age_seconds < 3600:
+        raise ValueError("Intervalo mínimo de segurança: uma hora.")
+    root = get_settings().storage_dir
+    if not root.is_dir():
+        return 0
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    for path in root.glob(".amazonika-inpe-*"):
+        try:
+            if not path.is_dir() or path.is_symlink():
+                continue
+            if path.stat().st_mtime >= cutoff:
+                continue
+            shutil.rmtree(path)
+            removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 MAX_XML_BYTES = 2 * 1024 * 1024
