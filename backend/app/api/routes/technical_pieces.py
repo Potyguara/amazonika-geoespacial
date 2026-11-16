@@ -215,6 +215,9 @@ def upload_ps4_file(
     assets = dict(ps4.get("assets") or {})
     assets[kind] = record
     ps4["assets"] = assets
+    # Substituir um arquivo invalida qualquer aprovação anterior.
+    ps4.pop("approval", None)
+    ps4.pop("completed_at", None)
     snapshot["ps4"] = ps4
     # Caso ainda não exista formulário, manter a evidência sem forçar campos.
     if "submission" in ps4:
