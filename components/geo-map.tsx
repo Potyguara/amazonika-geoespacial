@@ -819,6 +819,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     if (!response.ok) throw new Error(result?.detail ?? "Não foi possível salvar a peça.");
     setCurrentPieceId(result.id);
     onPieceSaved?.();
+    return String(result.id);
   };
 
   const exportIndividualPolygon = async (id: string, format: "txt" | "kml" | "shp") => {
