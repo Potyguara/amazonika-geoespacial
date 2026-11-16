@@ -124,6 +124,19 @@ def _azimuth_minutes(degrees: float) -> str:
     return f"{degree:02d}°{minute:02d}'"
 
 
+def _display_altitude(parcel: Parcel, index: int) -> str:
+    """Prefer final normal height for drafting; preserve h separately for SIGEF."""
+    hn = (parcel.normal_altitudes[index]
+          if index < len(parcel.normal_altitudes) else None)
+    if hn is not None:
+        provisional = "-V-" in parcel.names[index].upper()
+        label = "HN estimada (interpolação M–V–M)" if provisional else "Altitude normal (HN)"
+        return f" e {label}: {_br_number(hn, 2)} m"
+    # Avoid silently labelling ellipsoidal h as a normal altitude.
+    h = parcel.altitudes[index]
+    return f" e Altitude elipsoidal (h): {_br_number(h, 2)} m" if h is not None else ""
+
+
 def build_joint_memorial(
     parcels: list[Parcel], *, title: str, owner: str | None,
     responsible: str | None, croqui: bool,
@@ -169,11 +182,7 @@ def build_joint_memorial(
     for parcel in parcels:
         lines.append(f"DESCRIÇÃO DO PERÍMETRO - {parcel.name}")
         initial = parcel.segments[0]
-        start_alt = parcel.altitudes[0]
-        altitude_clause = (
-            f' e Altitude: {_br_number(start_alt, 2)} m'
-            if start_alt is not None else ""
-        )
+        altitude_clause = _display_altitude(parcel, 0)
         story = (
             f"Inicia-se a descrição deste perímetro no vértice {initial['start']}, "
             f"de coordenadas (Longitude: {_dms(initial['lon'], 'lon')}, "
@@ -204,11 +213,7 @@ def build_joint_memorial(
             if next_is_start:
                 story += ", ponto inicial da descrição deste perímetro."
             else:
-                altitude = parcel.altitudes[i + 1]
-                altitude_part = (
-                    f" e Altitude: {_br_number(altitude, 2)} m"
-                    if altitude is not None else ""
-                )
+                altitude_part = _display_altitude(parcel, i + 1)
                 story += (
                     f", (Longitude: {_dms(segment['next_lon'], 'lon')}, "
                     f"Latitude: {_dms(segment['next_lat'], 'lat')}"
