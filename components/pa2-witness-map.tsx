@@ -179,6 +179,15 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
           setPs4MapWarning("Importe e carregue o GeoTIFF da peça antes de marcar V; imagens externas não são evidência PS4.");
         } else if (!footprintRef.current.intersectsCoordinate(event.coordinate)) {
           setPs4MapWarning("Fora da cobertura da ortoimagem anexada. Nenhum vértice criado.");
+        } else if (!(() => {
+          // Deve existir pixel opaco da própria ortoimagem renderizada.
+          // Tiles transparentes, em carregamento ou fora do raster não autorizam V.
+          const pixel = rasterRef.current?.getData(event.pixel);
+          if (!pixel) return false;
+          const alpha = "getUint8" in pixel ? pixel.getUint8(3) : pixel[3];
+          return typeof alpha === "number" && alpha > 0;
+        })()) {
+          setPs4MapWarning("A ortoimagem não possui pixel visível nesta posição. Aguarde o carregamento do tile.");
         } else if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
           setPs4MapWarning("");
           ps4ClickRef.current({ longitude, latitude });
