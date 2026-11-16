@@ -1334,6 +1334,8 @@ export function PecasTecnicasWorkspace({
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setPs4Draft([]);
+    setPb1Draft([]);setPb1ClosureConfirmed(false);setPb1ConfirmedSignature("");
+    setPb1Candidate(null);
     setPs4Armed(false);
     setPs4OrthoReport({scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false});
     setOfficialOverlap(undefined);
@@ -3263,12 +3265,14 @@ export function PecasTecnicasWorkspace({
             </button>)}
             <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
               Outros métodos:
-              <select defaultValue="" aria-label="Métodos dependentes de fontes georreferenciadas">
+              <select value={constructionMethod==="PB1"?"PB1":""}
+                aria-label="Métodos dependentes de fontes georreferenciadas"
+                onChange={e=>{if(e.target.value==="PB1")setConstructionMethod("PB1");}}>
                 <option value="">Selecione uma fonte</option>
                 <option value="PS1" disabled>PS1 — Aerofotogrametria (requer projeto fotogramétrico)</option>
                 <option value="PS2" disabled>PS2 — Radar aerotransportado (requer validação)</option>
 
-                <option value="PB1" disabled>PB1 — Disponível na barra de métodos acima</option>
+                <option value="PB1">PB1 — Base cartográfica oficial (ORIXP + MDT)</option>
                 <option value="PB2" disabled>PB2 — Base cartográfica sem precisão conhecida</option>
               </select>
             </label>
