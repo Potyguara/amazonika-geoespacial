@@ -10,6 +10,8 @@ from sqlalchemy import select
 from app.db.session import SessionLocal
 from app.models.technical_piece import TechnicalPiece
 from app.services.inpe_ps4_import import fetch_inpe_item, import_inpe_crop
+from app.services.ps4_assets import stored_file_path
+from app.core.config import get_settings
 from app.services.ps4_validation import PS4Submission, evaluate_verified_ps4
 from app.services.ps4_inpe_queue import (
     read_job, save_job, queued_jobs, jobs_root,
@@ -31,6 +33,30 @@ def recover_jobs() -> None:
                 save_job(job)
         except (OSError, ValueError, KeyError):
             pass
+
+
+def _remove_replaced_assets(user_id, piece_id, old_ps4: dict, new_result: dict) -> None:
+    """Remove SOMENTE o recorte antigo após commit da substituição concluída."""
+    old_raster = (old_ps4.get("assets") or {}).get("raster") or {}
+    old_digest = old_raster.get("sha256")
+    new_digest = new_result["asset"]["sha256"]
+    if isinstance(old_digest, str) and old_digest != new_digest:
+        try:
+            stored_file_path(user_id, piece_id, "raster", old_digest).unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            print(f"[ps4-inpe-worker] aviso limpeza raster antigo: {type(exc).__name__}", flush=True)
+    old_xml = ((old_ps4.get("source_provenance") or {}).get("technical_xml") or {})
+    new_xml = ((new_result["provenance"].get("technical_xml") or {}))
+    old_xml_digest = old_xml.get("sha256")
+    if (isinstance(old_xml_digest, str) and old_xml_digest != new_xml.get("sha256")
+        and len(old_xml_digest) == 64
+        and all(c in "0123456789abcdef" for c in old_xml_digest)):
+        path = (get_settings().storage_dir / "ps4" / str(user_id) / str(piece_id)
+                / f"inpe-metadata-{old_xml_digest}.xml")
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"[ps4-inpe-worker] aviso limpeza XML antigo: {type(exc).__name__}", flush=True)
 
 
 def process_job(job_path) -> None:
@@ -85,6 +111,8 @@ def process_job(job_path) -> None:
             save_job(job)
             db.rollback()
             return
+        # Preservar identificadores antigos só até o novo commit ter sucesso.
+        previous_ps4 = dict(ps4)
         # Novo raster exige novas evidências e nova aprovação humana.
         ps4["assets"] = {"raster": result["asset"]}
         ps4["source_provenance"] = result["provenance"]
@@ -100,6 +128,7 @@ def process_job(job_path) -> None:
         piece.status = "DRAFT"
         db.add(piece)
         db.commit()
+        _remove_replaced_assets(user_id, piece_id, previous_ps4, result)
         job.update(
             status="READY", finished_at=_now(),
             message="GeoTIFF do INPE pronto. Relatório e aprovação RT ainda obrigatórios.",
