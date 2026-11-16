@@ -178,11 +178,14 @@ export type TopconDraft = {
   ps4_ortho_report?: {scene_id:string;reference:string;rms_m:number|null;reviewed_by_rt:boolean};
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
+  pb1_draft?: Array<{name:string;latitude:number;longitude:number;source_elevation_m:number|null;raster_sha256:string;created_at:string}>;
+  pb1_closure?: {start:string;confirmed:boolean;signature?:string};
+  pb1_source?: {sheet:string;product:string;accuracy_reference:string;vertical_datum:string};
   ps4_draft?: Array<{
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
   construction?: {
-    method: "PA1" | "PA2" | "PT8" | "PS4";
+    method: "PA1" | "PA2" | "PT8" | "PS4" | "PB1";
     pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
     witnesses: string[];
     distance: string;
@@ -291,7 +294,7 @@ const premiumSteps = [
   { title: "Importação GNSS", detail: "Pontos e precisões TOPCON", stage: 0, target: "geo96-import" },
   { title: "Vértices do divisor", detail: "Seleção e ordenamento", stage: 0, target: "geo96-vertices" },
   { title: "Conversão altimétrica", detail: "Resultado oficial do IBGE", stage: 0, target: "geo96-altimetry" },
-  { title: "Construção PS4", detail: "Vértices V e CBERS-4A", stage: 0, target: "geo96-ps4" },
+  { title: "Construção de vértices", detail: "PB1 base oficial ou PS4 orbital", stage: 0, target: "geo96-ps4" },
   { title: "Sobreposições SIGEF", detail: "SIGEF Mensais e Brasil", stage: 0, target: "geo97-overlaps" },
   { title: "Áreas e vértices", detail: "Parcela M–V consolidada", stage: 1, target: "" },
   { title: "Memorial", detail: "Conferência dos segmentos", stage: 2, target: "" },
@@ -337,7 +340,7 @@ export function PecasTecnicasWorkspace({
       setStage(0);
       setWorkflowNotice(ps4Ready
         ? "Antes de gerar áreas, memorial ou planta, aplique a geometria M–V à parcela preliminar."
-        : "Selecione e ordene os marcos GNSS; para o trecho natural, conclua a restituição PS4 e aplique a parcela.");
+        : "Selecione e ordene os marcos GNSS; para o trecho natural, conclua PB1 ou PS4 e aplique a parcela preliminar.");
       return;
     }
     const item = premiumSteps[index];
@@ -345,7 +348,7 @@ export function PecasTecnicasWorkspace({
     setStage(item.stage);
     if (index === 3) {
       if (topconBoundary.length < 2) {
-        setWorkflowNotice("Para iniciar PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
+        setWorkflowNotice("Para iniciar PB1 ou PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
         return;
       }
       if(constructionSkipped) {
@@ -353,9 +356,8 @@ export function PecasTecnicasWorkspace({
         setWorkflowNotice("Construção opcional dispensada. Os marcos GNSS originais poderão compor a peça sem novos V.");
         return;
       }
-      setConstructionMethod("PS4");
       setPa2Mode(true);
-      setWorkflowNotice("Mapa PS4 aberto: marque os vértices V, escolha o segmento entre marcos e confirme o fechamento.");
+      setWorkflowNotice("Mapa de construção aberto no método "+constructionMethod+". Confira a fonte, marque os V e confirme o fechamento M–V–M.");
       return;
     }
     setWorkflowNotice("Etapa selecionada: " + item.title + ". Confira os dados antes de continuar.");
@@ -377,8 +379,21 @@ export function PecasTecnicasWorkspace({
   const [topconReviewFeedback, setTopconReviewFeedback] = useState<{status:"info"|"error"|"success";message:string}|null>(null);
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionSkipped,setConstructionSkipped] = useState(false);
-  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PS4");
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4" | "PB1">("PS4");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
+  const [pb1Draft,setPb1Draft] = useState<NonNullable<TopconDraft["pb1_draft"]>>([]);
+  const [pb1Start,setPb1Start] = useState("");
+  const [pb1ClosureConfirmed,setPb1ClosureConfirmed] = useState(false);
+  const [pb1ConfirmedSignature,setPb1ConfirmedSignature] = useState("");
+  const [pb1Candidate,setPb1Candidate] = useState<{longitude:number;latitude:number}|null>(null);
+  const [pb1Notice,setPb1Notice] = useState("");
+  const [pb1Busy,setPb1Busy] = useState(false);
+  const [pb1PieceId,setPb1PieceId] = useState<string|null>(null);
+  const [pb1Assets,setPb1Assets] = useState<Record<string,{
+    sha256:string;size_bytes:number;kind:string;metadata?:{width?:number;height?:number;bands?:Array<{type?:string}>;
+      wgs84_extent?:{type:string;coordinates:number[][][]}};
+  }>>({});
+  const [pb1Source,setPb1Source] = useState({sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
   const [ps4ApprovalConfirmed, setPs4ApprovalConfirmed] = useState(false);
@@ -420,6 +435,28 @@ export function PecasTecnicasWorkspace({
   });
   const ps4Ready = ps4ClosureConfirmed && ps4ConfirmedSignature === ps4Signature && ps4Closure.valid;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
+  const pb1StartIndex=topconBoundary.findIndex(p=>p.name===pb1Start);
+  const pb1End=pb1StartIndex<0?"":topconBoundary[(pb1StartIndex+1)%topconBoundary.length]?.name??"";
+  const pb1Closure=buildPs4Closure(topconBoundary,pb1Draft,pb1Start,pb1End);
+  const pb1Signature=JSON.stringify({
+    start:pb1Start,boundary:topconBoundary.map(p=>[p.name,p.longitude,p.latitude]),
+    draft:pb1Draft.map(p=>[p.name,p.longitude,p.latitude,p.source_elevation_m,p.raster_sha256]),
+  });
+  const pb1Ready=pb1Closure.valid && pb1ClosureConfirmed && pb1Signature===pb1ConfirmedSignature;
+  const pb1Raster=pb1Assets.pb1_color;
+  const pb1Dtm=pb1Assets.pb1_dtm;
+  useEffect(()=>{
+    if(!loadedPieceId)return;
+    setPb1PieceId(loadedPieceId);
+    let active=true;
+    fetch(`${getApiUrl()}/technical-pieces/${loadedPieceId}/pb1/assets`,
+      {credentials:"include",cache:"no-store"})
+      .then(r=>r.ok?r.json():null)
+      .then(body=>{if(active&&body?.assets)setPb1Assets(body.assets);})
+      .catch(()=>undefined);
+    return ()=>{active=false;};
+  },[loadedPieceId]);
+
   // A folha deve ser identificada antes da restituição quando a parcela já está desenhada.
   const pb1SelectedParcel = polygons.find(p =>
     selectedIds.includes(p.id) && (p.coordinates?.length ?? 0) >= 3
@@ -431,6 +468,57 @@ export function PecasTecnicasWorkspace({
       ]]}
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
+  const pb1Upload=async(kind:"pb1_color"|"pb1_dtm",file:File)=>{
+    setPb1Busy(true);setPb1Notice("");
+    try{
+      const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+      setPb1PieceId(id);
+      const form=new FormData();form.append("file",file);
+      const res=await fetch(`${getApiUrl()}/technical-pieces/${id}/pb1/files/${kind}`,
+        {method:"POST",credentials:"include",body:form});
+      const body=await res.json().catch(()=>null);
+      if(!res.ok)throw new Error(typeof body?.detail==="string"?body.detail:"Falha no upload PB1");
+      setPb1Assets(old=>({...old,[kind]:body.asset}));
+      if(kind==="pb1_color" && pb1Raster?.sha256!==body.asset.sha256){
+        setPb1Draft([]);setPb1ClosureConfirmed(false);setPb1ConfirmedSignature("");
+      }
+      if(kind==="pb1_dtm" && pb1Dtm?.sha256!==body.asset.sha256){
+        setPb1Draft(old=>old.map(p=>({...p,source_elevation_m:null})));
+        setPb1ClosureConfirmed(false);
+      }
+      setPb1Notice(`${kind==="pb1_color"?"ORIXP RGB":"MDT numérico"} vinculado à peça. A aprovação PB1 permanece pendente.`);
+    }catch(err){setPb1Notice(err instanceof Error?err.message:"Erro no upload PB1");}
+    finally{setPb1Busy(false);}
+  };
+  const pb1AddPoint=async()=>{
+    if(!pb1Candidate||!pb1Raster||!pb1PieceId)return;
+    setPb1Busy(true);setPb1Notice("");
+    try{
+      const prefix=(rtProfile?.incra_code??"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
+      const code=prefix.length>=3&&prefix.length<=6?prefix:"VIRTUAL";
+      const taken=new Set([...topconBoundary.map(p=>p.sigef_vertex_code||p.name),
+        ...ps4Draft.map(p=>p.name),...pb1Draft.map(p=>p.name)].map(v=>v.toUpperCase()));
+      let i=1;while(taken.has(`${code}-V-${String(i).padStart(4,"0")}`))i++;
+      const name=`${code}-V-${String(i).padStart(4,"0")}`;
+      let elevation:number|null=null;
+      if(pb1Dtm){
+        const res=await fetch(`${getApiUrl()}/technical-pieces/${pb1PieceId}/pb1/dtm/sample`,
+          {method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+           body:JSON.stringify(pb1Candidate)});
+        const body=await res.json().catch(()=>null);
+        if(!res.ok)throw new Error(typeof body?.detail==="string"?body.detail:"MDT não amostrado");
+        elevation=Number(body.source_elevation_m);
+        if(!Number.isFinite(elevation))throw new Error("Valor MDT inválido");
+      }
+      setPb1Draft(old=>[...old,{name,...pb1Candidate,source_elevation_m:elevation,
+        raster_sha256:pb1Raster.sha256,
+        created_at:new Date().toISOString()}]);
+      setPb1ClosureConfirmed(false);
+      setPb1Candidate(null);
+      setPb1Notice(`Vértice ${name} criado por PB1. Altitude original: ${elevation??"MDT pendente"}; h elipsoidal não calculada.`);
+    }catch(err){setPb1Notice(err instanceof Error?err.message:"Falha na captura PB1");}
+    finally{setPb1Busy(false);}
+  };
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const prefix = code.length >= 3 && code.length <= 6 ? code : "VIRTUAL";
@@ -745,6 +833,11 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(d.preview);
     setTopconBoundary(d.boundary);
     setPs4Draft(d.ps4_draft ?? []);
+    setPb1Draft(d.pb1_draft ?? []);
+    setPb1Start(d.pb1_closure?.start ?? "");
+    setPb1ClosureConfirmed(Boolean(d.pb1_closure?.confirmed));
+    setPb1ConfirmedSignature(d.pb1_closure?.signature ?? "");
+    setPb1Source(d.pb1_source ?? {sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
     setConstructionSkipped(Boolean(d.construction_skipped));
     setPs4SceneId(d.ps4_selected_scene || d.ps4_draft?.[0]?.scene_id ||
       "CBERS4A_WPM_PCA_RGB321_20261016_214_113");
@@ -774,7 +867,8 @@ export function PecasTecnicasWorkspace({
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     setPa2Mode(false);
-    setConstructionMethod(d.construction?.method === "PT8" ? "PT8" : "PS4");
+    setConstructionMethod(d.construction?.method === "PT8" ? "PT8" :
+      d.construction?.method === "PB1" ? "PB1" : "PS4");
     setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
     setPa2Witnesses(d.construction?.witnesses ?? []);
     setConstructionDistance(d.construction?.distance ?? "");
@@ -786,6 +880,8 @@ export function PecasTecnicasWorkspace({
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
+    pb1_draft: pb1Draft, pb1_source: pb1Source,
+    pb1_closure: {start:pb1Start,confirmed:pb1Ready,signature:pb1Ready?pb1ConfirmedSignature:""},
     ps4_selected_scene: ps4SceneId,
     construction_skipped: constructionSkipped,
     ps4_ortho_report: ps4OrthoReport,
@@ -1238,6 +1334,8 @@ export function PecasTecnicasWorkspace({
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setPs4Draft([]);
+    setPb1Draft([]);setPb1ClosureConfirmed(false);setPb1ConfirmedSignature("");
+    setPb1Candidate(null);
     setPs4Armed(false);
     setPs4OrthoReport({scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false});
     setOfficialOverlap(undefined);
@@ -1271,6 +1369,66 @@ export function PecasTecnicasWorkspace({
       setTopconError(error instanceof Error ? error.message : "Falha ao ler relatório TOPCON.");
     } finally {
       setTopconLoading(false);
+    }
+  };
+  const adoptPb1WorkingParcel=()=>{
+    setTopconError("");setWorkflowNotice("");
+    try{
+      if(!pb1Ready||!pb1Closure.geometry||!pb1Raster)
+        throw new Error("Feche o perímetro PB1 e confirme o ORIXP vinculado.");
+      if(new Set(topconBoundary.map(p=>p.parcel_number)).size!==1)
+        throw new Error("Trabalhe em uma única parcela de cada vez.");
+      if(!pb1Source.sheet.trim()||!pb1Source.product.trim())
+        throw new Error("Informe folha e produto oficial antes de aplicar a prévia.");
+      const initial=topconBoundary[pb1StartIndex];
+      if(!initial||initial.longitude===null||initial.latitude===null)
+        throw new Error("Marco inicial PB1 inválido.");
+      const zone=lonLatToSirgasUtm(initial.longitude,initial.latitude);
+      const newVertices:TopconBoundaryPoint[]=pb1Draft.map(v=>{
+        const utm=lonLatToSirgasUtm(v.longitude,v.latitude);
+        if(utm.zone!==zone.zone||utm.hemisphere!==zone.hemisphere)
+          throw new Error("Vértice PB1 em zona UTM diferente: "+v.name);
+        return {
+          ...initial,name:v.name,sigef_vertex_code:v.name,point_role:"BOUNDARY" as const,
+          longitude:v.longitude,latitude:v.latitude,
+          easting_m:utm.easting_m,northing_m:utm.northing_m,
+          elevation_reported_m:null,ellipsoidal_height_reported_m:null,ellipsoidal_height_m:null,
+          sigma_e_m:null,sigma_n_m:null,sigma_u_m:null,sigma_hz_m:null,
+          sigma_lon_m:null,sigma_lat_m:null,sigma_h_m:null,
+          sigma_reference_confirmed:false,height_reference_confirmed:false,
+          sigma_suggestion_e_m:null,sigma_suggestion_n_m:null,sigma_suggestion_h_m:null,
+          derived_physical_altitude_m:null,derived_physical_model:null,
+          sigef_method:"PB1",boundary_type:"LN1",
+          derived_calculation:{
+            method:"PB1",status:"PRELIMINAR",accuracy_verified:false,
+            official_sheet:pb1Source.sheet,product:pb1Source.product,
+            accuracy_document:pb1Source.accuracy_reference,
+            raster_sha256:v.raster_sha256,dtm_sha256:pb1Dtm?.sha256??null,
+            source_elevation_m:v.source_elevation_m,
+            source_vertical_datum:pb1Source.vertical_datum||"NAO_VERIFICADO",
+            altitude_source:"MDT_ORIGINAL_NAO_CONVERTIDO",
+            note:"MDT sem h confirmada. Sigma horizontal/vertical não atribuído; PB1 não liberado à ODS.",
+          },
+        };
+      });
+      const vertices=[...topconBoundary.slice(0,pb1StartIndex+1),...newVertices,
+        ...topconBoundary.slice(pb1StartIndex+1)];
+      if(vertices.length!==pb1Closure.names.length||
+         vertices.some((v,i)=>v.name!==pb1Closure.names[i]))
+        throw new Error("Sequência diferente da poligonal confirmada. Refazer fechamento PB1.");
+      if(!window.confirm("Aplicar "+newVertices.length+
+        " vértices PB1 à parcela PRELIMINAR?\\n" +
+        "A precisão, o datum vertical, h e os sigmas não estão validados. A ODS certificável permanece bloqueada."))return;
+      onAdoptTopconParcels([{number:initial.parcel_number,
+        name:initial.parcel_name||data.title||"Parcela preliminar",vertices}]);
+      onDataChange("plantHeading","PLANTA PRELIMINAR PB1 — NÃO CERTIFICADA");
+      onDataChange("memorialHeading","MEMORIAL PRELIMINAR PB1 — NÃO CERTIFICADO");
+      setEditableMemorial("");setMemorialSaved(false);setMemorialDirty(false);
+      setPdfBlob(null);setPdfUrl(null);lastPdfKey.current="";
+      setStage(1);setPremiumStep(5);
+      setSavedPieceNotice("Parcela PB1 preliminar aplicada com "+newVertices.length+" vértices V.");
+    }catch(error){
+      setTopconError(error instanceof Error?error.message:"Não foi possível aplicar PB1.");
     }
   };
   const importPs4AccuracyControls = async (file:File) => {
@@ -1806,12 +1964,24 @@ export function PecasTecnicasWorkspace({
                   tecnicamente apropriada; não será estimada como se fosse GNSS.</p>
               </>}
               {premiumStep===3 && <>
-                <h4>Construção de vértices V — escolha da fonte cartográfica</h4>
+                <h4>Construção de vértices V — PB1 ou PS4</h4>
                 <p>PB1 identifica previamente as folhas de base oficial com precisão documentada.
                   PS4 utiliza sensores orbitais e possui fluxo próprio de ortorretificação.
                   A consulta de folhas PB1 ainda não altera o método dos vértices nem libera ODS.</p>
                 <Pb1SheetLookup geometry={pb1LookupGeometry} />
-                <h4>PS4 — Sensores orbitais</h4>
+                <button type="button" className="pecas-primary"
+                  disabled={!topconPreview||topconBoundary.length<2}
+                  onClick={()=>{setConstructionSkipped(false);setConstructionMethod("PB1");setPa2Mode(true);}}>
+                  Abrir editor PB1 · ORIXP + MDT
+                </button>
+                {pb1Ready&&<div className="geo97-adopt-banner" role="status">
+                  <strong>PB1: traçado fechado com {pb1Draft.length} vértices V preliminares.</strong>
+                  <p>É possível aplicar à planta preliminar; exatidão da base e altitude elipsoidal ainda pendentes.</p>
+                  <button type="button" className="pecas-primary" onClick={adoptPb1WorkingParcel}>
+                    Aplicar geometria PB1 à parcela preliminar
+                  </button>
+                </div>}
+                <h4>PS4 — Sensores orbitais (opção alternativa)</h4>
                 <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
                   e faça o fechamento M–V–M antes de consolidar a parcela preliminar.
                   Se o perímetro GNSS já estiver completo, dispense esta etapa.</p>
@@ -2929,8 +3099,8 @@ export function PecasTecnicasWorkspace({
           </button>}
         </div>
       </footer>
-      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4") && (
-        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" ? "ps4-redesigned-dialog" : undefined}
+      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4" || constructionMethod === "PB1") && (
+        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-redesigned-dialog" : undefined}
           style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
             border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
             flexDirection: "column", padding: 16, boxShadow: "0 10px 50px #0005" }}>
@@ -2938,15 +3108,15 @@ export function PecasTecnicasWorkspace({
             justifyContent: "space-between", marginBottom: 12 }}>
             <div>
               <strong>Espaço de trabalho — Construção de vértices</strong>
-              <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais</p>
+              <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais · PB1 Base oficial</p>
             </div>
             <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => {
-                if (constructionMethod === "PS4" && !ps4Ready) {
-                  setPs4Status({kind:"error",message:ps4Closure.valid
-                    ? "Ainda falta confirmar o segmento e o fechamento da prévia PS4 (etapa 2)."
-                    : "Não é possível concluir: " + ps4Closure.message +
+                if ((constructionMethod === "PS4" && !ps4Ready) || (constructionMethod === "PB1" && !pb1Ready)) {
+                  setPs4Status({kind:"error",message:(constructionMethod === "PB1" ? pb1Closure : ps4Closure).valid
+                    ? "Ainda falta confirmar o segmento e o fechamento da prévia (etapa 2)."
+                    : "Não é possível concluir: " + (constructionMethod === "PB1" ? pb1Closure : ps4Closure).message +
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
                   return;
                 }
@@ -2957,20 +3127,22 @@ export function PecasTecnicasWorkspace({
                   setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
                   await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
                   setPa2Mode(false);
-                  setSavedPieceNotice(constructionMethod === "PS4"
+                  setSavedPieceNotice(constructionMethod === "PB1"
+                    ? "Traçado PB1 preliminar salvo — precisão e datum vertical pendentes"
+                    : constructionMethod === "PS4"
                     ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
                     : "Construção salva e prévia atualizada");
                 });
-              }}>{actionBusy ? "Salvando..." : constructionMethod === "PS4"
+              }}>{actionBusy ? "Salvando..." : (constructionMethod === "PS4" || constructionMethod === "PB1")
                 ? "Concluir traçado PRELIMINAR e voltar à peça"
                 : "Concluir, salvar e voltar à peça"}</button>
-            {constructionMethod === "PS4" && <button type="button" className="pecas-secondary"
+            {(constructionMethod === "PS4" || constructionMethod === "PB1") && <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => void runAction(async () => {
-                setPs4Status({kind:"info",message:"Salvando rascunho PS4 sem fechamento..."});
+                setPs4Status({kind:"info",message:"Salvando rascunho cartográfico sem fechamento..."});
                 await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
                 setPa2Mode(false);
-                setSavedPieceNotice("Rascunho PS4 salvo sem fechamento; complete antes da planta");
+                setSavedPieceNotice("Rascunho cartográfico salvo sem fechamento; complete antes da planta");
               })}>Salvar rascunho sem fechar</button>}
           </div>
           {(actionError || actionBusy) && <div role={actionError ? "alert" : "status"}
@@ -3073,7 +3245,7 @@ export function PecasTecnicasWorkspace({
             style={{ display: "flex", alignItems: "center", gap: 8,
               flexWrap: "wrap", paddingBottom: 12, borderBottom: "1px solid #b8cfc5",
               marginBottom: 12 }}>
-            {(["PA1", "PA2", "PT8", "PS4"] as const).map(method => <button
+            {(["PA1", "PA2", "PT8", "PS4", "PB1"] as const).map(method => <button
               key={method} type="button"
               disabled={method === "PA1" || method === "PA2"}
               title={method === "PA1" || method === "PA2"
@@ -3089,16 +3261,18 @@ export function PecasTecnicasWorkspace({
               }}>
               {method} — {method === "PA1" ? "Paralela"
                 : method === "PA2" ? "Interseção/apoio"
-                : method === "PS4" ? "Sensores orbitais" : "Alinhamento"}
+                : method === "PS4" ? "Sensores orbitais" : method === "PB1" ? "Base cartográfica oficial" : "Alinhamento"}
             </button>)}
             <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
               Outros métodos:
-              <select defaultValue="" aria-label="Métodos dependentes de fontes georreferenciadas">
+              <select value={constructionMethod==="PB1"?"PB1":""}
+                aria-label="Métodos dependentes de fontes georreferenciadas"
+                onChange={e=>{if(e.target.value==="PB1")setConstructionMethod("PB1");}}>
                 <option value="">Selecione uma fonte</option>
                 <option value="PS1" disabled>PS1 — Aerofotogrametria (requer projeto fotogramétrico)</option>
                 <option value="PS2" disabled>PS2 — Radar aerotransportado (requer validação)</option>
 
-                <option value="PB1" disabled>PB1 — Base cartográfica com precisão conhecida</option>
+                <option value="PB1">PB1 — Base cartográfica oficial (ORIXP + MDT)</option>
                 <option value="PB2" disabled>PB2 — Base cartográfica sem precisão conhecida</option>
               </select>
             </label>
@@ -3110,6 +3284,8 @@ export function PecasTecnicasWorkspace({
                 : constructionMethod === "PA2" ? <p>Selecione o procedimento:
                   linha de apoio (dois marcos e clique projetado) ou interseção
                   geométrica (dois alinhamentos). O resultado precisa de revisão.</p>
+                : constructionMethod === "PB1"
+                ? <p>Importe a ortoimagem oficial ORIXP e o MDT da folha, digitalize somente sobre o RGB e obtenha as cotas originais no MDT. ODS depende de precisão e datum vertical validados.</p>
                 : constructionMethod === "PS4"
                 ? <p>Ative a cena CBERS-4A no mapa, clique sucessivamente ao longo da feição natural,
                   confirme cada ponto e atribua código V. Sem RMS da ortorretificação, os pontos
@@ -3119,16 +3295,16 @@ export function PecasTecnicasWorkspace({
                   não a V automaticamente.</p>}
             </details>
           </div>
-          <div className={constructionMethod === "PS4" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
-            gridTemplateColumns: constructionMethod === "PS4" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+          <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
+            gridTemplateColumns: constructionMethod === "PS4" || constructionMethod === "PB1" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
             
-            <div className={constructionMethod === "PS4" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
+            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
                         <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
                         <p>PA1, PA2 e PT8 exigem conversão altimétrica prévia. Método PT8 gera
                           vértices M/P conforme a tabela oficial de compatibilidade; PA1/PA2
                           permitem vértice V, sujeito à conferência técnica.</p>
-                        {!verticalCalculated && constructionMethod !== "PS4" && <p className="pecas-warning">
+                        {!verticalCalculated && constructionMethod !== "PS4" && constructionMethod !== "PB1" && <p className="pecas-warning">
                           Conclua primeiro o cálculo das altitudes normais/ortométricas dos marcos
                           de apoio para habilitar a construção dos vértices.</p>}
                         <p>Após calcular as altitudes físicas, selecione o método adequado.
@@ -3152,7 +3328,7 @@ export function PecasTecnicasWorkspace({
                         {pa2Mode && <label className="pecas-field">
                           <span>Método de posicionamento</span>
                           <select value={constructionMethod} onChange={e => {
-                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4");
+                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4" | "PB1");
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
@@ -3160,8 +3336,122 @@ export function PecasTecnicasWorkspace({
                             <option value="PA2" disabled>PA2 — Não disponível nesta versão</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
                             <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
+                            <option value="PB1">PB1 — Base cartográfica com precisão conhecida</option>
                           </select>
                         </label>}
+                        {pa2Mode && constructionMethod === "PB1" && <section aria-label="Vetorização PB1 base cartográfica oficial" style={{display:"grid",gap:12}}>
+                          <div className="ps4-redesign-intro">
+                            <div><small className="ps4-eyebrow">PB1 · BASE CARTOGRÁFICA COM PRECISÃO CONHECIDA</small>
+                              <h4>Vetorização na base oficial</h4>
+                              <p style={{margin:0}}>Fonte ORIXP RGB para posição; MDT numérico para cota original. Independente do PS4.</p>
+                            </div>
+                            <span className="ps4-step-state">Rascunho técnico</span>
+                          </div>
+                          <details className="ps4-flow-card" open>
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">1</span>
+                              <span className="ps4-step-heading"><strong>Identificar produto e folha</strong>
+                                <small>Origem cartográfica e precisão documentada</small></span>
+                              <span className="ps4-step-caret">⌄</span></summary>
+                            <div className="ps4-flow-body">
+                              <Pb1SheetLookup geometry={pb1LookupGeometry}/>
+                              <label className="pecas-field"><span>Folha INOM / MI</span>
+                                <input value={pb1Source.sheet} placeholder="Ex.: NA-22-C-IV-1-NO · 0244-1-NO"
+                                  onChange={e=>setPb1Source(o=>({...o,sheet:e.target.value}))}/></label>
+                              <label className="pecas-field"><span>Identificação e edição do produto oficial</span>
+                                <input value={pb1Source.product} placeholder="Ex.: Projeto Amapá/Exército · ORIXP 2,5 m"
+                                  onChange={e=>setPb1Source(o=>({...o,product:e.target.value}))}/></label>
+                              <label className="pecas-field"><span>Documento da exatidão planimétrica / PEC</span>
+                                <input value={pb1Source.accuracy_reference} placeholder="Informe documento e classe efetivamente comprovados"
+                                  onChange={e=>setPb1Source(o=>({...o,accuracy_reference:e.target.value}))}/></label>
+                              <label className="pecas-field"><span>Datum vertical do MDT (conforme metadados)</span>
+                                <input value={pb1Source.vertical_datum} placeholder="Não presumir HN, H ou h sem metadados"
+                                  onChange={e=>setPb1Source(o=>({...o,vertical_datum:e.target.value}))}/></label>
+                              <p className="pecas-note">Esses campos descrevem a fonte; não constituem validação automática.
+                                O responsável técnico deverá conferir a escala, a exatidão e a compatibilidade com o limite.</p>
+                            </div>
+                          </details>
+                          <details className="ps4-flow-card" open>
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">2</span>
+                              <span className="ps4-step-heading"><strong>Carregar recortes oficiais</strong>
+                                <small>GeoTIFF RGB e MDT separados, no máximo 256 MiB cada</small></span>
+                              <span className="ps4-step-caret">⌄</span></summary>
+                            <div className="ps4-flow-body">
+                              <label className="pecas-field"><span>ORIXP Color · GeoTIFF RGB georreferenciado</span>
+                                <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
+                                  const file=e.target.files?.[0];if(file)void pb1Upload("pb1_color",file);
+                                  e.target.value="";
+                                }}/></label>
+                              <div className="pecas-note">{pb1Raster
+                                ?`RGB vinculado: ${pb1Raster.metadata?.width??"?"} × ${pb1Raster.metadata?.height??"?"} · SHA ${pb1Raster.sha256.slice(0,16)}…`
+                                :"Nenhum ORIXP anexado; cliques PB1 permanecem bloqueados."}</div>
+                              <label className="pecas-field"><span>MDT cinza · GeoTIFF numérico de banda única</span>
+                                <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
+                                  const file=e.target.files?.[0];if(file)void pb1Upload("pb1_dtm",file);
+                                  e.target.value="";
+                                }}/></label>
+                              <div className="pecas-note">{pb1Dtm
+                                ?`MDT vinculado: ${pb1Dtm.metadata?.width??"?"} × ${pb1Dtm.metadata?.height??"?"} · SHA ${pb1Dtm.sha256.slice(0,16)}…`
+                                :"Sem MDT: é possível visualizar a fonte, mas a cota original dos V ficará pendente."}</div>
+                              {pb1Busy&&<p role="status">Processando o produto georreferenciado…</p>}
+                            </div>
+                          </details>
+                          <details className="ps4-flow-card" open>
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">3</span>
+                              <span className="ps4-step-heading"><strong>Digitalizar os vértices V</strong>
+                                <small>Clique somente sobre o recorte ORIXP oficial</small></span>
+                              <span className="ps4-step-state">{pb1Draft.length} V</span><span className="ps4-step-caret">⌄</span>
+                            </summary>
+                            <div className="ps4-flow-body">
+                              {!pb1Raster&&<p className="ps4-analysis-note">Importe o ORIXP RGB para habilitar a vetorização PB1.</p>}
+                              {pb1Candidate&&<div className="pecas-card">
+                                <strong>Ponto selecionado na fonte oficial</strong>
+                                <p>Latitude {pb1Candidate.latitude.toFixed(8)}° · longitude {pb1Candidate.longitude.toFixed(8)}°</p>
+                                <button type="button" className="pecas-primary" disabled={pb1Busy}
+                                  onClick={()=>void pb1AddPoint()}>Confirmar V PB1 e amostrar MDT</button>
+                                <button type="button" className="pecas-secondary" onClick={()=>setPb1Candidate(null)}>Cancelar</button>
+                              </div>}
+                              <div className="ps4-v-table-wrap"><table className="ps4-v-table">
+                                <thead><tr><th>Ordem</th><th>Vértice</th><th>Latitude</th><th>Longitude</th><th>Cota MDT original (m)</th><th>Ação</th></tr></thead>
+                                <tbody>{pb1Draft.map((v,i)=><tr key={v.name}>
+                                  <td>{i+1}</td><td className="ps4-v-code">{v.name}</td>
+                                  <td className="ps4-v-coord">{v.latitude.toFixed(8)}</td>
+                                  <td className="ps4-v-coord">{v.longitude.toFixed(8)}</td>
+                                  <td>{v.source_elevation_m===null?"Pendente":v.source_elevation_m.toFixed(3)}</td>
+                                  <td><button className="ps4-v-row-action" type="button" onClick={()=>{
+                                    setPb1Draft(old=>old.filter((_,j)=>i!==j));setPb1ClosureConfirmed(false);
+                                  }}>Remover</button></td>
+                                </tr>)}</tbody>
+                              </table></div>
+                              <p className="pecas-note">A cota é o valor original do MDT, não a altitude elipsoidal h.
+                                Sem verificação do datum vertical e modelo de conversão, h e sigma-h permanecem pendentes.</p>
+                            </div>
+                          </details>
+                          <details className="ps4-flow-card" open>
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">4</span>
+                              <span className="ps4-step-heading"><strong>Fechar perímetro M–V–M</strong>
+                                <small>O fechamento preliminar não certifica a precisão</small></span>
+                              <span className="ps4-step-state">{pb1Ready?"Fechado":"Pendente"}</span><span className="ps4-step-caret">⌄</span>
+                            </summary>
+                            <div className="ps4-flow-body">
+                              <label className="pecas-field"><span>Marco GNSS inicial do segmento substituído</span>
+                                <select value={pb1Start} onChange={e=>{setPb1Start(e.target.value);setPb1ClosureConfirmed(false);}}>
+                                  <option value="">Selecione o marco inicial</option>
+                                  {topconBoundary.map(v=><option key={v.name} value={v.name}>{v.name}</option>)}
+                                </select>
+                              </label>
+                              <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
+                              <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
+                              <button type="button" className="pecas-primary" disabled={!pb1Closure.valid}
+                                onClick={()=>{setPb1ConfirmedSignature(pb1Signature);setPb1ClosureConfirmed(true);}}>
+                                Confirmar fechamento geométrico PB1
+                              </button>
+                              <p className="ps4-analysis-note">Status: <strong>PRELIMINAR</strong>.
+                                A precisão da fonte, o datum vertical, os sigmas e a aprovação RT permanecem pendentes.
+                                Não incluir estes V na ODS oficial automaticamente.</p>
+                            </div>
+                          </details>
+                          {pb1Notice&&<div role="status" className="pecas-note">{pb1Notice}</div>}
+                        </section>}
                         {pa2Mode && constructionMethod === "PS4" && <section aria-label="Restituição orbital PS4">
                           <h4>PS4 — Delimitação de feição natural na imagem</h4>
                           
@@ -3758,7 +4048,7 @@ export function PecasTecnicasWorkspace({
 
 
             </div>
-            <div className={constructionMethod === "PS4" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
+            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
               <div className="pecas-card">
                   <h4>Mapa ampliado — {constructionMethod}</h4>
                   <Pa2WitnessMap
@@ -3778,17 +4068,26 @@ export function PecasTecnicasWorkspace({
                         }))]}
                     selected={pa2Witnesses}
                     method={constructionMethod}
+                    pb1Raster={constructionMethod==="PB1" && pb1Raster && pb1PieceId
+                      ?{pieceId:pb1PieceId,sha256:pb1Raster.sha256,
+                        footprint:pb1Raster.metadata?.wgs84_extent}:null}
                     ps4SceneId={ps4SceneId}
                     ps4ReportAttached={ps4ReportAttached}
                     ps4Raster={loadedPieceId && ps4RasterAsset?.kind === "raster"
                       ? {pieceId:loadedPieceId, sha256:ps4RasterAsset.sha256,
                          footprint:ps4RasterAsset.metadata?.wgs84_extent}
                       : null}
-                    ps4Points={ps4Draft}
-                    ps4Candidate={ps4Candidate}
-                    ps4CheckCapture={ps4CheckCapture}
-                    ps4ClosureGeometry={ps4PreviewGeometry}
+                    ps4Points={constructionMethod==="PB1"?pb1Draft:ps4Draft}
+                    ps4Candidate={constructionMethod==="PB1"?pb1Candidate:ps4Candidate}
+                    ps4CheckCapture={constructionMethod==="PB1"?false:ps4CheckCapture}
+                    ps4ClosureGeometry={constructionMethod==="PB1"?(pb1Ready?pb1Closure.geometry:null):ps4PreviewGeometry}
                     onPs4Click={point => {
+                       if(constructionMethod==="PB1"){
+                         if(!pb1Raster){setPb1Notice("Importe o ORIXP georreferenciado antes de capturar V.");return;}
+                         setPb1Candidate(point);
+                         setPb1Notice("Ponto capturado no ORIXP. Confirme a inclusão e a amostragem MDT na coluna esquerda.");
+                         return;
+                       }
                        if (ps4CheckCapture) {
                          setPs4CheckPoint(point);setPs4CheckCapture(false);
                          setPs4Status({kind:"info",message:"Ponto de imagem capturado para confronto GNSS. Confirme a feição na etapa 4."});
@@ -3830,7 +4129,7 @@ export function PecasTecnicasWorkspace({
                       }
                       pickPa2Witness(name);
                     }} />
-                  {constructionMethod !== "PS4" ? <>
+                  {constructionMethod !== "PS4" && constructionMethod !== "PB1" ? <>
                     <button type="button" className="pecas-secondary"
                       onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
                       Limpar testemunhos selecionados

@@ -301,6 +301,35 @@ def _validated_snapshot(
 ) -> dict:
     """Preserva anexos confiáveis e recalcula os resultados a cada gravação."""
     snapshot = dict(incoming)
+    # PB1 utiliza ativos privados independentes do PS4. Cliente não pode
+    # substituir metadados confiáveis do upload nem forjar aprovação.
+    old_pb1 = ((piece.snapshot or {}).get("pb1") or {}) if piece else {}
+    trusted_assets = old_pb1.get("assets", {})
+    snapshot["pb1"] = {
+        "assets": trusted_assets,
+        "review_status": "PRELIMINARY",
+    }
+    # Não aceitar pontos PB1 de outra cena, fora do GeoTIFF vinculado,
+    # nem resultados de aprovação autodeclarados pelo navegador.
+    pb1_points = ((snapshot.get("topcon") or {}).get("pb1_draft") or [])
+    if pb1_points:
+        official_color = (trusted_assets.get("pb1_color") or {}).get("sha256")
+        if not official_color:
+            raise HTTPException(422, "Vértices PB1 requerem ORIXP oficial vinculado no servidor.")
+        if len(pb1_points) > 5000:
+            raise HTTPException(422, "Limite de 5000 vértices PB1 excedido.")
+        for point in pb1_points:
+            if not isinstance(point, dict) or point.get("raster_sha256") != official_color:
+                raise HTTPException(422, "Vértice PB1 vinculado a outro GeoTIFF. Refaça a captura.")
+            if not isinstance(point.get("name"), str) or not point["name"].strip():
+                raise HTTPException(422, "Código de vértice PB1 inválido.")
+            if not all(isinstance(point.get(key), (int, float)) and
+                       not isinstance(point.get(key), bool) and
+                       float("-inf") < point[key] < float("inf")
+                       for key in ("longitude", "latitude")):
+                raise HTTPException(422, "Coordenada PB1 inválida.")
+            if not (-180 <= point["longitude"] <= 180 and -90 <= point["latitude"] <= 90):
+                raise HTTPException(422, "Vértice PB1 fora de longitude/latitude WGS84.")
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
     same_checkpoint_geometry = bool(
         piece is not None and
@@ -496,6 +525,125 @@ def get_ps4(
             "blockers": ["Validação PS4 não iniciada."],
             "requires_rt_review": True,
         }),
+    }
+
+
+
+@router.post("/{piece_id}/pb1/files/{kind}")
+def upload_pb1_file(
+    piece_id: UUID, kind: str, file: UploadFile = File(...),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """GeoTIFF oficial PB1, separado de PS4. Recortes limitados a 256 MiB."""
+    piece = _owned(piece_id, db, user)
+    if kind not in ("pb1_color", "pb1_dtm"):
+        raise HTTPException(422, "Tipo PB1 inválido.")
+    if not (file.filename or "").lower().endswith((".tif", ".tiff")):
+        raise HTTPException(422, "Envie GeoTIFF georreferenciado.")
+    try:
+        record = store_uploaded_asset(file.file, user.id, piece.id, kind)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    snapshot = dict(piece.snapshot or {})
+    pb1 = dict(snapshot.get("pb1") or {})
+    assets = dict(pb1.get("assets") or {})
+    assets[kind] = record
+    pb1["assets"] = assets
+    if kind == "pb1_color":
+        # Troca da ortoimagem invalida somente o traçado PB1, não o PS4.
+        topcon = dict(snapshot.get("topcon") or {})
+        topcon["pb1_draft"] = []
+        topcon["pb1_closure"] = {"start": "", "confirmed": False, "signature": ""}
+        snapshot["topcon"] = topcon
+    elif kind == "pb1_dtm":
+        topcon = dict(snapshot.get("topcon") or {})
+        if isinstance(topcon.get("pb1_draft"), list):
+            topcon["pb1_draft"] = [
+                {**p, "source_elevation_m": None}
+                for p in topcon["pb1_draft"] if isinstance(p, dict)
+            ]
+            topcon["pb1_closure"] = {"start": "", "confirmed": False, "signature": ""}
+            snapshot["topcon"] = topcon
+    pb1["review_status"] = "PRELIMINARY"
+    pb1.pop("approval", None)
+    snapshot["pb1"] = pb1
+    piece.snapshot = snapshot
+    db.add(piece)
+    db.commit()
+    db.refresh(piece)
+    return {"piece_id": str(piece.id), "asset": record}
+
+
+@router.get("/{piece_id}/pb1/assets")
+def get_pb1_assets(
+    piece_id: UUID, db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    piece = _owned(piece_id, db, user)
+    pb1 = (piece.snapshot or {}).get("pb1") or {}
+    return {"assets": pb1.get("assets") or {}, "review_status": "PRELIMINARY"}
+
+
+@router.get("/{piece_id}/pb1/raster/tiles/{kind}/{digest}/{z}/{x}/{y}.png")
+def pb1_raster_tile(
+    piece_id: UUID, kind: str, digest: str, z: int, x: int, y: int,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Tiles privados para conferir o produto oficial, sem fallback orbital."""
+    if kind not in ("pb1_color", "pb1_dtm"):
+        raise HTTPException(422, "Produto PB1 inválido.")
+    piece = _owned(piece_id, db, user)
+    asset = (((piece.snapshot or {}).get("pb1") or {}).get("assets") or {}).get(kind)
+    if not isinstance(asset, dict) or asset.get("sha256") != digest:
+        raise HTTPException(404, "Produto PB1 não vinculado à peça.")
+    try:
+        mercator_tile_bounds(z, x, y)
+        path = stored_file_path(user.id, piece.id, kind, digest)
+        if not path.is_file():
+            raise HTTPException(404, "Produto raster PB1 não encontrado.")
+        if not tile_intersects_footprint(asset.get("metadata") or {}, z, x, y):
+            return Response(transparent_png_tile(), media_type="image/png",
+                            headers={"Cache-Control": "private, max-age=3600"})
+        png = render_png_tile(path, z, x, y)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return Response(png, media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=3600"})
+
+
+class PB1DtmSampleInput(BaseModel):
+    longitude: float
+    latitude: float
+
+
+@router.post("/{piece_id}/pb1/dtm/sample")
+def sample_pb1_height(
+    piece_id: UUID, payload: PB1DtmSampleInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    from app.services.pb1_dtm_sampling import sample_pb1_dtm
+    piece = _owned(piece_id, db, user)
+    asset = (((piece.snapshot or {}).get("pb1") or {}).get("assets") or {}).get("pb1_dtm")
+    if not isinstance(asset, dict):
+        raise HTTPException(422, "Importe primeiro o MDT numérico PB1.")
+    path = stored_file_path(user.id, piece.id, "pb1_dtm", asset["sha256"])
+    bands = (asset.get("metadata") or {}).get("bands") or [{}]
+    nodata = bands[0].get("no_data_value")
+    try:
+        h_source = sample_pb1_dtm(path, payload.longitude, payload.latitude, nodata)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {
+        "source_elevation_m": h_source,
+        "raster_sha256": asset["sha256"],
+        "vertical_datum": "UNVERIFIED",
+        "h_ellipsoidal_m": None,
+        "status": "PENDING_VERTICAL_DATUM",
+        "notice": "Cota original amostrada. Confirme o datum vertical e a conversão para h.",
     }
 
 
