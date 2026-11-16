@@ -510,7 +510,9 @@ def ps4_raster_diagnostic(
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     """Inspeção privada do GeoTIFF real; não fornece RMS ou aprovação PS4."""
-    from app.services.ps4_raster_diagnostic import diagnose_ps4_raster
+    from app.services.ps4_raster_diagnostic import (
+        diagnose_ps4_raster, analyze_raster_visual,
+    )
 
     piece = _owned(piece_id, db, user)
     raster = (((piece.snapshot or {}).get("ps4") or {}).get("assets") or {}).get("raster")
@@ -525,6 +527,19 @@ def ps4_raster_diagnostic(
         )
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    try:
+        diagnostic["visual_analysis"] = analyze_raster_visual(
+            stored_file_path(user.id, piece.id, "raster", raster["sha256"]),
+        )
+    except (ValueError, RuntimeError) as exc:
+        # A inspeção estrutural continua útil quando a amostra radiométrica falha.
+        diagnostic["visual_analysis"] = {
+            "status": "UNAVAILABLE",
+            "reason": str(exc),
+            "positional_accuracy_m": None,
+            "sigma_e_m": None,
+            "sigma_n_m": None,
+        }
     return {"piece_id": str(piece.id),
             "raster_sha256": raster["sha256"], "diagnostic": diagnostic}
 
