@@ -494,6 +494,41 @@ def upload_ps4_file(
             "ps4": piece.snapshot["ps4"]}
 
 
+class PS4DiagnosticVertex(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    longitude: float = Field(ge=-180, le=180)
+    latitude: float = Field(ge=-90, le=90)
+
+
+class PS4RasterDiagnosticInput(BaseModel):
+    vertices: list[PS4DiagnosticVertex] = Field(default_factory=list, max_length=500)
+
+
+@router.post("/{piece_id}/ps4/raster-diagnostic")
+def ps4_raster_diagnostic(
+    piece_id: UUID, payload: PS4RasterDiagnosticInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Inspeção privada do GeoTIFF real; não fornece RMS ou aprovação PS4."""
+    from app.services.ps4_raster_diagnostic import diagnose_ps4_raster
+
+    piece = _owned(piece_id, db, user)
+    raster = (((piece.snapshot or {}).get("ps4") or {}).get("assets") or {}).get("raster")
+    if not isinstance(raster, dict) or not exists_matching(
+        user.id, piece.id, raster
+    ):
+        raise HTTPException(409, "GeoTIFF da peça ausente ou com falha de integridade.")
+    try:
+        diagnostic = diagnose_ps4_raster(
+            raster.get("metadata") or {},
+            [vertex.model_dump() for vertex in payload.vertices],
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"piece_id": str(piece.id),
+            "raster_sha256": raster["sha256"], "diagnostic": diagnostic}
+
+
 @router.get("/{piece_id}/ps4/files/{kind}")
 def download_ps4_file(
     piece_id: UUID, kind: str,
