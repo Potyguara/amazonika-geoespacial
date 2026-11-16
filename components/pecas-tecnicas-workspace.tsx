@@ -1907,6 +1907,11 @@ export function PecasTecnicasWorkspace({
                   PS4 utiliza sensores orbitais e possui fluxo próprio de ortorretificação.
                   A consulta de folhas PB1 ainda não altera o método dos vértices nem libera ODS.</p>
                 <Pb1SheetLookup geometry={pb1LookupGeometry} />
+                <button type="button" className="pecas-primary"
+                  disabled={!topconPreview||topconBoundary.length<2}
+                  onClick={()=>{setConstructionSkipped(false);setConstructionMethod("PB1");setPa2Mode(true);}}>
+                  Abrir editor PB1 · ORIXP + MDT
+                </button>
                 <h4>PS4 — Sensores orbitais</h4>
                 <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
                   e faça o fechamento M–V–M antes de consolidar a parcela preliminar.
@@ -3025,8 +3030,8 @@ export function PecasTecnicasWorkspace({
           </button>}
         </div>
       </footer>
-      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4") && (
-        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" ? "ps4-redesigned-dialog" : undefined}
+      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4" || constructionMethod === "PB1") && (
+        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-redesigned-dialog" : undefined}
           style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
             border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
             flexDirection: "column", padding: 16, boxShadow: "0 10px 50px #0005" }}>
@@ -3034,14 +3039,14 @@ export function PecasTecnicasWorkspace({
             justifyContent: "space-between", marginBottom: 12 }}>
             <div>
               <strong>Espaço de trabalho — Construção de vértices</strong>
-              <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais</p>
+              <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais · PB1 Base oficial</p>
             </div>
             <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => {
-                if (constructionMethod === "PS4" && !ps4Ready) {
-                  setPs4Status({kind:"error",message:ps4Closure.valid
-                    ? "Ainda falta confirmar o segmento e o fechamento da prévia PS4 (etapa 2)."
+                if ((constructionMethod === "PS4" && !ps4Ready) || (constructionMethod === "PB1" && !pb1Ready)) {
+                  setPs4Status({kind:"error",message:(constructionMethod === "PB1" ? pb1Closure : ps4Closure).valid
+                    ? "Ainda falta confirmar o segmento e o fechamento da prévia (etapa 2)."
                     : "Não é possível concluir: " + ps4Closure.message +
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
                   return;
@@ -3060,7 +3065,7 @@ export function PecasTecnicasWorkspace({
               }}>{actionBusy ? "Salvando..." : constructionMethod === "PS4"
                 ? "Concluir traçado PRELIMINAR e voltar à peça"
                 : "Concluir, salvar e voltar à peça"}</button>
-            {constructionMethod === "PS4" && <button type="button" className="pecas-secondary"
+            {(constructionMethod === "PS4" || constructionMethod === "PB1") && <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => void runAction(async () => {
                 setPs4Status({kind:"info",message:"Salvando rascunho PS4 sem fechamento..."});
@@ -3169,7 +3174,7 @@ export function PecasTecnicasWorkspace({
             style={{ display: "flex", alignItems: "center", gap: 8,
               flexWrap: "wrap", paddingBottom: 12, borderBottom: "1px solid #b8cfc5",
               marginBottom: 12 }}>
-            {(["PA1", "PA2", "PT8", "PS4"] as const).map(method => <button
+            {(["PA1", "PA2", "PT8", "PS4", "PB1"] as const).map(method => <button
               key={method} type="button"
               disabled={method === "PA1" || method === "PA2"}
               title={method === "PA1" || method === "PA2"
@@ -3185,7 +3190,7 @@ export function PecasTecnicasWorkspace({
               }}>
               {method} — {method === "PA1" ? "Paralela"
                 : method === "PA2" ? "Interseção/apoio"
-                : method === "PS4" ? "Sensores orbitais" : "Alinhamento"}
+                : method === "PS4" ? "Sensores orbitais" : method === "PB1" ? "Base cartográfica oficial" : "Alinhamento"}
             </button>)}
             <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
               Outros métodos:
@@ -3194,7 +3199,7 @@ export function PecasTecnicasWorkspace({
                 <option value="PS1" disabled>PS1 — Aerofotogrametria (requer projeto fotogramétrico)</option>
                 <option value="PS2" disabled>PS2 — Radar aerotransportado (requer validação)</option>
 
-                <option value="PB1" disabled>PB1 — Base cartográfica com precisão conhecida</option>
+                <option value="PB1" disabled>PB1 — Disponível na barra de métodos acima</option>
                 <option value="PB2" disabled>PB2 — Base cartográfica sem precisão conhecida</option>
               </select>
             </label>
@@ -3215,16 +3220,16 @@ export function PecasTecnicasWorkspace({
                   não a V automaticamente.</p>}
             </details>
           </div>
-          <div className={constructionMethod === "PS4" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
-            gridTemplateColumns: constructionMethod === "PS4" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+          <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
+            gridTemplateColumns: constructionMethod === "PS4" || constructionMethod === "PB1" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
             
-            <div className={constructionMethod === "PS4" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
+            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
                         <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
                         <p>PA1, PA2 e PT8 exigem conversão altimétrica prévia. Método PT8 gera
                           vértices M/P conforme a tabela oficial de compatibilidade; PA1/PA2
                           permitem vértice V, sujeito à conferência técnica.</p>
-                        {!verticalCalculated && constructionMethod !== "PS4" && <p className="pecas-warning">
+                        {!verticalCalculated && constructionMethod !== "PS4" && constructionMethod !== "PB1" && <p className="pecas-warning">
                           Conclua primeiro o cálculo das altitudes normais/ortométricas dos marcos
                           de apoio para habilitar a construção dos vértices.</p>}
                         <p>Após calcular as altitudes físicas, selecione o método adequado.
@@ -3248,7 +3253,7 @@ export function PecasTecnicasWorkspace({
                         {pa2Mode && <label className="pecas-field">
                           <span>Método de posicionamento</span>
                           <select value={constructionMethod} onChange={e => {
-                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4");
+                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4" | "PB1");
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
@@ -3256,6 +3261,7 @@ export function PecasTecnicasWorkspace({
                             <option value="PA2" disabled>PA2 — Não disponível nesta versão</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
                             <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
+                            <option value="PB1">PB1 — Base cartográfica com precisão conhecida</option>
                           </select>
                         </label>}
                         {pa2Mode && constructionMethod === "PS4" && <section aria-label="Restituição orbital PS4">
@@ -3854,7 +3860,7 @@ export function PecasTecnicasWorkspace({
 
 
             </div>
-            <div className={constructionMethod === "PS4" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
+            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
               <div className="pecas-card">
                   <h4>Mapa ampliado — {constructionMethod}</h4>
                   <Pa2WitnessMap
