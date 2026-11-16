@@ -15,6 +15,10 @@ type Evidence = {
   orthorectification_rms_m: number;
   horizontal_positional_precision_m: number;
   gsd_m: number; scene_crs: string; feature_identifiable: boolean;
+  validation_mode?: "LEGACY" | "DOCUMENTAL";
+  report_page?: number | null;
+  accuracy_source?: "RMS_ORTHORECTIFICATION" | "EXTERNAL_ACCURACY_REPORT" | null;
+  report_metric_reference?: string | null;
 };
 type Submission = {
   needs_additional_vertices: boolean; evidence: Evidence | null;
@@ -65,6 +69,9 @@ export function Ps4EvidencePanel({
   const [record, setRecord] = useState<Ps4Record>({});
   const [inpeJobStatus, setInpeJobStatus] = useState<{status:string;message:string}|null>(null);
   const [reportScene, setReportScene] = useState("");
+  const [reportPage, setReportPage] = useState("");
+  const [accuracySource, setAccuracySource] = useState<"RMS_ORTHORECTIFICATION" | "EXTERNAL_ACCURACY_REPORT">("RMS_ORTHORECTIFICATION");
+  const [metricReference, setMetricReference] = useState("");
   const [precision, setPrecision] = useState("");
   const [gsd, setGsd] = useState("");
   const [crs, setCrs] = useState("");
@@ -94,6 +101,9 @@ export function Ps4EvidencePanel({
         const ev = saved.submission?.evidence;
         if (ev) {
           setReportScene(ev.report_scene_id);
+          setReportPage(ev.report_page ? String(ev.report_page) : "");
+          setAccuracySource(ev.accuracy_source ?? "RMS_ORTHORECTIFICATION");
+          setMetricReference(ev.report_metric_reference ?? "");
           setPrecision(String(ev.horizontal_positional_precision_m));
           setGsd(String(ev.gsd_m));
           setCrs(ev.scene_crs);
@@ -192,6 +202,9 @@ export function Ps4EvidencePanel({
       throw new Error("Informe o RMS documental da ortorretificação na seção anterior.");
     if (!reportScene.trim() || !crs.trim())
       throw new Error("Informe a cena identificada no relatório e o SRC.");
+    const page = Number(reportPage);
+    if (!Number.isSafeInteger(page) || page < 1 || !metricReference.trim())
+      throw new Error("Informe a página e a seção/tabela do relatório que demonstram a precisão da cena.");
     if (vertices.length < 1)
       throw new Error("Ainda não existem vértices V para vincular à cena.");
     return {
@@ -206,6 +219,10 @@ export function Ps4EvidencePanel({
         gsd_m: g,
         scene_crs: crs.trim(),
         feature_identifiable: featureConfirmed,
+        validation_mode: "DOCUMENTAL",
+        report_page: page,
+        accuracy_source: accuracySource,
+        report_metric_reference: metricReference.trim(),
       },
       vertices: vertices.map(p => ({
         vertex_id: p.name, longitude: p.longitude, latitude: p.latitude,
@@ -295,6 +312,10 @@ export function Ps4EvidencePanel({
     saved.evidence?.gsd_m === Number(gsd) &&
     saved.evidence?.scene_crs === crs.trim() &&
     saved.evidence?.feature_identifiable === featureConfirmed &&
+    saved.evidence?.validation_mode === "DOCUMENTAL" &&
+    saved.evidence?.report_page === Number(reportPage) &&
+    saved.evidence?.accuracy_source === accuracySource &&
+    saved.evidence?.report_metric_reference === metricReference.trim() &&
     saved.evidence?.raster_sha256 === record.assets?.raster?.sha256 &&
     saved.evidence?.report_sha256 === record.assets?.report?.sha256
   );
@@ -312,8 +333,16 @@ export function Ps4EvidencePanel({
   return (
     <section className="pecas-card" aria-label="Evidências oficiais PS4"
       style={{ display: "grid", gap: 12, marginTop: 16 }}>
-      <h4>PS4 — Imagem orbital e comprovação documental</h4>
-      <p className="pecas-note">É possível desenhar e salvar vértices V provisórios antes de anexar
+      <h4>PS4 — Validação documental da cena (sem pontos GNSS próprios)</h4>
+      <div className="geo96-next-step" role="status">
+        <strong>Modalidade DOCUMENTAL — pontos próprios opcionais</strong>
+        <p>Utiliza o GeoTIFF já vinculado à peça e o relatório técnico da mesma cena.
+          Não exige pontos GNSS de checagem próprios, mas exige RMS/avaliação de
+          acurácia rastreável no documento e conferência do responsável técnico.
+          XML STAC e GSD não constituem prova de precisão.</p>
+      </div>
+      <p className="pecas-note">A conferência documental exige identificar página, fonte e seção da métrica de precisão.
+        O preenchimento não comprova por si só o conteúdo do PDF. É possível desenhar e salvar vértices V provisórios antes de anexar
         GeoTIFF e relatório PDF. Esses documentos, a precisão absoluta demonstrada e a revisão
         do RT continuam obrigatórios para VALIDAR PS4. Hash e GSD não comprovam acurácia.</p>
       {inpeJobStatus && <p role="status" className="pecas-note">
@@ -411,6 +440,23 @@ export function Ps4EvidencePanel({
           A cena do mapa ainda é {sceneId}. Vincule a identificação do relatório
           antes de criar ou validar os vértices.
         </small>}
+      </label>
+      <label className="pecas-field"><span>Página do PDF que comprova a métrica</span>
+        <input type="number" min="1" step="1" value={reportPage}
+          placeholder="Ex.: 12"
+          onChange={e => {setReportPage(e.target.value);setDirty(true);}} />
+      </label>
+      <label className="pecas-field"><span>Origem da precisão declarada</span>
+        <select value={accuracySource}
+          onChange={e => {setAccuracySource(e.target.value as typeof accuracySource);setDirty(true);}}>
+          <option value="RMS_ORTHORECTIFICATION">RMS do processo de ortorretificação</option>
+          <option value="EXTERNAL_ACCURACY_REPORT">Avaliação externa independente documentada</option>
+        </select>
+      </label>
+      <label className="pecas-field"><span>Tabela / seção exata do documento</span>
+        <input value={metricReference}
+          placeholder="Ex.: Tabela 4 — RMS horizontal, cena ..."
+          onChange={e => {setMetricReference(e.target.value);setDirty(true);}} />
       </label>
       <label className="pecas-field"><span>Precisão posicional horizontal avaliada (m)</span>
         <input type="number" min="0" step="0.001" value={precision}
