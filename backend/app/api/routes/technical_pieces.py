@@ -730,6 +730,26 @@ def ps4_prepare_inpe_scene(
     """Enfileira recorte COG; não executa GDAL no request HTTP."""
     piece = _owned(piece_id, db, user)
     ps4 = dict((piece.snapshot or {}).get("ps4") or {})
+    # Evita recortes idênticos da mesma cena, bbox e coleção:
+    # o raster já armazenado deve ser reutilizado na interface.
+    raster = (ps4.get("assets") or {}).get("raster")
+    provenance = ps4.get("source_provenance") or {}
+    previous_bbox = provenance.get("crop_bbox_wgs84")
+    if (
+        isinstance(raster, dict)
+        and provenance.get("item_id") == payload.item_id
+        and provenance.get("collection") == payload.collection
+        and isinstance(previous_bbox, list)
+        and len(previous_bbox) == 4
+        and all(abs(float(old) - float(new)) < 1e-8
+                for old, new in zip(previous_bbox, payload.bbox))
+        and exists_matching(user.id, piece.id, raster)
+    ):
+        raise HTTPException(
+            409,
+            "Recorte INPE idêntico já armazenado nesta peça. "
+            "Utilize a imagem existente em vez de criar outra cópia.",
+        )
     previous_id = ps4.get("import_job_id")
     if previous_id:
         try:
