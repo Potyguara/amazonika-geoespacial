@@ -42,12 +42,13 @@ const emptyChecks = () => Object.fromEntries(
 ) as Record<CheckKey, boolean>;
 
 export function Ps4EvidencePanel({
-  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange, onReportChange,
+  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange, onReportChange, onEnsurePieceSaved,
 }: {
   pieceId: string | null | undefined;
   onApprovalChange?: (approved: boolean) => void;
   onRasterChange?: (asset: UploadedAsset | null) => void;
   onReportChange?: (present: boolean) => void;
+  onEnsurePieceSaved?: () => Promise<string>;
   sceneId: string;
   vertices: Vertex[];
   rmsFromWorkspace: number | null;
@@ -246,9 +247,23 @@ export function Ps4EvidencePanel({
       <h4>PS4 — Imagem orbital e comprovação documental</h4>
       <p className="pecas-note">Somente GeoTIFF ortorretificado e relatório PDF correspondente.
         A verificação de hash e metadados não substitui o exame da acurácia pelo RT.</p>
-      {!pieceId && <p className="pecas-warning" role="status">
-        Salve primeiro esta peça técnica no servidor para habilitar os anexos.
-      </p>}
+      {!pieceId && <div className="pecas-warning" role="status">
+        <p>Salve a peça técnica sem sair desta tela para habilitar os anexos.</p>
+        <button type="button" className="pecas-primary"
+          disabled={busy || !onEnsurePieceSaved}
+          onClick={() => void (async () => {
+            if (!onEnsurePieceSaved) return;
+            setBusy(true); setNotice("");
+            try {
+              await onEnsurePieceSaved();
+              setNotice("Peça salva no servidor. Importe o GeoTIFF e o relatório PDF.");
+            } catch (error) {
+              setNotice(error instanceof Error ? error.message : "Falha ao salvar a peça.");
+            } finally { setBusy(false); }
+          })()}>
+          Salvar peça e continuar no PS4
+        </button>
+      </div>}
       <label className="pecas-field">
         <span>Imagem orbital ortorretificada (GeoTIFF, até 256 MB)</span>
         <input type="file" accept=".tif,.tiff,image/tiff"
