@@ -21,6 +21,12 @@ test "$root_free" -ge 10485760 || {
 }
 
 cd "$REPO"
+if ! git ls-remote --exit-code origin \
+  refs/heads/feat/geo90-ps4-evidencias-20261115 >/dev/null; then
+  echo "ERRO: repositório privado/branch PS4 não acessível pelo Git da VPS."
+  echo "Nenhum checkout ou build foi iniciado."
+  exit 3
+fi
 printf 'Produção atual: '
 git rev-parse --short HEAD
 printf 'Branch atual: '
