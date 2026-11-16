@@ -260,7 +260,7 @@ def import_inpe_crop(
     if not _IMPORT_SEMAPHORE.acquire(blocking=False):
         raise RuntimeError("Já existe um recorte CBERS em preparação. Tente novamente.")
     try:
-        with tempfile.TemporaryDirectory(prefix="amazonika-inpe-") as folder:
+        with tempfile.TemporaryDirectory(prefix=".amazonika-inpe-", dir=data_root) as folder:
             output = Path(folder) / "crop.tif"
             env = {
                 **os.environ,
