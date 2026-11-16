@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - feat/inpe-cbers4a-stac-geo90-20261115
+  workflow_dispatch:
 
 jobs:
   ps4-backend:
@@ -21,6 +22,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r backend/requirements.txt
       - name: Verify public INPE STAC metadata connectivity (non-blocking)
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         env:
           PYTHONPATH: backend
@@ -45,12 +47,14 @@ jobs:
               raise SystemExit(1)
           PY
       - name: Live COG crop smoke — small remote subset (non-blocking)
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         timeout-minutes: 4
         env:
           PYTHONPATH: backend
         run: python scripts/ps4_inpe_live_smoke.py
       - name: Inspect original L4 technical metadata availability (non-blocking)
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         timeout-minutes: 1
         env:
