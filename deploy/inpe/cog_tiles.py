@@ -99,10 +99,10 @@ def resolve_scene_cog(scene_id: str) -> str:
 # From INPE STAC scene bbox; use an initial geographical guard even before GDAL.
 W, S, E, N = -51.251767, -0.504223, -50.256565, 0.471441
 MAX_CONCURRENT = BoundedSemaphore(1)
-MAX_WAITERS = BoundedSemaphore(4)
+MAX_WAITERS = BoundedSemaphore(16)
 CACHE = OrderedDict()
 CACHE_LOCK = Lock()
-CACHE_LIMIT = 64
+CACHE_LIMIT = 128
 MAX_PNG_BYTES = 500_000
 MAX_ZOOM = 18
 MIN_ZOOM = 10
@@ -187,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, result, "image/png", max_age=600)
         if not MAX_WAITERS.acquire(blocking=False):
             return self.respond(503, b'{"error":"renderer queue full"}', "application/json")
-        if not MAX_CONCURRENT.acquire(timeout=30):
+        if not MAX_CONCURRENT.acquire(timeout=110):
             MAX_WAITERS.release()
             return self.respond(503, b'{"error":"renderer busy"}', "application/json")
         try:
