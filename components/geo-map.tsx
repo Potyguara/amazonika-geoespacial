@@ -2723,8 +2723,23 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   };
 
   const downloadSigefOds = async () => {
-    if (selectedFeatures().some(feature => feature.get("technical_piece_status") === "PRELIMINAR_NAO_CERTIFICADA")) {
-      throw new Error("ODS SIGEF bloqueada: parcela M–V contém vértices PS4 sem acurácia e altura comprovadas. Gere a planta preliminar e conclua a revisão técnica.");
+    const incompletePs4 = selectedFeatures().some(feature => {
+      const details = feature.get("sigef_vertex_details") as Array<{
+        sigef_method?: string; accuracy_verified?: boolean;
+        sigma_lon_m?: number | null; sigma_lat_m?: number | null;
+        sigma_h_m?: number | null; height_reference_confirmed?: boolean;
+      }> | undefined;
+      return details?.some(point => point.sigef_method === "PS4" && (
+        point.accuracy_verified !== true ||
+        point.height_reference_confirmed !== true ||
+        ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
+          .every(value => typeof value === "number" && Number.isFinite(value) && value > 0)
+      ));
+    });
+    if (incompletePs4 || selectedFeatures().some(
+      feature => feature.get("technical_piece_status") === "PRELIMINAR_NAO_CERTIFICADA"
+    )) {
+      throw new Error("ODS SIGEF bloqueada: vértice PS4 sem acurácia horizontal, altura elipsoidal confirmada ou sigmas individuais completos.");
     }
     if (!analysisId) throw new Error("Conclua uma análise espacial antes de exportar o ODS SIGEF.");
     const response = await fetch(`${getApiUrl()}/analyses/${analysisId}/sigef-ods`, {
