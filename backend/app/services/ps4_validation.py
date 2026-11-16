@@ -50,6 +50,13 @@ class PS4Submission(BaseModel):
 def evaluate_ps4(data: PS4Submission) -> dict:
     """Devolve motivos técnicos sem emitir aprovação ou acurácia fictícia."""
     if not data.needs_additional_vertices:
+        if data.vertices:
+            return {
+                "status": "BLOCKED",
+                "blockers": ["Há vértices V cadastrados; não é possível declarar não aplicável."],
+                "requires_rt_review": False,
+                "message": "Remova os vértices V ou habilite a etapa PS4.",
+            }
         return {
             "status": "NOT_APPLICABLE", "blockers": [],
             "requires_rt_review": False,
