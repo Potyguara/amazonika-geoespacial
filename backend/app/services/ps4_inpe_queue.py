@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID, uuid4
 from tempfile import NamedTemporaryFile
 
@@ -99,3 +99,31 @@ def queued_jobs() -> list[Path]:
         except (OSError, ValueError, json.JSONDecodeError):
             continue
     return [path for _, path in sorted(paths, key=lambda value: value[0])]
+
+
+def prune_terminal_jobs(*, days: int = 90, now: datetime | None = None) -> int:
+    """Remove apenas metadados de jobs antigos e terminais.
+
+    Nunca apaga GeoTIFF, XML, PDF ou jobs ativos. Um trabalho novo pode
+    ser recriado se o histórico de status tiver expirado.
+    """
+    if days < 30:
+        raise ValueError("Retenção de jobs PS4 não pode ser inferior a 30 dias.")
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days)
+    removed = 0
+    for path in jobs_root().glob("*.json"):
+        try:
+            job = read_job(UUID(path.stem))
+            if job.get("status") not in TERMINAL:
+                continue
+            finished = job.get("finished_at")
+            if not isinstance(finished, str):
+                continue
+            end = datetime.fromisoformat(finished.replace("Z", "+00:00"))
+            if end.tzinfo is None or end >= cutoff:
+                continue
+            path.unlink()
+            removed += 1
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return removed
