@@ -378,6 +378,7 @@ export function PecasTecnicasWorkspace({
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
+  const [ps4ApprovalConfirmed, setPs4ApprovalConfirmed] = useState(false);
   const [ps4OrthoReport,setPs4OrthoReport] = useState<NonNullable<TopconDraft["ps4_ortho_report"]>>({
     scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false,
   });
@@ -2851,6 +2852,13 @@ export function PecasTecnicasWorkspace({
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
                   return;
                 }
+                if (constructionMethod === "PS4" && !ps4ApprovalConfirmed) {
+                  setPs4Status({kind:"error",message:
+                    "A etapa PS4 exige ortoimagem GeoTIFF, relatório de ortorretificação, " +
+                    "validação documental e aprovação do RT. Use Salvar rascunho sem fechar " +
+                    "até concluir a conferência."});
+                  return;
+                }
                 void runAction(async () => {
                   setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
                   await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
@@ -3069,6 +3077,7 @@ export function PecasTecnicasWorkspace({
                             sceneId={ps4SceneId}
                             vertices={ps4Draft}
                             rmsFromWorkspace={ps4OrthoReport.rms_m}
+                            onApprovalChange={setPs4ApprovalConfirmed}
                           />
                           <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
                             selecionada. A prévia será vinculada à cena e poderá compor a planta
