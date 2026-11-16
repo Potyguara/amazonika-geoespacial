@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from uuid import UUID
-from pathlib import Path
+from datetime import datetime, timezone
 from fastapi.responses import FileResponse
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.models.auth import User
 from app.models.technical_piece import TechnicalPiece
 from app.services.auth import get_current_user, require_permission
+from app.services.audit import write_audit
 from app.services.technical_import import parse_sigef_ods
 from app.services.ps4_validation import PS4Submission, evaluate_verified_ps4
 from app.services.ps4_assets import store_uploaded_asset, stored_file_path, exists_matching
@@ -250,3 +251,117 @@ def download_ps4_file(
         filename="orbital-ps4.tif" if kind == "raster" else "ortorretificacao-ps4.pdf",
         headers={"Cache-Control": "no-store"},
     )
+
+
+class PS4RTAttestation(BaseModel):
+    report_scene_correspondence_checked: bool
+    orthorectification_rms_checked: bool
+    positional_accuracy_checked: bool
+    feature_identification_checked: bool
+    source_resolution_checked: bool
+    technical_responsibility_accepted: bool
+
+
+@router.post("/{piece_id}/ps4/approve")
+def approve_ps4(
+    piece_id: UUID, payload: PS4RTAttestation,
+    request: Request,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Registra a revisão humana; não certifica automaticamente o raster."""
+    piece = _owned(piece_id, db, user)
+    current = ((piece.snapshot or {}).get("ps4") or {})
+    if "submission" not in current:
+        raise HTTPException(409, "Preencha o formulário PS4 antes da revisão.")
+    submitted = PS4Submission.model_validate(current["submission"])
+    assets = current.get("assets", {})
+    validation = evaluate_verified_ps4(submitted, assets, user.id, piece.id)
+    if validation["status"] == "BLOCKED":
+        raise HTTPException(409, {"message": "PS4 possui pendências.",
+                                  "blockers": validation["blockers"]})
+    if validation["status"] == "NOT_APPLICABLE":
+        raise HTTPException(409, "PS4 não se aplica; utilize a conclusão sem V.")
+    checks = payload.model_dump()
+    if not all(checks.values()):
+        raise HTTPException(422, "Todos os itens de revisão do RT são obrigatórios.")
+    profile = user.professional_profile_json or {}
+    crea = str(profile.get("crea") or "").strip()
+    art = str(profile.get("art") or "").strip()
+    if not crea or not art:
+        raise HTTPException(
+            422, "Informe CREA e ART no perfil profissional antes de aprovar PS4."
+        )
+    approval = {
+        "status": "APPROVED_BY_RT",
+        "approved_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": str(user.id),
+        "rt_name": user.full_name,
+        "crea": crea,
+        "art": art,
+        "checks": checks,
+        "raster_sha256": assets["raster"]["sha256"],
+        "report_sha256": assets["report"]["sha256"],
+    }
+    snapshot = dict(piece.snapshot or {})
+    snapshot["ps4"] = {
+        "submission": submitted.model_dump(mode="json"),
+        "assets": assets,
+        "validation": {**validation, "status": "APPROVED_BY_RT",
+                       "requires_rt_review": False,
+                       "message": "Revisão técnica registrada pelo RT."},
+        "approval": approval,
+    }
+    piece.snapshot = snapshot
+    db.add(piece)
+    write_audit(
+        db, action="PS4_RT_APPROVED", user_id=user.id,
+        entity_type="technical_piece", entity_id=str(piece.id),
+        details={
+            "raster_sha256": approval["raster_sha256"],
+            "report_sha256": approval["report_sha256"],
+            "crea": crea, "art": art,
+        },
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+    db.refresh(piece)
+    return {"piece_id": str(piece.id), "ps4": piece.snapshot["ps4"]}
+
+
+@router.post("/{piece_id}/ps4/complete-no-v")
+def complete_ps4_not_applicable(
+    piece_id: UUID, request: Request,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Conclui apenas a subetapa PS4 quando não há vértices adicionais."""
+    piece = _owned(piece_id, db, user)
+    ps4 = ((piece.snapshot or {}).get("ps4") or {})
+    try:
+        submitted = PS4Submission.model_validate(ps4["submission"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(422, "Informe a opção de necessidade de vértices.") from exc
+    if submitted.needs_additional_vertices or submitted.vertices:
+        raise HTTPException(409, "Há vértices V registrados; não aplicável é inválido.")
+    snapshot = dict(piece.snapshot or {})
+    snapshot["ps4"] = {
+        "submission": submitted.model_dump(mode="json"),
+        "assets": ps4.get("assets", {}),
+        "validation": {
+            "status": "NOT_APPLICABLE", "blockers": [],
+            "requires_rt_review": False,
+            "message": "Subetapa concluída sem vértices V adicionais.",
+        },
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    piece.snapshot = snapshot
+    db.add(piece)
+    write_audit(
+        db, action="PS4_NOT_APPLICABLE", user_id=user.id,
+        entity_type="technical_piece", entity_id=str(piece.id),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    db.commit()
+    db.refresh(piece)
+    return {"piece_id": str(piece.id), "ps4": piece.snapshot["ps4"]}
