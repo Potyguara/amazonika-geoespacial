@@ -8,7 +8,8 @@ from uuid import uuid4
 from starlette.requests import Request
 
 from app.api.routes.technical_pieces import (
-    PS4RTAttestation, approve_ps4, get_ps4, complete_ps4_not_applicable,
+    PS4RTAttestation, PS4CheckpointAnalysisInput, ps4_checkpoint_analysis,
+    approve_ps4, get_ps4, complete_ps4_not_applicable,
 )
 
 
@@ -91,6 +92,49 @@ class Ps4RouteClosureTests(TestCase):
         self.assertEqual(recovered["approval"]["rt_name"], "RT EXEMPLO")
         self.assertEqual(recovered["approval"]["art"], "ART-TESTE")
         self.assertEqual(self.db.commits, 1)
+
+    def test_remocao_de_marco_exige_motivo_e_persiste(self):
+        self.piece.snapshot["ps4"]["assets"]["raster"] = {
+            "sha256": "a" * 64, "metadata": {"crs_authority": "EPSG:32622"},
+        }
+        self.piece.snapshot["ps4"]["checkpoint_analysis"] = {
+            "raster_sha256": "a" * 64,
+            "checkpoints": [{"name": "M583"}],
+            "result": {"status": "INSUFFICIENT_CHECKPOINTS"},
+        }
+        payload = PS4CheckpointAnalysisInput(
+            checkpoints=[],
+            exclusions=[{"name": "M583", "reason": "Alvo identificado incorretamente na cena"}],
+        )
+        with (
+            patch("app.api.routes.technical_pieces._owned", return_value=self.piece),
+            patch("app.api.routes.technical_pieces.exists_matching", return_value=True),
+        ):
+            answer = ps4_checkpoint_analysis(
+                self.piece.id, payload, self.db, self.user,
+            )
+        analysis = self.piece.snapshot["ps4"]["checkpoint_analysis"]
+        self.assertEqual(answer["result"]["status"], "NO_CHECKPOINTS")
+        self.assertEqual(analysis["exclusion_log"][0]["name"], "M583")
+        self.assertEqual(analysis["exclusion_log"][0]["user_id"], str(self.user.id))
+        self.assertIn("incorretamente", analysis["exclusion_log"][0]["reason"])
+
+    def test_nao_exclui_marco_que_nao_estava_salvo(self):
+        from fastapi import HTTPException
+        self.piece.snapshot["ps4"]["assets"]["raster"] = {
+            "sha256": "a" * 64, "metadata": {"crs_authority": "EPSG:32622"},
+        }
+        payload = PS4CheckpointAnalysisInput(
+            checkpoints=[],
+            exclusions=[{"name": "M999", "reason": "Marco fora da cobertura da cena"}],
+        )
+        with (
+            patch("app.api.routes.technical_pieces._owned", return_value=self.piece),
+            patch("app.api.routes.technical_pieces.exists_matching", return_value=True),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                ps4_checkpoint_analysis(self.piece.id, payload, self.db, self.user)
+        self.assertEqual(raised.exception.status_code, 422)
 
     def test_sem_v_conclui_e_reaparece_apos_abrir(self):
         self.piece.snapshot["ps4"]["submission"] = {
