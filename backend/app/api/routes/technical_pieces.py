@@ -15,6 +15,7 @@ from app.models.technical_piece import TechnicalPiece
 from app.services.auth import get_current_user, require_permission
 from app.services.audit import write_audit
 from app.services.ps4_validation import PS4Submission, evaluate_verified_ps4
+from app.services.inpe_ps4_import import fetch_inpe_item, examine_inpe_item, import_inpe_crop
 from app.services.ps4_assets import store_uploaded_asset, stored_file_path, exists_matching
 from app.services.ps4_tiles import mercator_tile_bounds, tile_intersects_footprint, render_png_tile, transparent_png_tile
 from app.services.technical_import import parse_sigef_ods
@@ -425,6 +426,7 @@ def get_ps4(
         "assets": current.get("assets", {}),
         "approval": current.get("approval"),
         "completed_at": current.get("completed_at"),
+        "source_provenance": current.get("source_provenance"),
         "validation": current.get("validation", {
             "status": "BLOCKED",
             "blockers": ["Validação PS4 não iniciada."],
@@ -664,3 +666,77 @@ def ps4_raster_tile(
         image, media_type="image/png",
         headers={"Cache-Control": "private, max-age=3600", "X-PS4-Raster-SHA256": digest},
     )
+
+
+class PS4InpeCropInput(BaseModel):
+    item_id: str = Field(min_length=10, max_length=180)
+    bbox: tuple[float, float, float, float]
+
+
+@router.get("/{piece_id}/ps4/inpe/scenes/{item_id}")
+def ps4_inpe_scene_info(
+    piece_id: UUID, item_id: str,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Analisa metadados STAC oficiais e explica documentação que falta."""
+    _owned(piece_id, db, user)
+    try:
+        item = fetch_inpe_item(item_id)
+        return examine_inpe_item(item)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.post("/{piece_id}/ps4/inpe/prepare")
+def ps4_prepare_inpe_scene(
+    piece_id: UUID, payload: PS4InpeCropInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Recorta diretamente da fonte COG do INPE, preservando proveniência.
+
+    Não aprova acurácia, não fabrica laudo e não conclui PS4.
+    """
+    from shapely.geometry import box, shape
+
+    piece = _owned(piece_id, db, user)
+    try:
+        item = fetch_inpe_item(payload.item_id)
+        if not isinstance(item.get("geometry"), dict):
+            raise ValueError("Cena STAC sem geometria oficial.")
+        footprint = shape(item["geometry"])
+        if not footprint.is_valid or footprint.is_empty or not footprint.covers(
+            box(*payload.bbox)
+        ):
+            raise ValueError("Área solicitada não está inteiramente coberta pela cena STAC.")
+        result = import_inpe_crop(item, payload.bbox, user.id, piece.id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    snapshot = dict(piece.snapshot or {})
+    current = dict(snapshot.get("ps4") or {})
+    assets = dict(current.get("assets") or {})
+    assets["raster"] = result["asset"]
+    current["assets"] = assets
+    current["source_provenance"] = result["provenance"]
+    current.pop("approval", None)
+    current.pop("completed_at", None)
+    if "submission" in current:
+        current["validation"] = evaluate_verified_ps4(
+            PS4Submission.model_validate(current["submission"]),
+            assets, user.id, piece.id,
+        )
+    snapshot["ps4"] = current
+    piece.snapshot = snapshot
+    piece.status = "DRAFT"
+    db.commit()
+    db.refresh(piece)
+    return {
+        "piece_id": str(piece.id),
+        "source_provenance": result["provenance"],
+        "ps4": piece.snapshot["ps4"],
+        "message": "Recorte CBERS armazenado. RMS, precisão absoluta e relatório "
+                   "de ortorretificação permanecem pendentes de comprovação.",
+    }
