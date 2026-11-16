@@ -3434,8 +3434,8 @@ export function PecasTecnicasWorkspace({
                               rasterSha256={ps4RasterAsset?.sha256 ?? null}
                               vertices={ps4Draft} sceneId={ps4SceneId} />
                             <div className="ps4-analysis-note" role="status">
-                              <strong>Processamento próprio da imagem — próximo módulo</strong>
-                              <p>O recorte georreferenciado permite restituição e análise geométrica, mas sozinho não produz EMQ independente ou sigmas. Preservaremos este estado como pendente até existir uma avaliação de qualidade tecnicamente rastreável.</p>
+                              <strong>Processamento próprio ativo · análise visual e geométrica</strong>
+                              <p>O sistema calcula indicadores de contraste, textura e cobertura sobre o GeoTIFF real. Esses indicadores ajudam a avaliar o material, mas não fornecem acurácia absoluta. RMS/EMQ posicional e sigmas permanecem pendentes.</p>
                             </div><details className="geo97-cbers-panel">
                             <summary>Via complementar · relatório ou pontos independentes (opcional)</summary>
                             <div className="geo97-ortho-rms">
