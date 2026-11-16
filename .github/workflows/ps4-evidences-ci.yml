@@ -81,6 +81,7 @@ jobs:
               raise SystemExit(1)
           PY
       - name: Inspect original L4 XML document (non-blocking)
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         timeout-minutes: 2
         env:
