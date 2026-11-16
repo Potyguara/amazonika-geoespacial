@@ -176,7 +176,7 @@ def examine_inpe_item(item: dict) -> dict:
     collection = item.get("collection")
     if collection not in COLLECTIONS:
         raise ValueError("Coleção STAC não aceita para PS4.")
-    preferred = ("BAND0", "BAND1") if collection == L4_COLLECTION else ("tci", "rgb")
+    preferred = ("BAND0",) if collection == L4_COLLECTION else ("tci", "rgb")
     target = next(
         (assets.get(key) for key in preferred if isinstance(assets.get(key), dict)),
         None,
