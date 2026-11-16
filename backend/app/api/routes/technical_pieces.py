@@ -299,8 +299,9 @@ def _validated_snapshot(
     snapshot = dict(incoming)
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
     if "ps4" not in snapshot and previous:
-        # Salvamentos de memorial/layout não invalidam o RT quando o traçado
-        # e os dados topográficos permanecem exatamente iguais.
+        # Salvamentos de texto/layout não podem revogar uma decisão PS4 válida.
+        # Qualquer alteração do traçado ou metadados geoespaciais revoga
+        # a aprovação e obriga nova conferência do responsável técnico.
         old_snapshot = piece.snapshot or {} if piece else {}
         relevant_topcon = (
             "boundary", "ps4_draft", "ps4_selected_scene",
@@ -422,6 +423,8 @@ def get_ps4(
             "needs_additional_vertices": True, "vertices": [],
         }),
         "assets": current.get("assets", {}),
+        "approval": current.get("approval"),
+        "completed_at": current.get("completed_at"),
         "validation": current.get("validation", {
             "status": "BLOCKED",
             "blockers": ["Validação PS4 não iniciada."],
