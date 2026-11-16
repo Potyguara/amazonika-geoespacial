@@ -1370,6 +1370,66 @@ export function PecasTecnicasWorkspace({
       setTopconLoading(false);
     }
   };
+  const adoptPb1WorkingParcel=()=>{
+    setTopconError("");setWorkflowNotice("");
+    try{
+      if(!pb1Ready||!pb1Closure.geometry||!pb1Raster)
+        throw new Error("Feche o perímetro PB1 e confirme o ORIXP vinculado.");
+      if(new Set(topconBoundary.map(p=>p.parcel_number)).size!==1)
+        throw new Error("Trabalhe em uma única parcela de cada vez.");
+      if(!pb1Source.sheet.trim()||!pb1Source.product.trim())
+        throw new Error("Informe folha e produto oficial antes de aplicar a prévia.");
+      const initial=topconBoundary[pb1StartIndex];
+      if(!initial||initial.longitude===null||initial.latitude===null)
+        throw new Error("Marco inicial PB1 inválido.");
+      const zone=lonLatToSirgasUtm(initial.longitude,initial.latitude);
+      const newVertices:TopconBoundaryPoint[]=pb1Draft.map(v=>{
+        const utm=lonLatToSirgasUtm(v.longitude,v.latitude);
+        if(utm.zone!==zone.zone||utm.hemisphere!==zone.hemisphere)
+          throw new Error("Vértice PB1 em zona UTM diferente: "+v.name);
+        return {
+          ...initial,name:v.name,sigef_vertex_code:v.name,point_role:"BOUNDARY" as const,
+          longitude:v.longitude,latitude:v.latitude,
+          easting_m:utm.easting_m,northing_m:utm.northing_m,
+          elevation_reported_m:null,ellipsoidal_height_reported_m:null,ellipsoidal_height_m:null,
+          sigma_e_m:null,sigma_n_m:null,sigma_u_m:null,sigma_hz_m:null,
+          sigma_lon_m:null,sigma_lat_m:null,sigma_h_m:null,
+          sigma_reference_confirmed:false,height_reference_confirmed:false,
+          sigma_suggestion_e_m:null,sigma_suggestion_n_m:null,sigma_suggestion_h_m:null,
+          derived_physical_altitude_m:null,derived_physical_model:null,
+          sigef_method:"PB1",boundary_type:"LN1",
+          derived_calculation:{
+            method:"PB1",status:"PRELIMINAR",accuracy_verified:false,
+            official_sheet:pb1Source.sheet,product:pb1Source.product,
+            accuracy_document:pb1Source.accuracy_reference,
+            raster_sha256:v.raster_sha256,dtm_sha256:pb1Dtm?.sha256??null,
+            source_elevation_m:v.source_elevation_m,
+            source_vertical_datum:pb1Source.vertical_datum||"NAO_VERIFICADO",
+            altitude_source:"MDT_ORIGINAL_NAO_CONVERTIDO",
+            note:"MDT sem h confirmada. Sigma horizontal/vertical não atribuído; PB1 não liberado à ODS.",
+          },
+        };
+      });
+      const vertices=[...topconBoundary.slice(0,pb1StartIndex+1),...newVertices,
+        ...topconBoundary.slice(pb1StartIndex+1)];
+      if(vertices.length!==pb1Closure.names.length||
+         vertices.some((v,i)=>v.name!==pb1Closure.names[i]))
+        throw new Error("Sequência diferente da poligonal confirmada. Refazer fechamento PB1.");
+      if(!window.confirm("Aplicar "+newVertices.length+
+        " vértices PB1 à parcela PRELIMINAR?\\n" +
+        "A precisão, o datum vertical, h e os sigmas não estão validados. A ODS certificável permanece bloqueada."))return;
+      onAdoptTopconParcels([{number:initial.parcel_number,
+        name:initial.parcel_name||data.title||"Parcela preliminar",vertices}]);
+      onDataChange("plantHeading","PLANTA PRELIMINAR PB1 — NÃO CERTIFICADA");
+      onDataChange("memorialHeading","MEMORIAL PRELIMINAR PB1 — NÃO CERTIFICADO");
+      setEditableMemorial("");setMemorialSaved(false);setMemorialDirty(false);
+      setPdfBlob(null);setPdfUrl(null);lastPdfKey.current="";
+      setStage(1);setPremiumStep(5);
+      setSavedPieceNotice("Parcela PB1 preliminar aplicada com "+newVertices.length+" vértices V.");
+    }catch(error){
+      setTopconError(error instanceof Error?error.message:"Não foi possível aplicar PB1.");
+    }
+  };
   const importPs4AccuracyControls = async (file:File) => {
     setPs4QualityError("");
     setPs4Quality(undefined);
@@ -1913,6 +1973,13 @@ export function PecasTecnicasWorkspace({
                   onClick={()=>{setConstructionSkipped(false);setConstructionMethod("PB1");setPa2Mode(true);}}>
                   Abrir editor PB1 · ORIXP + MDT
                 </button>
+                {pb1Ready&&<div className="geo97-adopt-banner" role="status">
+                  <strong>PB1: traçado fechado com {pb1Draft.length} vértices V preliminares.</strong>
+                  <p>É possível aplicar à planta preliminar; exatidão da base e altitude elipsoidal ainda pendentes.</p>
+                  <button type="button" className="pecas-primary" onClick={adoptPb1WorkingParcel}>
+                    Aplicar geometria PB1 à parcela preliminar
+                  </button>
+                </div>}
                 <h4>PS4 — Sensores orbitais</h4>
                 <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
                   e faça o fechamento M–V–M antes de consolidar a parcela preliminar.
