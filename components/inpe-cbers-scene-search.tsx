@@ -97,6 +97,7 @@ type Props = {
   geometryKey?: string;
   selectedScene?: string;
   onSelectScene?: (sceneId: string) => void;
+  onPrepareScene?: (sceneId: string, bbox: InpeBounds) => Promise<void>;
 };
 const RENDERABLE_SCENES = new Set([
   "CBERS4A_WPM_PCA_RGB321_20261016_214_113",
@@ -105,13 +106,18 @@ const RENDERABLE_SCENES = new Set([
 ]);
 
 export function InpeCbersSceneSearch({
-  geometry, geometryKey = "", selectedScene, onSelectScene,
+  geometry, geometryKey = "", selectedScene, onSelectScene, onPrepareScene,
 }: Props) {
   const [kind, setKind] = useState<"rgb" | "ortho">("rgb");
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [preparingScene, setPreparingScene] = useState("");
+  const [prepareNotice, setPrepareNotice] = useState("");
   const bounds = useMemo(() => boundsFromPolygon(geometry), [geometryKey, geometry]);
+  const canCrop = Boolean(bounds &&
+    bounds.east - bounds.west <= 0.025 &&
+    bounds.north - bounds.south <= 0.025);
   const bboxKey = bounds ? [bounds.west, bounds.south, bounds.east, bounds.north].join(",") : "";
   useEffect(() => {
     if (!bboxKey) {
@@ -202,10 +208,34 @@ export function InpeCbersSceneSearch({
                         !RENDERABLE_SCENES.has(scene.id)?"Raster ainda não habilitado":
                         "Usar esta cena para vetorizar"}
                     </button>}
+                    {onPrepareScene && kind === "rgb" && (
+                      <button type="button" className="pecas-primary"
+                        disabled={!canCrop || Boolean(preparingScene)}
+                        onClick={() => {
+                          if (!bounds) return;
+                          setPreparingScene(scene.id);
+                          setPrepareNotice("");
+                          void onPrepareScene(scene.id, bounds)
+                            .then(() => setPrepareNotice("Recorte CBERS preparado e vinculado ao GeoTIFF PS4."))
+                            .catch(error => setPrepareNotice(
+                              error instanceof Error ? error.message : "Falha ao preparar recorte CBERS."
+                            ))
+                            .finally(() => setPreparingScene(""));
+                        }}>
+                        {preparingScene === scene.id
+                          ? "Preparando recorte ortorretificado…"
+                          : "Importar recorte CBERS para PS4"}
+                      </button>
+                    )}
                     <a href={scene.stac_item_url} target="_blank" rel="noopener noreferrer">Ver metadados no INPE</a>
                   </article>
                 ))}
               </div>
+              {!canCrop && <p className="pecas-note">
+                O recorte automático inicial está limitado a 0,025° por eixo.
+                Divida áreas extensas ou utilize o GeoTIFF manual.
+              </p>}
+              {prepareNotice && <p role="status" className="pecas-note">{prepareNotice}</p>}
               {!results.scenes.length && <p>Nenhuma cena encontrada. Verifique a cobertura do catálogo para esse imóvel.</p>}
             </div>
           )}
