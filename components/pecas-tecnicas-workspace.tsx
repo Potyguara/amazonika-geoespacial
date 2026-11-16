@@ -469,6 +469,56 @@ export function PecasTecnicasWorkspace({
       ]]}
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
+  const pb1Upload=async(kind:"pb1_color"|"pb1_dtm",file:File)=>{
+    setPb1Busy(true);setPb1Notice("");
+    try{
+      const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+      setPb1PieceId(id);
+      const form=new FormData();form.append("file",file);
+      const res=await fetch(`${getApiUrl()}/technical-pieces/${id}/pb1/files/${kind}`,
+        {method:"POST",credentials:"include",body:form});
+      const body=await res.json().catch(()=>null);
+      if(!res.ok)throw new Error(typeof body?.detail==="string"?body.detail:"Falha no upload PB1");
+      setPb1Assets(old=>({...old,[kind]:body.asset}));
+      if(kind==="pb1_color" && pb1Raster?.sha256!==body.asset.sha256){
+        setPb1Draft([]);setPb1ClosureConfirmed(false);setPb1ConfirmedSignature("");
+      }
+      if(kind==="pb1_dtm" && pb1Dtm?.sha256!==body.asset.sha256){
+        setPb1Draft(old=>old.map(p=>({...p,source_elevation_m:null})));
+        setPb1ClosureConfirmed(false);
+      }
+      setPb1Notice(`${kind==="pb1_color"?"ORIXP RGB":"MDT numérico"} vinculado à peça. A aprovação PB1 permanece pendente.`);
+    }catch(err){setPb1Notice(err instanceof Error?err.message:"Erro no upload PB1");}
+    finally{setPb1Busy(false);}
+  };
+  const pb1AddPoint=async()=>{
+    if(!pb1Candidate||!pb1Raster||!pb1PieceId)return;
+    setPb1Busy(true);setPb1Notice("");
+    try{
+      const prefix=(rtProfile?.incra_code??"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
+      const code=prefix.length>=3&&prefix.length<=6?prefix:"VIRTUAL";
+      const taken=new Set([...topconBoundary.map(p=>p.sigef_vertex_code||p.name),
+        ...ps4Draft.map(p=>p.name),...pb1Draft.map(p=>p.name)].map(v=>v.toUpperCase()));
+      let i=1;while(taken.has(`${code}-V-${String(i).padStart(4,"0")}`))i++;
+      const name=`${code}-V-${String(i).padStart(4,"0")}`;
+      let elevation:number|null=null;
+      if(pb1Dtm){
+        const res=await fetch(`${getApiUrl()}/technical-pieces/${pb1PieceId}/pb1/dtm/sample`,
+          {method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+           body:JSON.stringify(pb1Candidate)});
+        const body=await res.json().catch(()=>null);
+        if(!res.ok)throw new Error(typeof body?.detail==="string"?body.detail:"MDT não amostrado");
+        elevation=Number(body.source_elevation_m);
+        if(!Number.isFinite(elevation))throw new Error("Valor MDT inválido");
+      }
+      setPb1Draft(old=>[...old,{name,...pb1Candidate,source_elevation_m:elevation,
+        created_at:new Date().toISOString()}]);
+      setPb1ClosureConfirmed(false);
+      setPb1Candidate(null);
+      setPb1Notice(`Vértice ${name} criado por PB1. Altitude original: ${elevation??"MDT pendente"}; h elipsoidal não calculada.`);
+    }catch(err){setPb1Notice(err instanceof Error?err.message:"Falha na captura PB1");}
+    finally{setPb1Busy(false);}
+  };
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const prefix = code.length >= 3 && code.length <= 6 ? code : "VIRTUAL";
