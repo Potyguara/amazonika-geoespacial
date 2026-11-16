@@ -142,7 +142,7 @@ def inpe_cbers_tile(scene_id: str, z: int, x: int, y: int):
     url = f"{TILE_ROOT}/tiles/{scene_id}/{z}/{x}/{y}.png"
     request = Request(url, headers={"Accept": "image/png", "User-Agent": "Amazonika-GEO90B/1.0"})
     try:
-        with urlopen(request, timeout=40) as upstream:
+        with urlopen(request, timeout=150) as upstream:
             if upstream.status != 200 or upstream.headers.get_content_type() != "image/png":
                 raise HTTPException(502, "Resposta inesperada do renderizador.")
             body = upstream.read(500_001)
