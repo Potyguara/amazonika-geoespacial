@@ -167,6 +167,7 @@ export type TopconDraft = {
   stage: number;
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
   ps4_selected_scene?: string;
+  construction_skipped?: boolean;
   ps4_ortho_report?: {scene_id:string;reference:string;rms_m:number|null;reviewed_by_rt:boolean};
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
@@ -339,6 +340,11 @@ export function PecasTecnicasWorkspace({
         setWorkflowNotice("Para iniciar PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
         return;
       }
+      if(constructionSkipped) {
+        setPa2Mode(false);
+        setWorkflowNotice("Construção opcional dispensada. Os marcos GNSS originais poderão compor a peça sem novos V.");
+        return;
+      }
       setConstructionMethod("PS4");
       setPa2Mode(true);
       setWorkflowNotice("Mapa PS4 aberto: marque os vértices V, escolha o segmento entre marcos e confirme o fechamento.");
@@ -362,6 +368,7 @@ export function PecasTecnicasWorkspace({
   const [topconReviewBusy, setTopconReviewBusy] = useState(false);
   const [topconReviewFeedback, setTopconReviewFeedback] = useState<{status:"info"|"error"|"success";message:string}|null>(null);
   const [pa2Mode, setPa2Mode] = useState(false);
+  const [constructionSkipped,setConstructionSkipped] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
@@ -663,6 +670,7 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(d.preview);
     setTopconBoundary(d.boundary);
     setPs4Draft(d.ps4_draft ?? []);
+    setConstructionSkipped(Boolean(d.construction_skipped));
     setPs4SceneId(d.ps4_selected_scene || d.ps4_draft?.[0]?.scene_id ||
       "CBERS4A_WPM_PCA_RGB321_20261016_214_113");
     setPs4Armed(Boolean(d.ps4_draft?.length));
@@ -703,6 +711,7 @@ export function PecasTecnicasWorkspace({
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
     ps4_selected_scene: ps4SceneId,
+    construction_skipped: constructionSkipped,
     ps4_ortho_report: ps4OrthoReport,
     official_overlap:overlapCurrent?officialOverlap:undefined,
     ps4_quality:ps4Quality,
@@ -1111,7 +1120,8 @@ export function PecasTecnicasWorkspace({
   const importTopcon = async (file: File) => {
     setTopconError("");
     setTopconPreview(null);
-    setPa2Mode(false); setPa2Result(null); setPa2Witnesses([]); setMapHint(null);
+    setPa2Mode(false); setConstructionSkipped(false);
+    setPa2Result(null); setPa2Witnesses([]); setMapHint(null);
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
     setPs4Draft([]);
@@ -1640,12 +1650,23 @@ export function PecasTecnicasWorkspace({
               {premiumStep===3 && <>
                 <h4>Vértices V por sensores orbitais</h4>
                 <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
-                  e faça o fechamento M–V–M antes de consolidar a parcela preliminar.</p>
+                  e faça o fechamento M–V–M antes de consolidar a parcela preliminar.
+                  Se o perímetro GNSS já estiver completo, dispense esta etapa.</p>
+                <label className="pecas-check">
+                  <input type="checkbox" checked={!constructionSkipped}
+                    onChange={e=>{
+                      const skip=!e.target.checked;
+                      setConstructionSkipped(skip);
+                      if(skip){setPa2Mode(false);setWorkflowNotice("Construção adicional dispensada; nenhuma nova restituição será exigida.");}
+                    }}/>
+                  Preciso construir vértices adicionais (facultativo)
+                </label>
                 <p className="geo96-next-step">{ps4Draft.length} vértices V registrados.
                   Fechamento: {ps4Ready?"confirmado para prévia":"pendente"}.</p>
                 <button type="button" className="pecas-primary"
                   disabled={!topconPreview||topconBoundary.length<2}
                   onClick={()=>{
+                    setConstructionSkipped(false);
                     setConstructionMethod("PS4");setPa2Mode(true);
                   }}>Abrir mapa PS4 e imagens INPE</button>
                 {ps4Ready&&<div className="geo97-adopt-banner" role="status">
@@ -2826,9 +2847,11 @@ export function PecasTecnicasWorkspace({
                         <label className="pecas-check"><input type="checkbox"
                           checked={pa2Mode}
                           onChange={(e) => {
+                            if(e.target.checked)setConstructionSkipped(false);
                             setPa2Mode(e.target.checked);
                             setPa2Result(null);
                             if(!e.target.checked) {
+                              setConstructionSkipped(true);
                               setPa2Witnesses([]);setMapHint(null);setPs4Candidate(null);
                               setWorkflowNotice("Construção adicional desativada. Os marcos TOPCON originais permanecem disponíveis para a peça.");
                             }
