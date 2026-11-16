@@ -6,6 +6,7 @@ substituto da ortoimagem. Restringe zoom, dimensões e concorrência.
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 from pathlib import Path
 from io import BytesIO
@@ -55,6 +56,52 @@ def tile_intersects_footprint(metadata: dict, z: int, x: int, y: int) -> bool:
     return polygon.intersects(box(lon_min, lat_min, lon_max, lat_max))
 
 
+def _render_grayscale_tile(target: Path, temp: Path, env: dict) -> bytes:
+    """Pancromático Int16 -> PNG RGBA de visualização, mantendo alpha real.
+
+    Escala radiométrica por tile: melhora visualização local, mas não deve ser
+    usada para análises quantitativas ou comparações radiométricas entre tiles.
+    """
+    stats = subprocess.run(
+        ["gdalinfo", "-json", "-stats", str(target)],
+        capture_output=True, text=True, check=False, timeout=20,
+        env={**env, "GDAL_PAM_ENABLED": "NO"},
+    )
+    if stats.returncode:
+        raise ValueError("Não foi possível calcular contraste pancromático.")
+    bands = json.loads(stats.stdout).get("bands") or []
+    metadata = (bands[0].get("metadata") or {}).get("") or {}
+    try:
+        low = float(metadata["STATISTICS_MINIMUM"])
+        high = float(metadata["STATISTICS_MAXIMUM"])
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise ValueError("Tile L4 sem estatísticas radiométricas válidas.") from exc
+    if high <= low:
+        # Pixel constante legítimo; não produzir intervalo -scale degenerado.
+        high = low + 1
+    grey = temp / "grayscale.png"
+    alpha = temp / "alpha.png"
+    for command, output in (
+        (["gdal_translate", "-q", "-of", "PNG", "-ot", "Byte",
+          "-b", "1", "-scale", str(low), str(high), "1", "255",
+          str(target), str(grey)], grey),
+        (["gdal_translate", "-q", "-of", "PNG", "-ot", "Byte",
+          "-b", "2", str(target), str(alpha)], alpha),
+    ):
+        done = subprocess.run(
+            command, check=False, capture_output=True, timeout=15, env=env,
+        )
+        if done.returncode or not output.is_file():
+            raise ValueError("Falha na composição pancromática L4.")
+    with Image.open(grey) as image, Image.open(alpha) as mask:
+        value = image.convert("L")
+        opacity = mask.convert("L")
+        output = Image.merge("RGBA", (value, value, value, opacity))
+        stream = BytesIO()
+        output.save(stream, "PNG")
+        return stream.getvalue()
+
+
 def render_png_tile(path: Path, z: int, x: int, y: int) -> bytes:
     """Gera PNG de 256x256 sem persistir tiles temporários no volume."""
     if not path.is_file():
@@ -84,6 +131,23 @@ def render_png_tile(path: Path, z: int, x: int, y: int) -> bytes:
                 )
                 if warped.returncode:
                     raise ValueError("Não foi possível reprojetar o tile da ortoimagem.")
+                # GDAL converte Int16 -> PNG sem escala e satura os valores
+                # pancromáticos; resultados podem ser opacos porém uniformes.
+                # A transformação radiométrica altera SOMENTE o PNG de exibição.
+                info_run = subprocess.run(
+                    ["gdalinfo", "-json", str(target)],
+                    check=False, capture_output=True, text=True,
+                    timeout=15, env=env,
+                )
+                if info_run.returncode:
+                    raise ValueError("Falha ao ler bandas do tile PS4.")
+                info = json.loads(info_run.stdout)
+                bands = info.get("bands") or []
+                if len(bands) == 2 and bands[1].get("colorInterpretation") == "Alpha":
+                    # Para L4 (uma banda + alpha), preservar a máscara de
+                    # cobertura e aplicar contraste à banda Int16 separadamente.
+                    result = _render_grayscale_tile(target, temp, env)
+                    return result
                 converted = subprocess.run(
                     ["gdal_translate", "-q", "-of", "PNG", str(target), str(png)],
                     check=False, capture_output=True, timeout=15, env=env,
