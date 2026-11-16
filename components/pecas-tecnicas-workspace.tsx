@@ -2979,6 +2979,18 @@ export function PecasTecnicasWorkspace({
 .ps4-navigation-foot .ps4-sidebar-warning {color:#ffb6bc;}
 @media(max-width:1180px) {.ps4-navigation {display:none;} .ps4-redesigned-dialog .ps4-main-grid {grid-template-columns:minmax(360px, 1fr) minmax(320px, 1fr)!important;}}
 @media(max-width:800px) {.ps4-redesigned-dialog .ps4-main-grid {grid-template-columns:minmax(0,1fr)!important;}}
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > label.pecas-field {display:none;}
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > section > h4 {display:none;}
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > section {display:grid;gap:7px;}
+.ps4-redesigned-dialog .ps4-main-grid {gap:12px!important;}
+.ps4-redesigned-dialog .ps4-flow-summary {padding:12px 14px;}
+.ps4-redesigned-dialog .ps4-flow-card {margin:7px 0;}
+.ps4-redesigned-dialog .ps4-redesign-intro {padding:13px 15px;}
+.ps4-redesigned-dialog .ps4-alert-red {padding:11px 14px;}
+.ps4-redesigned-dialog .ps4-flow-scroll {padding-bottom:18px;}
+.ps4-redesigned-dialog .ps4-map-column {overflow:auto;min-width:0;}
+.ps4-redesigned-dialog .ps4-map-column > .pecas-card {padding:12px;min-height:calc(100% - 6px);}
+.ps4-redesigned-dialog .ps4-map-column > .pecas-card > h4 {margin:0 0 8px;}
 .ps4-redesigned-dialog { --ps4-dark:#073b2f; --ps4-danger:#b4232d; --ps4-soft:#fff1f1; --ps4-line:#d9e3dc; background:#f4f8f5!important; }
 .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card { border:0; background:transparent; box-shadow:none; padding:0; }
 .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > h4, .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > p { display:none; }
@@ -3067,26 +3079,8 @@ export function PecasTecnicasWorkspace({
             </details>
           </div>
           <div className={constructionMethod === "PS4" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
-            gridTemplateColumns: constructionMethod === "PS4" ? "190px minmax(460px, 1.3fr) minmax(330px, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
-            {constructionMethod === "PS4" && <aside className="ps4-navigation" aria-label="Progresso das peças técnicas">
-              <div className="ps4-brand-lockup"><span className="ps4-brand-mark">A</span>
-                <span><strong>AMAZÔNIKA</strong><small>GEOESPACIAL</small></span>
-              </div>
-              <span className="ps4-navigation-label">PROGRESSO DO PROJETO</span>
-              <ol className="ps4-navigation-steps">
-                <li><span>01</span><div><strong>Importação GNSS</strong><small>Levantamento de campo</small></div></li>
-                <li><span>02</span><div><strong>Vértices da divisa</strong><small>Seleção e ordenamento</small></div></li>
-                <li><span>03</span><div><strong>Conversão altimétrica</strong><small>Referencial dos marcos</small></div></li>
-                <li className="ps4-navigation-active" aria-current="step"><span>04</span><div><strong>Construção de vértices</strong><small>PS4 · sensores orbitais</small></div></li>
-                <li><span>05</span><div><strong>Sobreposições SIGEF</strong><small>Verificação independente</small></div></li>
-                <li><span>06</span><div><strong>Áreas e vértices</strong><small>Conferência da geometria</small></div></li>
-                <li><span>07</span><div><strong>Memorial</strong><small>Peças preliminares</small></div></li>
-              </ol>
-              <div className="ps4-navigation-foot"><strong>{ps4Draft.length} pontos V</strong>
-                <small>{ps4Ready ? "Traçado geométrico concluído" : "Traçado em andamento"}</small>
-                <small className="ps4-sidebar-warning">Acurácia PS4 {ps4ApprovalConfirmed ? "revisada" : "pendente"}</small>
-              </div>
-            </aside>}
+            gridTemplateColumns: constructionMethod === "PS4" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+            
             <div className={constructionMethod === "PS4" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
                         <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
@@ -3705,7 +3699,7 @@ export function PecasTecnicasWorkspace({
 
 
             </div>
-            <div style={{ overflow: "auto", minHeight: 0 }}>
+            <div className={constructionMethod === "PS4" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
               <div className="pecas-card">
                   <h4>Mapa ampliado — {constructionMethod}</h4>
                   <Pa2WitnessMap
