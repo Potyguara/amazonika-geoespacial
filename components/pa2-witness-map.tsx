@@ -34,6 +34,7 @@ type Props = {
   ps4Candidate?: { latitude: number; longitude: number } | null;
   ps4ClosureGeometry?: { type: "Polygon"; coordinates: number[][][] } | null;
   onPs4Click?: (point: { longitude: number; latitude: number }) => void;
+  ps4CheckCapture?: boolean;
   supportLineMode?: boolean;
   onPositionHint?: (point: { longitude: number; latitude: number }) => void;
   hint?: { longitude: number; latitude: number } | null;
@@ -51,7 +52,7 @@ type Props = {
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
   polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate,
-  ps4ClosureGeometry, onPs4Click, ps4Raster = null, ps4ReportAttached = false,
+  ps4ClosureGeometry, onPs4Click, ps4CheckCapture = false, ps4Raster = null, ps4ReportAttached = false,
   ps4SceneId = "CBERS4A_WPM_PCA_RGB321_20261016_214_113" }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -61,6 +62,8 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   const closureSourceRef = useRef(new VectorSource());
   const ps4ClickRef = useRef(onPs4Click);
   ps4ClickRef.current = onPs4Click;
+  const ps4CheckCaptureRef = useRef(ps4CheckCapture);
+  ps4CheckCaptureRef.current = ps4CheckCapture;
   const methodRef = useRef(method);
   methodRef.current = method;
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
@@ -151,6 +154,9 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
           declutter: true,
           source,
           style: (feature) => {
+            // Não permitir que a própria etiqueta GNSS seja o alvo de checagem.
+            // Durante captura, somente os pixels da imagem permanecem visíveis.
+            if (ps4CheckCaptureRef.current) return null;
             const isLine = feature.getGeometry() instanceof LineString;
             const isV = Boolean(feature.get("virtual"));
             const chosen = Boolean(feature.get("chosen"));
@@ -495,6 +501,10 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     else setCbersError("");
   }, [cbersEnabled, cbersOpacity, ps4SceneId, ps4Raster?.sha256]);
 
+  useEffect(() => {
+    sourceRef.current.changed();
+  }, [ps4CheckCapture]);
+
   const changeZoom = (delta: number) => {
     const map = mapRef.current;
     if (map) map.getView().setZoom(Math.min(21, Math.max(2, (map.getView().getZoom() ?? 12) + delta)));
@@ -527,6 +537,9 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       <button type="button" onClick={() => changeZoom(1)}>Zoom +</button>
       <button type="button" onClick={() => changeZoom(-1)}>Zoom −</button>
     </div>
+    {method === "PS4" && ps4CheckCapture && <p role="status" style={{background:"#fff3cf",color:"#7c4c06",padding:"9px 12px",borderRadius:8,fontWeight:750,fontSize:12}}>
+      Modo checagem: marcadores GNSS temporariamente ocultos. Clique na feição real identificável na imagem, não na posição presumida do marco.
+    </p>}
     <div ref={container} style={{ height: "min(68vh, 700px)", minHeight: 390, width: "100%", borderRadius: 9,
       border: "1px solid #9ca3af", overflow: "hidden" }} aria-label={method === "PS4" ? "Mapa de restituição experimental de vértices PS4" : "Mapa de construção de vértices"} />
     {baseError && <p role="status">{baseError}</p>}
