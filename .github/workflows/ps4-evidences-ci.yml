@@ -50,6 +50,32 @@ jobs:
         env:
           PYTHONPATH: backend
         run: python scripts/ps4_inpe_live_smoke.py
+      - name: Inspect original L4 technical metadata availability (non-blocking)
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          PYTHONPATH: backend
+        run: |
+          python - <<'PY'
+          from urllib.parse import urlparse
+          from app.services.inpe_ps4_import import (
+              fetch_inpe_item, examine_inpe_item, L4_COLLECTION,
+          )
+          try:
+              item = fetch_inpe_item(
+                  "CBERS_4A_WPM_20260226_216_138_L4", L4_COLLECTION
+              )
+              info = examine_inpe_item(item)
+              print("L4_ITEM:", info["id"])
+              print("L4_ASSET_KEY:", info["asset_key"])
+              print("L4_SOURCE_HOST:", urlparse(item["assets"][info["asset_key"]]["href"]).hostname)
+              print("L4_ASSET_AVAILABLE:", info["import_supported"])
+              print("L4_XML_METADATA:", info["metadata_assets"])
+              print("L4_PDF_RMS_AVAILABLE:", info["report_available"])
+          except Exception as exc:
+              print("L4_METADATA_LOOKUP_FAILED:", type(exc).__name__, str(exc)[:200])
+              raise SystemExit(1)
+          PY
       - name: Compile PS4 modules
         run: |
           python -m py_compile backend/app/api/routes/technical_pieces.py
