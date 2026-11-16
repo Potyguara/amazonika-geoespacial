@@ -728,8 +728,9 @@ def ps4_prepare_inpe_scene(
         raise HTTPException(503, str(exc)) from exc
     snapshot = dict(piece.snapshot or {})
     current = dict(snapshot.get("ps4") or {})
-    assets = dict(current.get("assets") or {})
-    assets["raster"] = result["asset"]
+    # A imagem mudou: relatório anterior não é evidência desta nova cena.
+    # A cópia física antiga permanece arquivada, mas deixa de estar vinculada.
+    assets = {"raster": result["asset"]}
     current["assets"] = assets
     current["source_provenance"] = result["provenance"]
     current.pop("approval", None)
