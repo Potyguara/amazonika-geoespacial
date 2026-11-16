@@ -6,6 +6,14 @@ A resolução de pixel é nominal e NÃO representa precisão posicional.
 from __future__ import annotations
 
 from math import hypot, isfinite
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import BoundedSemaphore
+import os
+import subprocess
+from PIL import Image, ImageFilter, ImageStat
+
+_ANALYSIS_SEMAPHORE = BoundedSemaphore(1)
 
 from shapely.geometry import Point, shape
 
@@ -62,3 +70,69 @@ def diagnose_ps4_raster(metadata: dict, vertices: list[dict]) -> dict:
             "PS4 permanece preliminar até comprovação de acurácia e revisão RT.",
         ],
     }
+
+
+def analyze_raster_visual(path: Path) -> dict:
+    """Amostra real do raster, sem dados externos e sem presumir acurácia.
+
+    Parâmetros meramente radiométricos. Não estimam EMQ/sigmas e não
+    avaliam nuvens com garantia científica.
+    """
+    from app.services.ps4_tiles import _source_stretch
+
+    if not path.is_file():
+        raise ValueError("Imagem privada não disponível para análise.")
+    if not _ANALYSIS_SEMAPHORE.acquire(timeout=3):
+        raise RuntimeError("Análise da imagem ocupada. Tente novamente.")
+    try:
+        low, high = _source_stretch(str(path), path.stat().st_mtime_ns)
+        with TemporaryDirectory(prefix="ps4-visual-") as directory:
+            image_path = Path(directory) / "analysis.png"
+            env = {**os.environ, "GDAL_CACHEMAX": "32",
+                   "GDAL_NUM_THREADS": "1", "GDAL_PAM_ENABLED": "NO"}
+            args = [
+                "gdal_translate", "-q", "-of", "PNG", "-ot", "Byte",
+                "-b", "1", "-outsize", "256", "256", "-r", "bilinear",
+                "-scale", str(low), str(high), "1", "255",
+                str(path), str(image_path),
+            ]
+            try:
+                run = subprocess.run(args, capture_output=True, check=False,
+                                     env=env, timeout=25)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise ValueError("Falha ou tempo excedido na amostragem da imagem.") from exc
+            if run.returncode or not image_path.is_file():
+                raise ValueError("Não foi possível amostrar a banda orbital.")
+            with Image.open(image_path) as raster:
+                sample = raster.convert("L")
+                histogram = sample.histogram()
+                count = sum(histogram)
+                if count <= 0:
+                    raise ValueError("Amostra radiométrica vazia.")
+                # Média de gradiente por pixel em amostra reduzida.
+                edges = sample.filter(ImageFilter.FIND_EDGES)
+                edge_mean = ImageStat.Stat(edges).mean[0]
+                contrast_sd = ImageStat.Stat(sample).stddev[0]
+                clipped = sum(histogram[:4]) + sum(histogram[252:])
+                result = {
+                    "status": "ANALYZED",
+                    "sample_width_px": sample.width,
+                    "sample_height_px": sample.height,
+                    "global_stretch_min": round(low, 3),
+                    "global_stretch_max": round(high, 3),
+                    "grayscale_stddev": round(contrast_sd, 2),
+                    "edge_mean": round(edge_mean, 2),
+                    "extreme_brightness_pct": round(100 * clipped / count, 2),
+                    "quality_basis": "DIAGNOSTICO_RADIOMETRICO_EXPLORATORIO",
+                    "positional_accuracy_m": None,
+                    "sigma_e_m": None,
+                    "sigma_n_m": None,
+                    "warnings": [
+                        "Indicadores radiométricos não determinam nitidez posicional certificável.",
+                        "Amostra reduzida não identifica automaticamente nuvens, sombras ou erro orbital.",
+                        "Não há RMS/EMQ independente: precisão PS4 permanece NÃO COMPROVADA.",
+                    ],
+                }
+                return result
+    finally:
+        _ANALYSIS_SEMAPHORE.release()
