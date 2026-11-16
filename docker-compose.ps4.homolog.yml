@@ -99,6 +99,11 @@ services:
   gateway:
     image: nginx:1.27-alpine
     restart: "no"
+    # O nginx padrão tenta chown de /var/cache quando inicia como root.
+    # Sem CAP_CHOWN, isso falha. UID/GID nginx e PID em /tmp evitam
+    # elevar privilégios, preservando cap_drop ALL.
+    user: "101:101"
+    command: ["nginx", "-g", "pid /tmp/nginx.pid; daemon off;"]
     ports:
       - "127.0.0.1:13140:8080"
     volumes:
