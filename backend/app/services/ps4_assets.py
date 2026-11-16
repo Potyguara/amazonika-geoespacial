@@ -11,6 +11,7 @@ from typing import BinaryIO
 from uuid import UUID
 
 from app.core.config import get_settings
+from pyproj import CRS
 
 MAX_RASTER_BYTES = 256 * 1024 * 1024
 MAX_REPORT_BYTES = 25 * 1024 * 1024
@@ -50,9 +51,12 @@ def _raster_info(path: Path) -> dict:
         width, height = info.get("size", [0, 0])
         if width < 2 or height < 2:
             raise ValueError("Dimensões inválidas da imagem orbital.")
+        raster_crs = CRS.from_wkt(info["coordinateSystem"]["wkt"])
+        epsg = raster_crs.to_epsg()
         return {
             "width": width, "height": height,
             "crs_wkt": info["coordinateSystem"]["wkt"],
+            "crs_authority": f"EPSG:{epsg}" if epsg is not None else None,
             "geo_transform": info["geoTransform"],
             "wgs84_extent": info.get("wgs84Extent"),
             "driver": "GTiff",
