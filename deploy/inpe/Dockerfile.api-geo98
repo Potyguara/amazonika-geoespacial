@@ -6,6 +6,7 @@ COPY backend/app/api/routes/tools.py /app/app/api/routes/tools.py
 COPY backend/app/api/routes/technical_pieces.py /app/app/api/routes/technical_pieces.py
 COPY backend/app/services/topcon_perimeter_review.py /app/app/services/topcon_perimeter_review.py
 COPY backend/app/services/sigef_ods_working.py /app/app/services/sigef_ods_working.py
+COPY backend/app/services/sigef_ods_reviewed.py /app/app/services/sigef_ods_reviewed.py
 COPY backend/app/services/plant_memorial_v2.py /app/app/services/plant_memorial_v2.py
 COPY backend/app/services/plant_memorial_v3.py /app/app/services/plant_memorial_v3.py
 COPY backend/app/services/preliminary_pdf_stamp.py /app/app/services/preliminary_pdf_stamp.py
