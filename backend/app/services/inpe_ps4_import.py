@@ -21,6 +21,8 @@ from urllib.error import HTTPError, URLError
 from app.services.ps4_assets import store_uploaded_asset
 from app.core.config import get_settings
 from defusedxml import ElementTree as SafeXML
+from defusedxml.common import DefusedXmlException
+from xml.etree.ElementTree import ParseError
 
 COLLECTION = "CB4A-WPM-PCA-FUSED-1"
 L4_COLLECTION = "CB4A-WPM-L4-DN-1"
@@ -83,22 +85,26 @@ def fetch_official_xml(item: dict, user_id, piece_id) -> dict:
         if not data or len(data) > MAX_XML_BYTES:
             raise ValueError("XML oficial vazio ou excessivamente grande.")
         root = SafeXML.fromstring(data)
-    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError,
+            ParseError, DefusedXmlException) as exc:
         return {"status": "UNAVAILABLE", "asset_key": key,
                 "reason": type(exc).__name__}
     digest = hashlib.sha256(data).hexdigest()
     storage = get_settings().storage_dir / "ps4" / str(user_id) / str(piece_id)
     storage.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = storage / f"inpe-metadata-{digest}.xml"
-    with tempfile.NamedTemporaryFile(dir=storage, delete=False) as temp:
-        temp_name = Path(temp.name)
-        try:
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=storage, delete=False) as temp:
+            temp_name = Path(temp.name)
             temp.write(data)
             temp.flush()
             os.fsync(temp.fileno())
-        finally:
-            pass
-    os.replace(temp_name, path)
+        os.replace(temp_name, path)
+        temp_name = None
+    finally:
+        if temp_name is not None:
+            temp_name.unlink(missing_ok=True)
     # Apenas nomes dos campos potencialmente relevantes. Não exibir como RMS
     # aprovado: metadados XML podem descrever ajustes ou grandezas diferentes.
     candidate_names = sorted({
