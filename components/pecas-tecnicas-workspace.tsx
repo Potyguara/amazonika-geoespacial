@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide
 import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
 import { Pa2WitnessMap } from "@/components/pa2-witness-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
+import { Ps4EvidencePanel } from "@/components/ps4-evidence-panel";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
 import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
@@ -3063,6 +3064,12 @@ export function PecasTecnicasWorkspace({
                                 kind:"info",message:"Cena atual confirmada. Clique no mapa para criar V."});
                               }}>Usar cena atual para iniciar vetorização</button>}
                           </details>
+                          <Ps4EvidencePanel
+                            pieceId={loadedPieceId}
+                            sceneId={ps4SceneId}
+                            vertices={ps4Draft}
+                            rmsFromWorkspace={ps4OrthoReport.rms_m}
+                          />
                           <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
                             selecionada. A prévia será vinculada à cena e poderá compor a planta
                             PRELIMINAR, sem substituir automaticamente a validação SIGEF.</p>
