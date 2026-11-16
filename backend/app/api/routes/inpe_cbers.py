@@ -16,6 +16,9 @@ from fastapi.responses import Response
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.services.auth import require_permission
+from app.services.inpe_ps4_import import (
+    COLLECTION as RGB_COLLECTION, L4_COLLECTION, fetch_inpe_item, examine_inpe_item,
+)
 
 router = APIRouter(
     prefix="/inpe-cbers",
@@ -158,3 +161,17 @@ def inpe_cbers_tile(scene_id: str, z: int, x: int, y: int):
         "Cache-Control": "private, max-age=300",
         "X-Content-Type-Options": "nosniff",
     })
+
+
+@router.get("/inspect/{kind}/{item_id}")
+def inspect_cbers_scene(kind: str, item_id: str):
+    """Examina o item real; não interpreta GSD como prova de acurácia."""
+    if kind not in ("rgb", "ortho"):
+        raise HTTPException(422, "Coleção não reconhecida.")
+    collection = L4_COLLECTION if kind == "ortho" else RGB_COLLECTION
+    try:
+        return examine_inpe_item(fetch_inpe_item(item_id, collection))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
