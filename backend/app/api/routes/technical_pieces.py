@@ -544,8 +544,14 @@ class PS4Checkpoint(BaseModel):
     used_for_orthorectification: bool = False
 
 
+class PS4CheckpointExclusion(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=8, max_length=1000)
+
+
 class PS4CheckpointAnalysisInput(BaseModel):
     checkpoints: list[PS4Checkpoint] = Field(default_factory=list, max_length=500)
+    exclusions: list[PS4CheckpointExclusion] = Field(default_factory=list, max_length=500)
 
 
 @router.post("/{piece_id}/ps4/checkpoint-analysis")
@@ -569,10 +575,32 @@ def ps4_checkpoint_analysis(
         raise HTTPException(422, str(exc)) from exc
     snapshot = dict(piece.snapshot or {})
     ps4 = dict(snapshot.get("ps4") or {})
+    previous_analysis = ps4.get("checkpoint_analysis") or {}
+    same_raster = previous_analysis.get("raster_sha256") == raster["sha256"]
+    history = list(previous_analysis.get("exclusion_log") or []) if same_raster else []
+    previous_names = {
+        str(item.get("name", "")).strip()
+        for item in (previous_analysis.get("checkpoints") or [])
+        if isinstance(item, dict)
+    } if same_raster else set()
+    current_names = {item.name for item in payload.checkpoints}
+    requested_names = [item.name for item in payload.exclusions]
+    if len(requested_names) != len(set(requested_names)):
+        raise HTTPException(422, "Exclusões repetidas na mesma avaliação.")
+    if any(name not in previous_names or name in current_names for name in requested_names):
+        raise HTTPException(
+            422, "A exclusão deve referir ponto salvo da avaliação anterior e ausente da nova amostra."
+        )
+    now = datetime.now(timezone.utc).isoformat()
+    history.extend({
+        "name": exclusion.name, "reason": exclusion.reason.strip(),
+        "excluded_at": now, "user_id": str(user.id),
+    } for exclusion in payload.exclusions)
     ps4["checkpoint_analysis"] = {
         "raster_sha256": raster["sha256"],
         "checkpoints": payload.model_dump(mode="json")["checkpoints"],
         "result": result,
+        "exclusion_log": history,
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
     }
     snapshot["ps4"] = ps4
