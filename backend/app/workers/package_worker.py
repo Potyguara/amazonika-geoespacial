@@ -13,6 +13,7 @@ from app.services.importer import import_vector_file
 from app.services.package_importer import import_package, inspect_package
 from app.workers.ps4_inpe_worker import recover_jobs as recover_ps4_jobs, process_next_job as process_next_ps4_job
 from app.services.ps4_inpe_queue import prune_terminal_jobs
+from app.services.inpe_ps4_import import cleanup_stale_crop_temporaries
 
 
 POLL_SECONDS = 3
@@ -620,6 +621,11 @@ def main() -> None:
     _recover_interrupted_jobs()
     _recover_interrupted_vector_jobs()
     recover_ps4_jobs()
+    try:
+        removed = cleanup_stale_crop_temporaries()
+        print(f"[package-worker] PS4 temporários antigos limpos: {removed}", flush=True)
+    except Exception as exc:
+        print(f"[package-worker] limpeza de temporários PS4 ignorada: {exc}", flush=True)
     try:
         count = prune_terminal_jobs(days=90)
         print(f"[package-worker] PS4 arquivos de status antigos eliminados: {count}", flush=True)
