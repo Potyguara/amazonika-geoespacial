@@ -16,7 +16,7 @@ from app.services.auth import get_current_user, require_permission
 from app.services.audit import write_audit
 from app.services.ps4_validation import PS4Submission, evaluate_verified_ps4
 from app.services.ps4_assets import store_uploaded_asset, stored_file_path, exists_matching
-from app.services.ps4_tiles import mercator_tile_bounds, tile_intersects_footprint, render_png_tile
+from app.services.ps4_tiles import mercator_tile_bounds, tile_intersects_footprint, render_png_tile, transparent_png_tile
 from app.services.technical_import import parse_sigef_ods
 from app.services.topcon_import import parse_topcon_report, MAX_BYTES
 from app.services.topcon_perimeter_review import review_topcon_perimeter
@@ -646,7 +646,10 @@ def ps4_raster_tile(
         if not path.is_file():
             raise HTTPException(404, "GeoTIFF não encontrado.")
         if not tile_intersects_footprint(asset.get("metadata") or {}, z, x, y):
-            return Response(status_code=204, headers={"Cache-Control": "private, max-age=120"})
+            return Response(
+                transparent_png_tile(), media_type="image/png",
+                headers={"Cache-Control": "private, max-age=3600", "X-PS4-Empty-Tile": "true"},
+            )
         image = render_png_tile(path, z, x, y)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
