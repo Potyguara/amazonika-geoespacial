@@ -67,8 +67,6 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   const cbersRef = useRef<TileLayer<XYZ> | null>(null);
   const rasterRef = useRef<TileLayer<XYZ> | null>(null);
   const rasterReadyRef = useRef(false);
-  const reportAttachedRef = useRef(ps4ReportAttached);
-  reportAttachedRef.current = ps4ReportAttached;
   const footprintRef = useRef<Geometry | null>(null);
   const [cbersEnabled, setCbersEnabled] = useState(false);
   const [cbersOpacity, setCbersOpacity] = useState(0.8);
@@ -178,21 +176,20 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
       if (methodRef.current === "PS4" && ps4ClickRef.current) {
         const [longitude, latitude] = toLonLat(event.coordinate);
-        if (!reportAttachedRef.current) {
-          setPs4MapWarning("Anexe primeiro o relatório PDF de ortorretificação da cena.");
-        } else if (!rasterReadyRef.current || !footprintRef.current) {
+        // Vetorização provisória pode usar o recorte próprio ou a cena INPE.
+        // O PDF do RT continua obrigatório para aprovação, não para desenhar.
+        const privateRasterVisible = Boolean(rasterRef.current?.getVisible());
+        const imageLayer = privateRasterVisible ? rasterRef.current : cbersRef.current;
+        const pixel = imageLayer?.getData(event.pixel);
+        const alpha = pixel
+          ? ("getUint8" in pixel ? pixel.getUint8(3) : pixel[3])
+          : 0;
+        if (!imageLayer?.getVisible() || !pixel || typeof alpha !== "number" || alpha <= 0) {
+          setPs4MapWarning("Aguarde carregar um pixel válido da imagem visível antes de marcar V provisório.");
+        } else if (privateRasterVisible && (!rasterReadyRef.current || !footprintRef.current)) {
           setPs4MapWarning("Importe e carregue o GeoTIFF da peça antes de marcar V; imagens externas não são evidência PS4.");
-        } else if (!footprintRef.current.intersectsCoordinate(event.coordinate)) {
+        } else if (privateRasterVisible && !footprintRef.current!.intersectsCoordinate(event.coordinate)) {
           setPs4MapWarning("Fora da cobertura da ortoimagem anexada. Nenhum vértice criado.");
-        } else if (!(() => {
-          // Deve existir pixel opaco da própria ortoimagem renderizada.
-          // Tiles transparentes, em carregamento ou fora do raster não autorizam V.
-          const pixel = rasterRef.current?.getData(event.pixel);
-          if (!pixel) return false;
-          const alpha = "getUint8" in pixel ? pixel.getUint8(3) : pixel[3];
-          return typeof alpha === "number" && alpha > 0;
-        })()) {
-          setPs4MapWarning("A ortoimagem não possui pixel visível nesta posição. Aguarde o carregamento do tile.");
         } else if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
           setPs4MapWarning("");
           ps4ClickRef.current({ longitude, latitude });
@@ -484,7 +481,9 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
 
   useEffect(() => {
     cbersActiveRef.current = cbersEnabled;
-    cbersRef.current?.setVisible(cbersEnabled && !ps4Raster);
+    cbersRef.current?.setVisible(cbersEnabled);
+    // Alternar as camadas evita digitalizar imagem oculta por outra camada.
+    rasterRef.current?.setVisible(Boolean(ps4Raster) && !cbersEnabled);
     cbersRef.current?.setOpacity(cbersOpacity);
     if (cbersEnabled) setCbersError("Cena selecionada " + ps4SceneId + " · PS4 experimental sem acurácia demonstrada.");
     else setCbersError("");
@@ -505,9 +504,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         <option value="mapbox" disabled={!mapboxEnabled}>Mapbox Satélite</option>
       </select></label>
       <label style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <input type="checkbox" checked={cbersEnabled} disabled={method === "PS4" && Boolean(ps4Raster)} onChange={e => setCbersEnabled(e.target.checked)} />
-        CBERS-4A INPE (experimental)
+        <input type="checkbox" checked={cbersEnabled} onChange={e => setCbersEnabled(e.target.checked)} />
+        CBERS-4A INPE (visualização experimental)
       </label>
+      {ps4Raster && <small role="status">
+        {cbersEnabled ? "Cena INPE auxiliar, sem acurácia comprovada" :
+          "GeoTIFF privado da peça carregado para restituição preliminar"}
+      </small>}
       {cbersEnabled && <label>Transparência CBERS-4A:
         <input aria-label="Opacidade da imagem CBERS-4A" type="range" min="0.2" max="1" step="0.1"
           value={cbersOpacity} onChange={e => setCbersOpacity(Number(e.target.value))} />
