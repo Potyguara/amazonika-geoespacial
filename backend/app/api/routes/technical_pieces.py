@@ -15,7 +15,10 @@ from app.models.technical_piece import TechnicalPiece
 from app.services.auth import get_current_user, require_permission
 from app.services.audit import write_audit
 from app.services.ps4_validation import PS4Submission, evaluate_verified_ps4
-from app.services.inpe_ps4_import import fetch_inpe_item, examine_inpe_item, import_inpe_crop
+from app.services.inpe_ps4_import import (
+    fetch_inpe_item, examine_inpe_item, import_inpe_crop,
+    verified_official_xml_path,
+)
 from app.services.ps4_assets import store_uploaded_asset, stored_file_path, exists_matching
 from app.services.ps4_tiles import mercator_tile_bounds, tile_intersects_footprint, render_png_tile, transparent_png_tile
 from app.services.technical_import import parse_sigef_ods
@@ -752,3 +755,23 @@ def ps4_prepare_inpe_scene(
         "message": "Recorte CBERS armazenado. RMS, precisão absoluta e relatório "
                    "de ortorretificação permanecem pendentes de comprovação.",
     }
+
+
+@router.get("/{piece_id}/ps4/inpe/metadata.xml")
+def ps4_download_official_xml(
+    piece_id: UUID,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Arquivo XML do INPE preservado e verificado; não substitui relatório RMS."""
+    piece = _owned(piece_id, db, user)
+    provenance = ((piece.snapshot or {}).get("ps4") or {}).get("source_provenance") or {}
+    metadata = provenance.get("technical_xml") or {}
+    try:
+        path = verified_official_xml_path(user.id, piece.id, metadata)
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return FileResponse(
+        path, media_type="application/xml",
+        filename=f"INPE_{provenance.get('item_id', 'CBERS')}_METADADOS.xml",
+        headers={"Cache-Control": "private, no-store"},
+    )
