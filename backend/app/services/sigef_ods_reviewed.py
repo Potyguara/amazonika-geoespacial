@@ -80,7 +80,7 @@ def _write_perimeter(sheet, parcel: dict) -> None:
     # A geometria e a ordem são derivadas somente destes mesmos vértices.
     checked = review_topcon_perimeter(vertices)
     if not checked["ready_for_ods"]:
-        raise ValueError("Perímetro: " + "; ".join(checked["errors"][:5]))
+        raise ValueError("Perímetro: " + "; ".join((checked["errors"] + checked.get("ods_errors", []) + ["Sigmas individuais ausentes: " + ", ".join(checked.get("missing_sigmas", [])[:10])])[:6]))
     sheet.set(TABLE + "name", str(parcel["_sheet_name"]))
     _set_identification_value(sheet, 3, 2, _required_text(parcel["name"], "parcela"))
     _set_identification_value(sheet, 4, 2, str(parcel["number"]))
@@ -146,7 +146,7 @@ def build_reviewed_sigef_ods(payload: dict) -> bytes:
         vertices = parcel.get("vertices") or []
         checked = review_topcon_perimeter(vertices)
         if not checked["ready_for_ods"]:
-            raise ValueError(f"Parcela {index}: " + "; ".join(checked["errors"][:5]))
+            raise ValueError(f"Parcela {index}: " + "; ".join((checked["errors"] + checked.get("ods_errors", []) + ["Sigmas individuais ausentes: " + ", ".join(checked.get("missing_sigmas", [])[:10])])[:6]))
         # Furo/encravada demanda modelo específico com anéis e associação correta.
         if len(shape(checked["geometry"]).interiors):
             raise ValueError("Perímetros encravados requerem integração específica.")
