@@ -3150,16 +3150,9 @@ export function PecasTecnicasWorkspace({
                                   !window.confirm("Importar outra cena removerá os vértices V anteriores. Confirma?")) {
                                   throw new Error("Troca de cena cancelada.");
                                 }
-                                const draft = {
-                                  ...draftForSave(),
-                                  ps4_selected_scene: scene,
-                                  ps4_draft: [],
-                                  ps4_closure: {start:"",confirmed:false,signature:""},
-                                  ps4_ortho_report: {
-                                    scene_id:scene,reference:"",rms_m:null,reviewed_by_rt:false,
-                                  },
-                                };
-                                const id = await onSavePiece(editableMemorial.trim(), draft);
+                                // Não apagar os V atuais ANTES de a substituição ser validada.
+                                // A API rejeita recortes duplicados ou concorrentes (409).
+                                const id = await onSavePiece(editableMemorial.trim(), draftForSave());
                                 const response = await fetch(
                                   `${getApiUrl()}/technical-pieces/${id}/ps4/inpe/prepare`,
                                   {
