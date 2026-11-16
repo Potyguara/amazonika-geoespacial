@@ -3124,6 +3124,22 @@ export function PecasTecnicasWorkspace({
                             onEnsurePieceSaved={() => onSavePiece(
                               editableMemorial.trim(), draftForSave()
                             )}
+                            onSceneChange={scene => {
+                              if (scene !== ps4SceneId && ps4Draft.length &&
+                                !window.confirm(
+                                  "Trocar a cena invalida os vértices V associados à anterior. Deseja removê-los?"
+                                )) return;
+                              if (scene !== ps4SceneId) {
+                                setPs4Draft([]); setPs4ClosureConfirmed(false);
+                                setPs4ConfirmedSignature(""); setPs4Candidate(null);
+                                setPs4ApprovalConfirmed(false); setOfficialOverlap(undefined);
+                              }
+                              setPs4SceneId(scene);
+                              setPs4Armed(true);
+                              setPs4Status({kind:"info", message:
+                                "Cena do relatório vinculada ao mapa: " + scene +
+                                ". Salve a peça antes de solicitar a aprovação."});
+                            }}
                           />
                           <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
                             selecionada. A prévia será vinculada à cena e poderá compor a planta
