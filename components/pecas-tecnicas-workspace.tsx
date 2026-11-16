@@ -294,7 +294,7 @@ const premiumSteps = [
   { title: "Importação GNSS", detail: "Pontos e precisões TOPCON", stage: 0, target: "geo96-import" },
   { title: "Vértices do divisor", detail: "Seleção e ordenamento", stage: 0, target: "geo96-vertices" },
   { title: "Conversão altimétrica", detail: "Resultado oficial do IBGE", stage: 0, target: "geo96-altimetry" },
-  { title: "Construção PS4", detail: "Vértices V e CBERS-4A", stage: 0, target: "geo96-ps4" },
+  { title: "Construção de vértices", detail: "PB1 base oficial ou PS4 orbital", stage: 0, target: "geo96-ps4" },
   { title: "Sobreposições SIGEF", detail: "SIGEF Mensais e Brasil", stage: 0, target: "geo97-overlaps" },
   { title: "Áreas e vértices", detail: "Parcela M–V consolidada", stage: 1, target: "" },
   { title: "Memorial", detail: "Conferência dos segmentos", stage: 2, target: "" },
@@ -340,7 +340,7 @@ export function PecasTecnicasWorkspace({
       setStage(0);
       setWorkflowNotice(ps4Ready
         ? "Antes de gerar áreas, memorial ou planta, aplique a geometria M–V à parcela preliminar."
-        : "Selecione e ordene os marcos GNSS; para o trecho natural, conclua a restituição PS4 e aplique a parcela.");
+        : "Selecione e ordene os marcos GNSS; para o trecho natural, conclua PB1 ou PS4 e aplique a parcela preliminar.");
       return;
     }
     const item = premiumSteps[index];
@@ -348,7 +348,7 @@ export function PecasTecnicasWorkspace({
     setStage(item.stage);
     if (index === 3) {
       if (topconBoundary.length < 2) {
-        setWorkflowNotice("Para iniciar PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
+        setWorkflowNotice("Para iniciar PB1 ou PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
         return;
       }
       if(constructionSkipped) {
@@ -356,9 +356,8 @@ export function PecasTecnicasWorkspace({
         setWorkflowNotice("Construção opcional dispensada. Os marcos GNSS originais poderão compor a peça sem novos V.");
         return;
       }
-      setConstructionMethod("PS4");
       setPa2Mode(true);
-      setWorkflowNotice("Mapa PS4 aberto: marque os vértices V, escolha o segmento entre marcos e confirme o fechamento.");
+      setWorkflowNotice("Mapa de construção aberto no método "+constructionMethod+". Confira a fonte, marque os V e confirme o fechamento M–V–M.");
       return;
     }
     setWorkflowNotice("Etapa selecionada: " + item.title + ". Confira os dados antes de continuar.");
@@ -1963,7 +1962,7 @@ export function PecasTecnicasWorkspace({
                   tecnicamente apropriada; não será estimada como se fosse GNSS.</p>
               </>}
               {premiumStep===3 && <>
-                <h4>Construção de vértices V — escolha da fonte cartográfica</h4>
+                <h4>Construção de vértices V — PB1 ou PS4</h4>
                 <p>PB1 identifica previamente as folhas de base oficial com precisão documentada.
                   PS4 utiliza sensores orbitais e possui fluxo próprio de ortorretificação.
                   A consulta de folhas PB1 ainda não altera o método dos vértices nem libera ODS.</p>
@@ -1980,7 +1979,7 @@ export function PecasTecnicasWorkspace({
                     Aplicar geometria PB1 à parcela preliminar
                   </button>
                 </div>}
-                <h4>PS4 — Sensores orbitais</h4>
+                <h4>PS4 — Sensores orbitais (opção alternativa)</h4>
                 <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
                   e faça o fechamento M–V–M antes de consolidar a parcela preliminar.
                   Se o perímetro GNSS já estiver completo, dispense esta etapa.</p>
