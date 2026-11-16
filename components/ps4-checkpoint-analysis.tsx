@@ -57,6 +57,7 @@ export function Ps4CheckpointAnalysis({
     if(!selected || selected.longitude==null || selected.latitude==null || !imagePoint || !confirmed)return;
     if(checks.some(v=>v.name===selected.name)) {setError("Este marco já participa da checagem.");return;}
     setChecks(old=>[...old,{name:selected.name,gnss_longitude:selected.longitude!,gnss_latitude:selected.latitude!,image_longitude:imagePoint.longitude,image_latitude:imagePoint.latitude,used_for_orthorectification:false}]);
+    setPendingExclusions(old=>old.filter(p=>p.name!==selected.name));
     setImagePoint(null);setConfirmed(false);setResult(null);setError("");
   };
   const removeCheck = (name:string) => {
