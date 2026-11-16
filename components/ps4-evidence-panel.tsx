@@ -23,6 +23,7 @@ type Submission = {
 };
 type Ps4Record = {
   submission?: Submission;
+  import_job_id?: string | null;
   assets?: Partial<Record<"raster" | "report", UploadedAsset>>;
   validation?: { status: string; blockers: string[]; message?: string };
   approval?: { approved_at: string; rt_name: string; art: string };
@@ -62,6 +63,7 @@ export function Ps4EvidencePanel({
   rmsFromWorkspace: number | null;
 }) {
   const [record, setRecord] = useState<Ps4Record>({});
+  const [inpeJobStatus, setInpeJobStatus] = useState<{status:string;message:string}|null>(null);
   const [reportScene, setReportScene] = useState("");
   const [precision, setPrecision] = useState("");
   const [gsd, setGsd] = useState("");
@@ -103,6 +105,50 @@ export function Ps4EvidencePanel({
     })();
     return () => { active = false; };
   }, [pieceId, refreshRevision]);
+
+  useEffect(() => {
+    if (!pieceId || !record.import_job_id) return;
+    let alive = true;
+    let finished = false;
+    const jobId = record.import_job_id;
+    const check = async () => {
+      if (finished || !alive) return;
+      try {
+        const response = await fetch(
+          `${getApiUrl()}/technical-pieces/${pieceId}/ps4/inpe/jobs/${jobId}`,
+          {credentials:"include",cache:"no-store"},
+        );
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (!alive) return;
+        const current = payload?.job;
+        if (!current) return;
+        setInpeJobStatus({status:String(current.status),message:String(current.message||"")});
+        if (["READY", "FAILED", "CANCELLED"].includes(current.status)) {
+          finished = true;
+          if (current.status === "READY") {
+            const restored = await fetch(
+              `${getApiUrl()}/technical-pieces/${pieceId}/ps4`,
+              {credentials:"include",cache:"no-store"},
+            );
+            if (restored.ok && alive) {
+              const updated: Ps4Record = await restored.json();
+              if (!alive) return;
+              setRecord(updated);
+              if (updated.assets?.raster?.metadata?.crs_authority) {
+                setCrs(updated.assets.raster.metadata.crs_authority);
+              }
+            }
+          }
+        }
+      } catch {
+        // Falha de rede temporária: próxima consulta tenta novamente.
+      }
+    };
+    void check();
+    const interval = window.setInterval(() => void check(), 4000);
+    return () => {alive=false;window.clearInterval(interval);};
+  }, [pieceId, record.import_job_id]);
 
   const operation = async (callback: () => Promise<void>) => {
     if (!pieceId) { setNotice("Salve a peça técnica antes de anexar evidências."); return; }
@@ -258,6 +304,9 @@ export function Ps4EvidencePanel({
       <h4>PS4 — Imagem orbital e comprovação documental</h4>
       <p className="pecas-note">Somente GeoTIFF ortorretificado e relatório PDF correspondente.
         A verificação de hash e metadados não substitui o exame da acurácia pelo RT.</p>
+      {inpeJobStatus && <p role="status" className="pecas-note">
+        Recorte INPE: {inpeJobStatus.status} · {inpeJobStatus.message}
+      </p>}
       {record.source_provenance && <p className="pecas-note" role="status">
         Fonte: {record.source_provenance.provider} ·
         Cena: {record.source_provenance.item_id} ·
