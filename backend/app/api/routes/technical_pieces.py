@@ -358,6 +358,8 @@ def _validated_snapshot(
         "assets": assets,
         "validation": validation,
         **({"source_provenance": preserved_source} if preserved_source else {}),
+        **({"import_job_id": previous["import_job_id"]}
+           if isinstance(previous, dict) and previous.get("import_job_id") else {}),
     }
     return snapshot
 
@@ -468,7 +470,8 @@ def upload_ps4_file(
     assets[kind] = record
     ps4["assets"] = assets
     if kind == "raster":
-        # Novo arquivo manual não herda a origem comprovada de um CBERS anterior.
+        # Novo arquivo manual cancela vínculo com qualquer recorte ainda em fila.
+        ps4.pop("import_job_id", None)
         ps4.pop("source_provenance", None)
     # Substituir um arquivo invalida qualquer aprovação anterior.
     ps4.pop("approval", None)
@@ -726,6 +729,14 @@ def ps4_prepare_inpe_scene(
         raise HTTPException(422, str(exc)) from exc
     snapshot = dict(piece.snapshot or {})
     ps4["import_job_id"] = job["id"]
+    # Nunca manter aprovação vigente enquanto uma nova origem está sendo preparada.
+    ps4.pop("approval", None)
+    ps4.pop("completed_at", None)
+    ps4["validation"] = {
+        "status": "BLOCKED",
+        "blockers": ["Novo recorte CBERS em preparação; aprovação anterior revogada."],
+        "requires_rt_review": True,
+    }
     snapshot["ps4"] = ps4
     piece.snapshot = snapshot
     db.add(piece)
