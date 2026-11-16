@@ -1073,7 +1073,10 @@ export function PecasTecnicasWorkspace({
           : "Pré-validação TOPCON executada com " + errors.length + " pendência(s). Leia os detalhes abaixo.",
       });
       setTopconReview({
-        ready_for_ods: Boolean(ready), errors, warnings,
+        ready_for_geometry: Boolean(ready),
+        ready_for_ods: Boolean(ready && reviews.every(({review})=>review.ready_for_ods)),
+        missing_sigmas: reviews.flatMap(({review})=>review.missing_sigmas??[]),
+        errors, warnings,
         vertex_count: topconBoundary.length,
         area_ha: reviews.reduce((total, { review }) => total + (review.area_ha ?? 0), 0),
         perimeter_m: reviews.reduce((total, { review }) => total + (review.perimeter_m ?? 0), 0),
@@ -1944,7 +1947,7 @@ export function PecasTecnicasWorkspace({
                         <p>O sigma horizontal Topcon não substitui automaticamente as precisões
                           separadas de longitude e latitude exigidas na ODS. Informe os valores
                           confirmados pelo processamento e confirme a referência de h.</p>
-                        <details className="pecas-advanced"><summary>Correções individuais de sigmas e confrontantes (avançado)</summary><p>Abra somente quando precisar revisar valores individuais.</p><div style={{ overflowX: "auto" }}>
+                        <details className="pecas-advanced"><summary>Correções individuais de sigmas e confrontantes (avançado · totalmente facultativo)</summary><p>Abra somente quando precisar revisar valores individuais.</p><div style={{ overflowX: "auto" }}>
                           <table>
                             <thead><tr><th>Vértice</th><th>σ Longitude (m)</th>
                               <th>σ Latitude (m)</th><th>σ h (m)</th><th>h confirmada</th>
@@ -2552,7 +2555,7 @@ export function PecasTecnicasWorkspace({
         {stage === 4 && (
           <div className="pecas-card">
             {premiumStep === 8 && <>
-              {topconReview?.geometry && (
+              {topconPreview && (
                           <div className="pecas-card" id="geo97-legal" aria-label="Revisão final de identificação SIGEF">
                             <h4>9. Identificação e situação jurídica — revisão final SIGEF</h4>
                             <p>Preencha os dados do titular e imóvel nos campos gerais acima.
@@ -2608,9 +2611,8 @@ export function PecasTecnicasWorkspace({
                             </div>}
                           </div>
                         )}
-              {!topconReview?.geometry && <div className="pecas-warning" role="status">
-                A revisão cadastral para SIGEF depende da pré-validação TOPCON.
-                Isso não impede a planta e o memorial preliminares.
+              {!topconPreview && <div className="pecas-warning" role="status">
+                Importe o levantamento TOPCON antes de revisar a identificação jurídica.
               </div>}
             </>}
             {premiumStep !== 8 && <div id="geo97-export">
@@ -2791,7 +2793,14 @@ export function PecasTecnicasWorkspace({
                           um local, mas o cálculo mantém as restrições geométricas do método. PS4 é independente da conversão altimétrica para criar rascunhos, mas exige acurácia comprovada para exportação.</p>
                         <label className="pecas-check"><input type="checkbox"
                           checked={pa2Mode}
-                          onChange={(e) => { setPa2Mode(e.target.checked); setPa2Result(null); }} />
+                          onChange={(e) => {
+                            setPa2Mode(e.target.checked);
+                            setPa2Result(null);
+                            if(!e.target.checked) {
+                              setPa2Witnesses([]);setMapHint(null);setPs4Candidate(null);
+                              setWorkflowNotice("Construção adicional desativada. Os marcos TOPCON originais permanecem disponíveis para a peça.");
+                            }
+                          }} />
                           Preciso construir vértices adicionais</label>
                         {pa2Mode && <label className="pecas-field">
                           <span>Método de posicionamento</span>
