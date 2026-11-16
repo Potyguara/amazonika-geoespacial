@@ -89,6 +89,11 @@ def evaluate_ps4(data: PS4Submission) -> dict:
                 continue
             if vertex.feature_type in PROHIBITED:
                 blockers.append(f"{vertex.vertex_id}: PS4 não permitido para esta feição.")
+            if e.orthorectification_rms_m > LIMITS_M[vertex.limit_type]:
+                blockers.append(
+                    f"{vertex.vertex_id}: RMS documental {e.orthorectification_rms_m:g} m "
+                    f"excede {LIMITS_M[vertex.limit_type]:g} m."
+                )
             if e.horizontal_positional_precision_m > LIMITS_M[vertex.limit_type]:
                 blockers.append(
                     f"{vertex.vertex_id}: precisão {e.horizontal_positional_precision_m:g} m "
