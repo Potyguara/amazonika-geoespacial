@@ -504,6 +504,42 @@ class PS4RasterDiagnosticInput(BaseModel):
     vertices: list[PS4DiagnosticVertex] = Field(default_factory=list, max_length=500)
 
 
+class PS4Checkpoint(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    gnss_longitude: float = Field(ge=-180, le=180)
+    gnss_latitude: float = Field(ge=-90, le=90)
+    image_longitude: float = Field(ge=-180, le=180)
+    image_latitude: float = Field(ge=-90, le=90)
+    used_for_orthorectification: bool = False
+
+
+class PS4CheckpointAnalysisInput(BaseModel):
+    checkpoints: list[PS4Checkpoint] = Field(default_factory=list, max_length=500)
+
+
+@router.post("/{piece_id}/ps4/checkpoint-analysis")
+def ps4_checkpoint_analysis(
+    piece_id: UUID, payload: PS4CheckpointAnalysisInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """EMQ independente em referência métrica do GeoTIFF, sem certificação automática."""
+    from app.services.ps4_planimetric_check import evaluate_checkpoints
+
+    piece = _owned(piece_id, db, user)
+    raster = (((piece.snapshot or {}).get("ps4") or {}).get("assets") or {}).get("raster")
+    if not isinstance(raster, dict) or not exists_matching(user.id, piece.id, raster):
+        raise HTTPException(409, "GeoTIFF privado ausente ou sem integridade.")
+    try:
+        result = evaluate_checkpoints(
+            [point.model_dump() for point in payload.checkpoints],
+            raster.get("metadata") or {},
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"piece_id": str(piece.id), "raster_sha256": raster["sha256"],
+            "result": result}
+
+
 @router.post("/{piece_id}/ps4/raster-diagnostic")
 def ps4_raster_diagnostic(
     piece_id: UUID, payload: PS4RasterDiagnosticInput,
