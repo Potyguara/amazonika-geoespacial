@@ -20,9 +20,10 @@ from shapely.geometry import Polygon, shape
 from app.services.plant_memorial import _logo_path, load_document_template
 
 DISCLAIMER = (
-    "Este documento se trata apenas de um croqui, nao representa o polígono "
-    "com coordenadas precisas, os pontos nao foram coletados com equipamentos "
-    "GNSS de alta precisão."
+    "Documento cartografico preliminar: os vertices devem ser avaliados conforme "
+    "o metodo de posicionamento utilizado. Marcos GNSS e vertices restituidos "
+    "por imagem possuem origens e precisões distintas. A emissao nao equivale "
+    "a certificacao pelo SIGEF/INCRA."
 )
 SIZES = [("A3", landscape(A3)),
          ("A2", landscape(A2)), ("A1", landscape(A1)), ("A0", landscape(A0))]
