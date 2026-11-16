@@ -275,7 +275,7 @@ type Props = {
   onDeclinationChange: (value: string) => void;
   surveyDate: string;
   onSurveyDateChange: (value: string) => void;
-  onSavePiece: (memorialDraft: string, topconDraft: TopconDraft) => Promise<void>;
+  onSavePiece: (memorialDraft: string, topconDraft: TopconDraft) => Promise<string>;
   loadedTopconDraft?: TopconDraft | null;
   loadedTopconRevision?: number;
   onSaveMemorial: (text: string | null) => void;
@@ -787,6 +787,38 @@ export function PecasTecnicasWorkspace({
     },
   });
 
+  const skipAdditionalVertices = async () => {
+    if (ps4Draft.length && !window.confirm(
+      "Dispensar vértices adicionais removerá os V provisórios desta peça. Confirma?"
+    )) return;
+    setActionBusy(true); setActionError("");
+    try {
+      const draft = {
+        ...draftForSave(), construction_skipped: true, ps4_draft: [],
+        ps4_closure: {start:"", confirmed:false, signature:""},
+      };
+      const id = await onSavePiece(editableMemorial.trim(), draft);
+      const base = `${getApiUrl()}/technical-pieces/${id}/ps4`;
+      const response = await fetch(base, {
+        method:"PUT",credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({needs_additional_vertices:false,vertices:[]}),
+      });
+      if (!response.ok) throw new Error("Não foi possível registrar a dispensa do PS4.");
+      const finish = await fetch(base+"/complete-no-v", {
+        method:"POST",credentials:"include",
+      });
+      if (!finish.ok) throw new Error("A subetapa sem V não foi concluída no servidor.");
+      setPs4Draft([]); setPs4ClosureConfirmed(false);
+      setPs4ConfirmedSignature("");setPs4Candidate(null);
+      setConstructionSkipped(true);setPa2Mode(false);
+      setPs4ApprovalConfirmed(false);
+      setSavedPieceNotice("Sem vértices adicionais: subetapa concluída e salva.");
+      setWorkflowNotice("PS4 não aplicável: decisão persistida no servidor. Prossiga às etapas seguintes.");
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Falha ao concluir sem V.");
+    } finally { setActionBusy(false); }
+  };
   const [reviewedOdsError, setReviewedOdsError] = useState("");
   const [reviewedOdsNotice, setReviewedOdsNotice] = useState("");
   const makeSigefIdentity = () => ({
@@ -1724,9 +1756,8 @@ export function PecasTecnicasWorkspace({
                 <label className="pecas-check">
                   <input type="checkbox" checked={!constructionSkipped}
                     onChange={e=>{
-                      const skip=!e.target.checked;
-                      setConstructionSkipped(skip);
-                      if(skip){setPa2Mode(false);setWorkflowNotice("Construção adicional dispensada; nenhuma nova restituição será exigida.");}
+                      if (!e.target.checked) void skipAdditionalVertices();
+                      else {setConstructionSkipped(false);setWorkflowNotice("Construção PS4 reativada.");}
                     }}/>
                   Preciso construir vértices adicionais (facultativo)
                 </label>
@@ -2953,9 +2984,8 @@ export function PecasTecnicasWorkspace({
                             setPa2Mode(e.target.checked);
                             setPa2Result(null);
                             if(!e.target.checked) {
-                              setConstructionSkipped(true);
-                              setPa2Witnesses([]);setMapHint(null);setPs4Candidate(null);
-                              setWorkflowNotice("Construção adicional desativada. Os marcos TOPCON originais permanecem disponíveis para a peça.");
+                              void skipAdditionalVertices();
+                              setPa2Witnesses([]);setMapHint(null);
                             }
                           }} />
                           Preciso construir vértices adicionais</label>
