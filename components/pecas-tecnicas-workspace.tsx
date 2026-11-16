@@ -3738,6 +3738,7 @@ export function PecasTecnicasWorkspace({
                       : null}
                     ps4Points={ps4Draft}
                     ps4Candidate={ps4Candidate}
+                    ps4CheckCapture={ps4CheckCapture}
                     ps4ClosureGeometry={ps4PreviewGeometry}
                     onPs4Click={point => {
                        if (ps4CheckCapture) {
