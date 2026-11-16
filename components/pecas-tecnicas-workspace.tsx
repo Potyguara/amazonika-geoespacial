@@ -2929,13 +2929,9 @@ export function PecasTecnicasWorkspace({
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
                   return;
                 }
-                if (constructionMethod === "PS4" && !ps4ApprovalConfirmed) {
-                  setPs4Status({kind:"error",message:
-                    "A etapa PS4 exige ortoimagem GeoTIFF, relatório de ortorretificação, " +
-                    "validação documental e aprovação do RT. Use Salvar rascunho sem fechar " +
-                    "até concluir a conferência."});
-                  return;
-                }
+                // Fechar a geometria M–V–M preliminar não certifica PS4.
+                // Documentos, precisão e RT continuam bloqueando a validação
+                // oficial em evaluate_verified_ps4 e exportação ODS SIGEF.
                 void runAction(async () => {
                   setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
                   await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
@@ -2944,7 +2940,9 @@ export function PecasTecnicasWorkspace({
                     ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
                     : "Construção salva e prévia atualizada");
                 });
-              }}>{actionBusy ? "Salvando..." : "Concluir, salvar e voltar à peça"}</button>
+              }}>{actionBusy ? "Salvando..." : constructionMethod === "PS4"
+                ? "Concluir traçado PRELIMINAR e voltar à peça"
+                : "Concluir, salvar e voltar à peça"}</button>
             {constructionMethod === "PS4" && <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => void runAction(async () => {
