@@ -5,10 +5,11 @@ substituto da ortoimagem. Restringe zoom, dimensões e concorrência.
 """
 from __future__ import annotations
 
-import math
 import os
 import subprocess
 from pathlib import Path
+from io import BytesIO
+from PIL import Image
 from tempfile import TemporaryDirectory
 from threading import BoundedSemaphore
 
@@ -19,6 +20,13 @@ WORLD_HALF = 20037508.342789244
 MIN_ZOOM = 0
 MAX_ZOOM = 19
 _TILE_SEMAPHORE = BoundedSemaphore(2)
+
+
+def transparent_png_tile() -> bytes:
+    """PNG transparente para tiles fora da ortoimagem, sem 404 em OpenLayers."""
+    output = BytesIO()
+    Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0)).save(output, "PNG")
+    return output.getvalue()
 
 
 def mercator_tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
@@ -52,7 +60,7 @@ def render_png_tile(path: Path, z: int, x: int, y: int) -> bytes:
     if not path.is_file():
         raise ValueError("Ortoimagem não localizada.")
     xmin, ymin, xmax, ymax = mercator_tile_bounds(z, x, y)
-    if not _TILE_SEMAPHORE.acquire(blocking=False):
+    if not _TILE_SEMAPHORE.acquire(timeout=12):
         raise RuntimeError("Processamento PS4 ocupado; reduza a velocidade de navegação.")
     try:
         with TemporaryDirectory(prefix="amazonika-ps4-tile-") as directory:
