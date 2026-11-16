@@ -156,7 +156,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
           style: (feature) => {
             // Não permitir que a própria etiqueta GNSS seja o alvo de checagem.
             // Durante captura, somente os pixels da imagem permanecem visíveis.
-            if (ps4CheckCaptureRef.current) return null;
+            if (ps4CheckCaptureRef.current) return undefined;
             const isLine = feature.getGeometry() instanceof LineString;
             const isV = Boolean(feature.get("virtual"));
             const chosen = Boolean(feature.get("chosen"));
