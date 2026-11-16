@@ -23,11 +23,11 @@ def _root(user_id: UUID, piece_id: UUID) -> Path:
 
 
 def stored_file_path(user_id: UUID, piece_id: UUID, kind: str, digest: str) -> Path:
-    if kind not in ("raster", "report"):
+    if kind not in ("raster", "report", "pb1_color", "pb1_dtm"):
         raise ValueError("Tipo de arquivo não suportado.")
     if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
         raise ValueError("Hash inválido.")
-    return _root(user_id, piece_id) / f"{kind}-{digest}{'.tif' if kind == 'raster' else '.pdf'}"
+    return _root(user_id, piece_id) / f"{kind}-{digest}{'.tif' if kind != 'report' else '.pdf'}"
 
 
 def _raster_info(path: Path) -> dict:
@@ -60,6 +60,9 @@ def _raster_info(path: Path) -> dict:
             "geo_transform": info["geoTransform"],
             "wgs84_extent": info.get("wgs84Extent"),
             "driver": "GTiff",
+            "bands": [{"band": i + 1, "type": band.get("type"),
+                       "no_data_value": band.get("noDataValue")}
+                      for i, band in enumerate(info.get("bands", []))],
         }
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError("Metadados geoespaciais ausentes ou inválidos.") from exc
@@ -68,11 +71,11 @@ def _raster_info(path: Path) -> dict:
 def store_uploaded_asset(
     source: BinaryIO, user_id: UUID, piece_id: UUID, kind: str
 ) -> dict:
-    if kind not in ("raster", "report"):
+    if kind not in ("raster", "report", "pb1_color", "pb1_dtm"):
         raise ValueError("Tipo inválido.")
     root = _root(user_id, piece_id)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    max_bytes = MAX_RASTER_BYTES if kind == "raster" else MAX_REPORT_BYTES
+    max_bytes = MAX_REPORT_BYTES if kind == "report" else MAX_RASTER_BYTES
     temp_name = None
     try:
         with tempfile.NamedTemporaryFile(dir=root, prefix=".upload-", delete=False) as temp:
@@ -98,11 +101,18 @@ def store_uploaded_asset(
         if not total:
             raise ValueError("Arquivo vazio.")
         metadata = {}
-        if kind == "raster":
+        if kind != "report":
             if first[:4] not in (b"II*\x00", b"MM\x00*",
                                  b"II+\x00", b"MM\x00+"):
                 raise ValueError("Arquivo não corresponde a TIFF/BigTIFF.")
             metadata = _raster_info(temp_name)
+            bands = metadata.get("bands", [])
+            if kind == "pb1_color" and len(bands) < 3:
+                raise ValueError("PB1 Color requer GeoTIFF RGB com pelo menos três bandas.")
+            if kind == "pb1_dtm" and (
+                len(bands) != 1 or bands[0].get("type") not in ("Float32", "Float64", "Int16", "Int32")
+            ):
+                raise ValueError("PB1 MDT requer uma banda numérica de elevação, sem RGB.")
         else:
             if not first.startswith(b"%PDF-") or b"%%EOF" not in tail:
                 raise ValueError("Relatório PDF inválido ou incompleto.")
