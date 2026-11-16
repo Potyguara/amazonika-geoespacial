@@ -16,6 +16,7 @@ from app.services.topcon_import import parse_topcon_report, MAX_BYTES
 from app.services.topcon_perimeter_review import review_topcon_perimeter
 from app.services.sigef_parcel_review import review_sigef_parcels
 from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
+from app.services.sigef_ods import _template_path
 from app.services.vertical_datum import convert_altitudes
 from app.services.pa2_intersection import intersect_pa2
 from app.services.constructed_vertices import calculate_constructed_vertex
@@ -191,6 +192,26 @@ class ReviewedSigefOdsInput(BaseModel):
     identification: dict = Field(default_factory=dict)
     parcels: list[dict] = Field(default_factory=list, max_length=50)
     neighbors: list[dict] = Field(default_factory=list, max_length=200)
+
+
+@router.get("/sigef/modelo-ods")
+def download_sigef_model(
+    user: User = Depends(get_current_user),
+):
+    """Official blank ODS template; never fills missing heights or sigmas."""
+    source = _template_path()
+    if not source.is_file():
+        raise HTTPException(503, "Modelo ODS SIGEF não disponível.")
+    data = source.read_bytes()
+    return Response(
+        content=data,
+        media_type="application/vnd.oasis.opendocument.spreadsheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="MODELO_SIGEF_EM_BRANCO.ods"',
+            "Cache-Control": "private, no-store",
+            "X-Sigef-Validation": "MODELO_NAO_PREENCHIDO",
+        },
+    )
 
 
 @router.post("/sigef/reviewed-ods")
