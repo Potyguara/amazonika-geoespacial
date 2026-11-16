@@ -150,6 +150,14 @@ def build_reviewed_sigef_ods(payload: dict) -> bytes:
         if not isinstance(parcel, dict):
             raise ValueError(f"Parcela {index}: dados inválidos.")
         vertices = parcel.get("vertices") or []
+        for vertex in vertices:
+            if vertex.get("sigef_method") == "PS4" and (
+                (vertex.get("derived_calculation") or {}).get("accuracy_verified") is not True
+            ):
+                raise ValueError(
+                    f"Parcela {index}: vértice {vertex.get('sigef_vertex_code') or vertex.get('name')} "
+                    "PS4 sem comprovação de acurácia horizontal; ODS bloqueada."
+                )
         checked = review_topcon_perimeter(vertices)
         if not checked["ready_for_ods"]:
             raise ValueError(f"Parcela {index}: " + "; ".join((checked["errors"] + checked.get("ods_errors", []) + ["Sigmas individuais ausentes: " + ", ".join(checked.get("missing_sigmas", [])[:10])])[:6]))
