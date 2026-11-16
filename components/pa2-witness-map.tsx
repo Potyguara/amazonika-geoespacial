@@ -464,7 +464,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   }, [method, ps4Raster?.pieceId, ps4Raster?.sha256]);
 
   useEffect(() => {
-    if (method === "PS4") setCbersEnabled(!ps4Raster);
+    if (method === "PS4") setCbersEnabled(false);
     else setPs4MapWarning("");
   }, [method, ps4Raster?.sha256]);
 
@@ -509,18 +509,10 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         <option value="google" disabled={!googleEnabled}>Google Satélite</option>
         <option value="mapbox" disabled={!mapboxEnabled}>Mapbox Satélite</option>
       </select></label>
-      <label style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <input type="checkbox" checked={cbersEnabled} onChange={e => setCbersEnabled(e.target.checked)} />
-        CBERS-4A INPE (visualização experimental)
-      </label>
-      {ps4Raster && <small role="status">
-        {cbersEnabled ? "Cena INPE auxiliar, sem acurácia comprovada" :
-          "GeoTIFF privado da peça carregado para restituição preliminar"}
-      </small>}
-      {cbersEnabled && <label>Transparência CBERS-4A:
-        <input aria-label="Opacidade da imagem CBERS-4A" type="range" min="0.2" max="1" step="0.1"
-          value={cbersOpacity} onChange={e => setCbersOpacity(Number(e.target.value))} />
-      </label>}
+      {method === "PS4" && <span style={{fontSize:12,fontWeight:700,color:"#18543f"}}>
+        {ps4Raster ? "GeoTIFF real vinculado à peça · SHA-256 " + ps4Raster.sha256.slice(0,12) + "…"
+          : "Nenhuma imagem orbital privada disponível — importe uma cena na etapa 1."}
+      </span>}
       <button type="button" onClick={() => {
         const map = mapRef.current;
         if (!map) return;
