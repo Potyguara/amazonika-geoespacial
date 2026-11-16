@@ -178,7 +178,7 @@ export type TopconDraft = {
   ps4_ortho_report?: {scene_id:string;reference:string;rms_m:number|null;reviewed_by_rt:boolean};
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
-  pb1_draft?: Array<{name:string;latitude:number;longitude:number;source_elevation_m:number|null;created_at:string}>;
+  pb1_draft?: Array<{name:string;latitude:number;longitude:number;source_elevation_m:number|null;raster_sha256:string;created_at:string}>;
   pb1_closure?: {start:string;confirmed:boolean;signature?:string};
   pb1_source?: {sheet:string;product:string;accuracy_reference:string;vertical_datum:string};
   ps4_draft?: Array<{
@@ -441,7 +441,7 @@ export function PecasTecnicasWorkspace({
   const pb1Closure=buildPs4Closure(topconBoundary,pb1Draft,pb1Start,pb1End);
   const pb1Signature=JSON.stringify({
     start:pb1Start,boundary:topconBoundary.map(p=>[p.name,p.longitude,p.latitude]),
-    draft:pb1Draft.map(p=>[p.name,p.longitude,p.latitude,p.source_elevation_m]),
+    draft:pb1Draft.map(p=>[p.name,p.longitude,p.latitude,p.source_elevation_m,p.raster_sha256]),
   });
   const pb1Ready=pb1Closure.valid && pb1ClosureConfirmed && pb1Signature===pb1ConfirmedSignature;
   const pb1Raster=pb1Assets.pb1_color;
@@ -512,6 +512,7 @@ export function PecasTecnicasWorkspace({
         if(!Number.isFinite(elevation))throw new Error("Valor MDT inválido");
       }
       setPb1Draft(old=>[...old,{name,...pb1Candidate,source_elevation_m:elevation,
+        raster_sha256:pb1Raster.sha256,
         created_at:new Date().toISOString()}]);
       setPb1ClosureConfirmed(false);
       setPb1Candidate(null);
@@ -3047,7 +3048,7 @@ export function PecasTecnicasWorkspace({
                 if ((constructionMethod === "PS4" && !ps4Ready) || (constructionMethod === "PB1" && !pb1Ready)) {
                   setPs4Status({kind:"error",message:(constructionMethod === "PB1" ? pb1Closure : ps4Closure).valid
                     ? "Ainda falta confirmar o segmento e o fechamento da prévia (etapa 2)."
-                    : "Não é possível concluir: " + ps4Closure.message +
+                    : "Não é possível concluir: " + (constructionMethod === "PB1" ? pb1Closure : ps4Closure).message +
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
                   return;
                 }
@@ -3058,20 +3059,22 @@ export function PecasTecnicasWorkspace({
                   setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
                   await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
                   setPa2Mode(false);
-                  setSavedPieceNotice(constructionMethod === "PS4"
+                  setSavedPieceNotice(constructionMethod === "PB1"
+                    ? "Traçado PB1 preliminar salvo — precisão e datum vertical pendentes"
+                    : constructionMethod === "PS4"
                     ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
                     : "Construção salva e prévia atualizada");
                 });
-              }}>{actionBusy ? "Salvando..." : constructionMethod === "PS4"
+              }}>{actionBusy ? "Salvando..." : (constructionMethod === "PS4" || constructionMethod === "PB1")
                 ? "Concluir traçado PRELIMINAR e voltar à peça"
                 : "Concluir, salvar e voltar à peça"}</button>
             {(constructionMethod === "PS4" || constructionMethod === "PB1") && <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => void runAction(async () => {
-                setPs4Status({kind:"info",message:"Salvando rascunho PS4 sem fechamento..."});
+                setPs4Status({kind:"info",message:"Salvando rascunho cartográfico sem fechamento..."});
                 await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
                 setPa2Mode(false);
-                setSavedPieceNotice("Rascunho PS4 salvo sem fechamento; complete antes da planta");
+                setSavedPieceNotice("Rascunho cartográfico salvo sem fechamento; complete antes da planta");
               })}>Salvar rascunho sem fechar</button>}
           </div>
           {(actionError || actionBusy) && <div role={actionError ? "alert" : "status"}
@@ -3211,6 +3214,8 @@ export function PecasTecnicasWorkspace({
                 : constructionMethod === "PA2" ? <p>Selecione o procedimento:
                   linha de apoio (dois marcos e clique projetado) ou interseção
                   geométrica (dois alinhamentos). O resultado precisa de revisão.</p>
+                : constructionMethod === "PB1"
+                ? <p>Importe a ortoimagem oficial ORIXP e o MDT da folha, digitalize somente sobre o RGB e obtenha as cotas originais no MDT. ODS depende de precisão e datum vertical validados.</p>
                 : constructionMethod === "PS4"
                 ? <p>Ative a cena CBERS-4A no mapa, clique sucessivamente ao longo da feição natural,
                   confirme cada ponto e atribua código V. Sem RMS da ortorretificação, os pontos
