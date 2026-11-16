@@ -97,7 +97,7 @@ type Props = {
   geometryKey?: string;
   selectedScene?: string;
   onSelectScene?: (sceneId: string) => void;
-  onPrepareScene?: (sceneId: string, bbox: InpeBounds) => Promise<void>;
+  onPrepareScene?: (sceneId: string, collection: string, bbox: InpeBounds) => Promise<void>;
 };
 const RENDERABLE_SCENES = new Set([
   "CBERS4A_WPM_PCA_RGB321_20261016_214_113",
@@ -154,6 +154,11 @@ export function InpeCbersSceneSearch({
     <div className="pecas-card" aria-label="Consulta automática de imagens CBERS-4A INPE">
       <h4>INPE · CBERS-4A WPM — enquadramento automático</h4>
       <p>O sistema pesquisa as cenas que intersectam a poligonal selecionada, sem exigir coordenadas manuais.</p>
+      <p className="pecas-note">
+        A importação cria um recorte GeoTIFF da fonte STAC do INPE, mas NÃO
+        importa relatório RMS nem comprova automaticamente a precisão posicional.
+        A revisão do RT permanece obrigatória.
+      </p>
       <p className="pecas-note">Escolha preferencialmente uma cena com menor presença de nuvens
         sobre o imóvel. Miniaturas e metadados não garantem ausência de nuvens em todos os
         pixels; a composição RGB exibida será a cena selecionada, e não uma imagem limpa sintética.</p>
@@ -208,14 +213,14 @@ export function InpeCbersSceneSearch({
                         !RENDERABLE_SCENES.has(scene.id)?"Raster ainda não habilitado":
                         "Usar esta cena para vetorizar"}
                     </button>}
-                    {onPrepareScene && kind === "rgb" && (
+                    {onPrepareScene && (
                       <button type="button" className="pecas-primary"
                         disabled={!canCrop || Boolean(preparingScene)}
                         onClick={() => {
                           if (!bounds) return;
                           setPreparingScene(scene.id);
                           setPrepareNotice("");
-                          void onPrepareScene(scene.id, bounds)
+                          void onPrepareScene(scene.id, scene.collection, bounds)
                             .then(() => setPrepareNotice("Recorte CBERS preparado e vinculado ao GeoTIFF PS4."))
                             .catch(error => setPrepareNotice(
                               error instanceof Error ? error.message : "Falha ao preparar recorte CBERS."
@@ -224,7 +229,9 @@ export function InpeCbersSceneSearch({
                         }}>
                         {preparingScene === scene.id
                           ? "Preparando recorte ortorretificado…"
-                          : "Importar recorte CBERS para PS4"}
+                          : kind === "ortho"
+                            ? "Importar recorte L4 ortorretificado"
+                            : "Importar recorte RGB derivado de L4"}
                       </button>
                     )}
                     <a href={scene.stac_item_url} target="_blank" rel="noopener noreferrer">Ver metadados no INPE</a>
