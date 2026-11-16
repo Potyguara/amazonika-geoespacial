@@ -1332,7 +1332,8 @@ export function PecasTecnicasWorkspace({
             derived_physical_model:virtualHN[pointIndex]===null?null:("HN" as const),
             sigef_method:"PS4",boundary_type:"LN1",
             derived_calculation:{method:"PS4",scene_id:point.scene_id,
-              status:"PRELIMINAR",accuracy_verified:false,
+              status:ps4ApprovalConfirmed?"ACURACIA_HORIZONTAL_CONFERIDA_RT":"PRELIMINAR",
+              accuracy_verified:ps4ApprovalConfirmed,
               altitude_source:virtualHN[pointIndex]===null?"AUSENTE":"INTERPOLACAO_HN_M_V_M",
               altitude_quality:"INDICATIVA_NAO_MEDIDA",
               note:"Posicionamento orbital visual sem h medida. HN estimada somente por interpolação entre os dois M, não válida para SIGEF"},
@@ -1349,7 +1350,7 @@ export function PecasTecnicasWorkspace({
         throw new Error("A ordem dos vértices mudou. Feche a prévia novamente.");
       if(!window.confirm("Aplicar a poligonal de "+vertices.length+
          " vértices à PARCELA PRELIMINAR para elaborar planta e memorial?\n"+
-         "Os pontos V não possuem acurácia PS4 ou altitude comprovadas.\n"+
+         "Os pontos V só terão acurácia horizontal confirmada quando houver revisão do RT; a altura permanece pendente.\n"+
          "Isto não libera a ODS nem constitui certificação SIGEF."))return;
       onAdoptTopconParcels([{
         number:initial.parcel_number,
