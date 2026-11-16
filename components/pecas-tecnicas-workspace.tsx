@@ -52,6 +52,7 @@ export type PecasPolygon = {
   id: string;
   name: string;
   vertices: string[];
+  coordinates?: Array<[number,number]>;
   confrontants: string[];
   altitudes: string[];
   vertexDetails?: Array<Record<string, unknown>>;
@@ -649,6 +650,51 @@ export function PecasTecnicasWorkspace({
   const [sigefParcelBusy, setSigefParcelBusy] = useState(false);
   const [sigefValidatedSignature, setSigefValidatedSignature] = useState("");
   const [reviewedOdsBusy, setReviewedOdsBusy] = useState(false);
+  const [workingOdsBusy,setWorkingOdsBusy] = useState(false);
+  const [workingOdsError,setWorkingOdsError] = useState("");
+  const downloadWorkingSigefOds = async () => {
+    setWorkingOdsBusy(true);setWorkingOdsError("");
+    try {
+      const parcels=polygons.filter(p=>selectedIds.includes(p.id)).map((parcel,index)=>{
+        if(!parcel.coordinates || parcel.coordinates.length!==parcel.vertices.length)
+          throw new Error("Coordenadas da parcela "+parcel.name+" indisponíveis. Salve a parcela antes da exportação.");
+        return {
+          name:parcel.name,number:String(index+1),
+          vertices:parcel.vertices.map((name,i)=>{
+            const details=parcel.vertexDetails?.[i]??{};
+            const coord=parcel.coordinates![i];
+            const height=details.height_reference_confirmed===true ?
+              parcel.altitudes[i]?.trim() : "";
+            return {
+              sigef_vertex_code:name,
+              longitude:coord[0],latitude:coord[1],
+              ellipsoidal_height_m:height===""?null:Number(height?.replace(",",".")),
+              sigma_lon_m:typeof details.sigma_lon_m==="number"?details.sigma_lon_m:null,
+              sigma_lat_m:typeof details.sigma_lat_m==="number"?details.sigma_lat_m:null,
+              sigma_h_m:typeof details.sigma_h_m==="number"?details.sigma_h_m:null,
+              sigef_method:typeof details.sigef_method==="string"?details.sigef_method:"",
+              boundary_type:typeof details.boundary_type==="string"?details.boundary_type:"",
+              confrontant:parcel.confrontants[i]??"",
+              confrontant_cns:typeof details.confrontant_cns==="string"?details.confrontant_cns:"",
+              confrontant_registration:typeof details.confrontant_registration==="string"?details.confrontant_registration:"",
+            };
+          }),
+        };
+      });
+      if(!parcels.length)throw new Error("Selecione uma parcela antes de baixar a ODS de trabalho.");
+      const response=await fetch(getApiUrl()+"/technical-pieces/sigef/rascunho-ods",{
+        method:"POST",credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({identification:makeSigefIdentity(),parcels}),
+      });
+      if(!response.ok){
+        const info=await response.json().catch(()=>null);
+        throw new Error(typeof info?.detail==="string"?info.detail:"Falha na ODS de trabalho (HTTP "+response.status+").");
+      }
+      downloadBlob(await response.blob(),"RASCUNHO_INCOMPLETO_NAO_SUBMETER_SIGEF.ods");
+    }catch(e){setWorkingOdsError(e instanceof Error?e.message:"Falha na ODS de trabalho.");}
+    finally{setWorkingOdsBusy(false);}
+  };
   const [blankOdsBusy,setBlankOdsBusy] = useState(false);
   const [blankOdsError,setBlankOdsError] = useState("");
   const downloadBlankSigefOds = async () => {
@@ -2669,6 +2715,11 @@ export function PecasTecnicasWorkspace({
               <button disabled={actionBusy} onClick={() => void runAction(onDownloadDocx)}>
                 <FileText size={17} /> Memorial descritivo (DOCX)
               </button>
+              <button type="button" disabled={workingOdsBusy}
+                onClick={() => void downloadWorkingSigefOds()}>
+                <Download size={17}/>
+                {workingOdsBusy?"Gerando ODS...":"ODS de trabalho M + V (não submetível)"}
+              </button>
               <button type="button" disabled={blankOdsBusy}
                 onClick={() => void downloadBlankSigefOds()}>
                 <Download size={17} />
@@ -2679,6 +2730,7 @@ export function PecasTecnicasWorkspace({
                 <Download size={17} /> ODS preenchida · somente dados validados
               </button>
             </div>
+            {workingOdsError && <p role="alert" className="pecas-warning">{workingOdsError}</p>}
             {blankOdsError && <p role="alert" className="pecas-warning">{blankOdsError}</p>}
             <p className="pecas-note">O modelo em branco pode ser baixado a qualquer momento.
               A planilha preenchida depende de dados reais, incluindo h, coordenadas e precisão; HN estimada não substitui h SIGEF.</p>
