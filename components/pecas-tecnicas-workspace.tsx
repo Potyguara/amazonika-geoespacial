@@ -2977,7 +2977,8 @@ export function PecasTecnicasWorkspace({
 .ps4-navigation-foot {margin-top:auto;border-top:1px solid #326a55;padding:14px 6px 0;display:grid;gap:5px;font-size:12px;}
 .ps4-navigation-foot small {color:#a9d2bd;font-size:10px;}
 .ps4-navigation-foot .ps4-sidebar-warning {color:#ffb6bc;}
-@media(max-width:1180px) {.ps4-navigation {display:none;}}
+@media(max-width:1180px) {.ps4-navigation {display:none;} .ps4-redesigned-dialog .ps4-main-grid {grid-template-columns:minmax(360px, 1fr) minmax(320px, 1fr)!important;}}
+@media(max-width:800px) {.ps4-redesigned-dialog .ps4-main-grid {grid-template-columns:minmax(0,1fr)!important;}}
 .ps4-redesigned-dialog { --ps4-dark:#073b2f; --ps4-danger:#b4232d; --ps4-soft:#fff1f1; --ps4-line:#d9e3dc; background:#f4f8f5!important; }
 .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card { border:0; background:transparent; box-shadow:none; padding:0; }
 .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > h4, .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > p { display:none; }
@@ -3012,7 +3013,7 @@ export function PecasTecnicasWorkspace({
 .ps4-documentary-toggle {border:1px solid #e0e6e1;border-radius:10px;padding:10px;}
 .ps4-documentary-toggle > summary {cursor:pointer;font-size:12px;font-weight:750;color:#315d4d;}
 .ps4-redesigned-dialog .pecas-warning {border-left:3px solid #c42733!important;background:#fff0f0!important;color:#98232c!important;}
-@media(max-width:1050px) {.ps4-redesigned-dialog {inset:4px!important;padding:9px!important;} .ps4-redesigned-dialog > div:nth-of-type(3) {grid-template-columns:minmax(0,1fr)!important;} .ps4-redesign-intro {flex-wrap:wrap;} }
+@media(max-width:1050px) {.ps4-redesigned-dialog {inset:4px!important;padding:9px!important;}  .ps4-redesign-intro {flex-wrap:wrap;} }
 @media(prefers-reduced-motion:reduce) {.ps4-step-caret {transition:none;}}
 `}</style>
           <div role="toolbar" aria-label="Métodos de construção e ferramentas cartográficas"
@@ -3065,7 +3066,7 @@ export function PecasTecnicasWorkspace({
                   não a V automaticamente.</p>}
             </details>
           </div>
-          <div style={{ flex: 1, minHeight: 0, display: "grid",
+          <div className={constructionMethod === "PS4" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
             gridTemplateColumns: constructionMethod === "PS4" ? "190px minmax(460px, 1.3fr) minmax(330px, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
             {constructionMethod === "PS4" && <aside className="ps4-navigation" aria-label="Progresso das peças técnicas">
               <div className="ps4-brand-lockup"><span className="ps4-brand-mark">A</span>
