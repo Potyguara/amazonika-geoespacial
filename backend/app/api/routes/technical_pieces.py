@@ -342,9 +342,22 @@ def _validated_snapshot(
     # Upload pode preceder o preenchimento; preserva o anexo do banco.
     if "submission" not in requested:
         if piece and isinstance(previous, dict) and "submission" not in previous:
-            snapshot["ps4"] = {"assets": previous.get("assets", {}),
+            # A cena pode ter sido importada antes da entrega do PDF.
+            # Salvar o desenho preliminar não deve apagar a proveniência INPE,
+            # a fila de importação nem os anexos privados já associados.
+            # Descartar checagens antigas sempre que a geometria ou cena mudar.
+            snapshot["ps4"] = {
+                "assets": previous.get("assets", {}),
+                **({"source_provenance": previous["source_provenance"]}
+                   if previous.get("source_provenance") else {}),
+                **({"import_job_id": previous["import_job_id"]}
+                   if previous.get("import_job_id") else {}),
                 **({"checkpoint_analysis": previous["checkpoint_analysis"]}
-                   if same_checkpoint_geometry and previous.get("checkpoint_analysis") else {})}
+                   if same_checkpoint_geometry and previous.get("checkpoint_analysis") and
+                      previous["checkpoint_analysis"].get("raster_sha256") ==
+                      (previous.get("assets", {}).get("raster") or {}).get("sha256")
+                   else {}),
+            }
             return snapshot
         raise HTTPException(422, "Formulário PS4 não informado.")
     try:
