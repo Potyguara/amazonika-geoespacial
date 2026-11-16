@@ -40,6 +40,7 @@ type Props = {
   polygonGeometry?: Record<string, unknown> | null;
   polygonKey?: string;
   ps4SceneId?: string;
+  ps4ReportAttached?: boolean;
   ps4Raster?: {
     pieceId: string; sha256: string;
     footprint?: { type: string; coordinates: number[][][] };
@@ -50,7 +51,7 @@ type Props = {
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
   polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate,
-  ps4ClosureGeometry, onPs4Click, ps4Raster = null,
+  ps4ClosureGeometry, onPs4Click, ps4Raster = null, ps4ReportAttached = false,
   ps4SceneId = "CBERS4A_WPM_PCA_RGB321_20261016_214_113" }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -66,6 +67,8 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   const cbersRef = useRef<TileLayer<XYZ> | null>(null);
   const rasterRef = useRef<TileLayer<XYZ> | null>(null);
   const rasterReadyRef = useRef(false);
+  const reportAttachedRef = useRef(ps4ReportAttached);
+  reportAttachedRef.current = ps4ReportAttached;
   const footprintRef = useRef<Geometry | null>(null);
   const [cbersEnabled, setCbersEnabled] = useState(false);
   const [cbersOpacity, setCbersOpacity] = useState(0.8);
@@ -175,7 +178,9 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
       if (methodRef.current === "PS4" && ps4ClickRef.current) {
         const [longitude, latitude] = toLonLat(event.coordinate);
-        if (!rasterReadyRef.current || !footprintRef.current) {
+        if (!reportAttachedRef.current) {
+          setPs4MapWarning("Anexe primeiro o relatório PDF de ortorretificação da cena.");
+        } else if (!rasterReadyRef.current || !footprintRef.current) {
           setPs4MapWarning("Importe e carregue o GeoTIFF da peça antes de marcar V; imagens externas não são evidência PS4.");
         } else if (!footprintRef.current.intersectsCoordinate(event.coordinate)) {
           setPs4MapWarning("Fora da cobertura da ortoimagem anexada. Nenhum vértice criado.");
