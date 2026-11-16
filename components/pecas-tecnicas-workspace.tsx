@@ -1350,7 +1350,21 @@ export function PecasTecnicasWorkspace({
         "Aplicar os perímetros TOPCON como rascunhos cartográficos na Planta e Memorial? " +
         "A aprovação geométrica e SIGEF permanece pendente e precisará da revisão do RT."
       )) return;
-      onAdoptTopconParcels(parcels);
+      onAdoptTopconParcels(parcels.map(parcel=>({
+        ...parcel,
+        vertices:parcel.vertices.map(point=>{
+          const normal=verticalModel==="hgeoHNOR2020"
+            ? verticalCalculated?.find(row=>row.name===point.name)?.normal_height_m
+            : undefined;
+          return {
+            ...point,
+            derived_physical_altitude_m:
+              normal!==undefined && Number.isFinite(normal) ? normal : point.derived_physical_altitude_m??null,
+            derived_physical_model:
+              normal!==undefined && Number.isFinite(normal) ? ("HN" as const) : point.derived_physical_model??null,
+          };
+        }),
+      })));
       setStage(1);
     } catch (error) {
       setTopconError(error instanceof Error ? error.message : "Não foi possível transferir a geometria.");
