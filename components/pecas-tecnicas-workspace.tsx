@@ -790,7 +790,7 @@ export function PecasTecnicasWorkspace({
   const makeSigefIdentity = () => ({
     holder_name: data.owner, holder_document: data.cpf,
     property_name: data.title, service_nature: "Particular",
-    area_nature: "Particular", situation: sigefSituation,
+    area_nature: areaNature || "Particular", sncr, situation: sigefSituation,
     cns: sigefCns, registration: sigefRegistration,
     municipalities: sigefMunicipalities.split(/[;,]/).map((item) => item.trim()).filter(Boolean),
   });
