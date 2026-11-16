@@ -2950,24 +2950,27 @@ export function PecasTecnicasWorkspace({
                           <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
                             selecionada. A prévia será vinculada à cena e poderá compor a planta
                             PRELIMINAR, sem substituir automaticamente a validação SIGEF.</p>
-                          <p className={ps4OrthoReport.reviewed_by_rt &&
+                          <div className={ps4Ready?"geo96-next-step":"pecas-note"} role="status">
+                            <strong>{ps4Ready
+                              ? "Construção PS4 concluída: traçado M–V–M fechado e pronto para peça preliminar."
+                              : "Construção PS4 em andamento: selecione cena, vetorize e confirme fechamento."}</strong>
+                            <p>A conclusão da vetorização não é uma certificação SIGEF.
+                              O PDF preliminar pode ser gerado mesmo sem laudo RMS, sempre com indicação
+                              explícita das limitações. A ODS preenchida para SIGEF só poderá ser
+                              liberada após validar os requisitos técnicos separadamente.</p>
+                          </div>
+                          <div className={ps4OrthoReport.reviewed_by_rt &&
                             ps4OrthoReport.scene_id===ps4SceneId &&
                             ps4OrthoReport.rms_m!==null &&
-                            ps4OrthoReport.rms_m<=3?"geo96-next-step":"pecas-warning"}
+                            ps4OrthoReport.rms_m<=3?"geo96-next-step":"pecas-note"}
                             role="status">
                             {ps4OrthoReport.reviewed_by_rt &&
                               ps4OrthoReport.scene_id===ps4SceneId &&
                               ps4OrthoReport.rms_m!==null &&
                               ps4OrthoReport.rms_m<=3
-                              ? "Relatório da cena e RMS de ortorretificação conferidos pelo RT. " +
-                                "Compatibilidade métrica em avaliação; conferir também o tipo de limite, " +
-                                "feição visível, data, documentação e confrontantes. " +
-                                "A conferência não transforma automaticamente os V em certificados."
-                              : "Pendente: relatório RMS de ortorretificação da cena, precisão absoluta " +
-                                "compatível com limite natural e conferência do RT. " +
-                                "GSD 2 m não substitui acurácia. PS4 não se aplica a cercas, marcos M " +
-                                "ou mudança de confrontação."}
-                          </p>
+                              ? "RMS documental informado e conferido pelo RT. A aceitação técnica exige revisão da documentação, da cena e do limite natural."
+                              : "Comprovação de acurácia pendente somente para uso técnico certificável: relatório de ortorretificação e revisão RT. A construção preliminar continua disponível."}
+                          </div>
                           <p><strong>Cena em edição:</strong> {ps4SceneId} ·
                             {ps4Armed?" vetorização habilitada":" escolha a cena antes de clicar"}.</p>
                           <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
