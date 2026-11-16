@@ -298,6 +298,17 @@ def _validated_snapshot(
     snapshot = dict(incoming)
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
     if "ps4" not in snapshot and previous:
+        # Salvamentos de memorial/layout não invalidam o RT quando o traçado
+        # e os dados topográficos permanecem exatamente iguais.
+        old_snapshot = piece.snapshot or {} if piece else {}
+        same_geometry = (
+            piece is not None
+            and snapshot.get("topcon") == old_snapshot.get("topcon")
+            and snapshot.get("features") == old_snapshot.get("features")
+        )
+        if same_geometry and previous.get("approval"):
+            snapshot["ps4"] = previous
+            return snapshot
         snapshot["ps4"] = previous
     if "ps4" not in snapshot:
         return snapshot
