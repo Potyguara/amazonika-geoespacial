@@ -44,6 +44,7 @@ const reviewLabels = [
   ["positional_accuracy_checked", "Avaliei a precisão horizontal para o limite natural"],
   ["feature_identification_checked", "A feição natural está inequivocamente identificável"],
   ["source_resolution_checked", "Conferi resolução, origem e referencial da imagem"],
+  ["documentary_metric_traceability_checked", "Conferi no PDF a página, a origem e a tabela/seção da precisão declarada"],
   ["technical_responsibility_accepted", "Assumo a responsabilidade técnica pela conferência"],
 ] as const;
 
@@ -262,7 +263,7 @@ export function Ps4EvidencePanel({
   });
 
   const approve = () => void operation(async () => {
-    if (!allChecks) throw new Error("Confira individualmente os seis requisitos técnicos.");
+    if (!allChecks) throw new Error("Confira individualmente todos os requisitos técnicos, inclusive a rastreabilidade do relatório.");
     const response = await fetch(
       `${getApiUrl()}/technical-pieces/${pieceId}/ps4/approve`,
       {
