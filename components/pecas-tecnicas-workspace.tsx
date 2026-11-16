@@ -3140,6 +3140,34 @@ export function PecasTecnicasWorkspace({
                                   throw new Error(typeof reason === "string"
                                     ? reason : "Recorte CBERS não foi gerado.");
                                 }
+                                const jobId = String(result?.job?.id ?? "");
+                                if (!jobId) throw new Error("O servidor não retornou o identificador do recorte CBERS.");
+                                setPs4Status({kind:"info",message:"Recorte CBERS enfileirado. Aguardando o worker GDAL..."});
+                                let completed = false;
+                                for (let attempt = 0; attempt < 96; attempt += 1) {
+                                  await new Promise(resolve => window.setTimeout(resolve, 2500));
+                                  const check = await fetch(
+                                    `${getApiUrl()}/technical-pieces/${id}/ps4/inpe/jobs/${jobId}`,
+                                    {credentials:"include",cache:"no-store"},
+                                  );
+                                  const outcome = await check.json().catch(() => null);
+                                  if (!check.ok) throw new Error(
+                                    typeof outcome?.detail === "string" ? outcome.detail :
+                                    "Não foi possível consultar o andamento do recorte."
+                                  );
+                                  const status = String(outcome?.job?.status ?? "");
+                                  if (status === "READY") { completed = true; break; }
+                                  if (status === "FAILED" || status === "CANCELLED") {
+                                    throw new Error(String(outcome?.job?.message || "Importação CBERS não concluída."));
+                                  }
+                                  if (attempt % 4 === 0) {
+                                    setPs4Status({kind:"info",message:
+                                      String(outcome?.job?.message || "Preparando recorte orbital...")});
+                                  }
+                                }
+                                if (!completed) throw new Error(
+                                  "O recorte continua no servidor. Reabra a peça para consultar o resultado."
+                                );
                                 setPs4Draft([]);
                                 setPs4ClosureConfirmed(false);
                                 setPs4ConfirmedSignature("");
