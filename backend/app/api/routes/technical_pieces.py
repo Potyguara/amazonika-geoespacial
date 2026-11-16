@@ -521,6 +521,7 @@ class PS4RTAttestation(BaseModel):
     feature_identification_checked: bool
     source_resolution_checked: bool
     technical_responsibility_accepted: bool
+    documentary_metric_traceability_checked: bool = False
 
 
 @router.post("/{piece_id}/ps4/approve")
@@ -569,6 +570,9 @@ def approve_ps4(
                 409, "O traçado salvo não corresponde aos vértices submetidos à revisão PS4."
             )
     checks = payload.model_dump()
+    if submitted.evidence and submitted.evidence.validation_mode == "LEGACY":
+        # Compatibilidade com peças anteriores sem documentação estruturada.
+        checks["documentary_metric_traceability_checked"] = True
     if not all(checks.values()):
         raise HTTPException(422, "Todos os itens de revisão do RT são obrigatórios.")
     profile = user.professional_profile_json or {}
@@ -588,6 +592,10 @@ def approve_ps4(
         "checks": checks,
         "raster_sha256": assets["raster"]["sha256"],
         "report_sha256": assets["report"]["sha256"],
+        "validation_mode": submitted.evidence.validation_mode,
+        "report_page": submitted.evidence.report_page,
+        "accuracy_source": submitted.evidence.accuracy_source,
+        "report_metric_reference": submitted.evidence.report_metric_reference,
     }
     snapshot = dict(piece.snapshot or {})
     snapshot["ps4"] = {
@@ -611,6 +619,10 @@ def approve_ps4(
             "raster_sha256": approval["raster_sha256"],
             "report_sha256": approval["report_sha256"],
             "crea": crea, "art": art,
+            "validation_mode": submitted.evidence.validation_mode,
+            "report_page": submitted.evidence.report_page,
+            "accuracy_source": submitted.evidence.accuracy_source,
+            "report_metric_reference": submitted.evidence.report_metric_reference,
         },
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
