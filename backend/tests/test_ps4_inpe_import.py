@@ -10,7 +10,7 @@ import json
 from app.services.inpe_ps4_import import (
     COLLECTION, L4_COLLECTION, _allowed_asset_url,
     fetch_inpe_item, examine_inpe_item, validate_crop,
-    fetch_official_xml, verified_official_xml_path,
+    fetch_official_xml, verified_official_xml_path, import_inpe_crop,
 )
 
 
@@ -83,6 +83,21 @@ class Ps4InpeImportTests(TestCase):
                 self.assertIsNone(info["orthorectification_rms_m"])
                 self.assertFalse(info["report_available"])
                 self.assertEqual(info["metadata_assets"], ["BAND0.xml"])
+
+    def test_recorte_bloqueado_com_espaco_insuficiente(self):
+        item = scene()
+        with TemporaryDirectory() as directory, (
+            patch("app.services.inpe_ps4_import.get_settings",
+                  return_value=SimpleNamespace(storage_dir=Path(directory))),
+            patch("app.services.inpe_ps4_import.shutil.disk_usage",
+                  return_value=SimpleNamespace(free=1 * 1024**3)),
+            patch("app.services.inpe_ps4_import.subprocess.run") as gdal,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "2 GiB"):
+                import_inpe_crop(
+                    item, (-51.001, 0.0, -51.0, 0.001), uuid4(), uuid4(),
+                )
+            gdal.assert_not_called()
 
     def test_recorte_pequeno_em_utm(self):
         epsg, res = validate_crop((-51.01, 0.01, -51.0, 0.02))
