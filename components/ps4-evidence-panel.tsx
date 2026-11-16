@@ -41,9 +41,10 @@ const emptyChecks = () => Object.fromEntries(
 ) as Record<CheckKey, boolean>;
 
 export function Ps4EvidencePanel({
-  pieceId, sceneId, vertices, rmsFromWorkspace,
+  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange,
 }: {
   pieceId: string | null | undefined;
+  onApprovalChange?: (approved: boolean) => void;
   sceneId: string;
   vertices: Vertex[];
   rmsFromWorkspace: number | null;
@@ -218,6 +219,11 @@ export function Ps4EvidencePanel({
     : record.validation?.status ?? "PENDENTE";
   const canApprove = !dirty && currentMatches &&
     status === "REVIEW_REQUIRED" && allChecks;
+  useEffect(() => {
+    onApprovalChange?.(status === "APPROVED_BY_RT");
+    // Reavaliar apenas quando a aprovação efetivamente muda.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
   return (
     <section className="pecas-card" aria-label="Evidências oficiais PS4"
       style={{ display: "grid", gap: 12, marginTop: 16 }}>
