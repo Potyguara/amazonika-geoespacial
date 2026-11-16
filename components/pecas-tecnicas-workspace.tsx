@@ -379,6 +379,11 @@ export function PecasTecnicasWorkspace({
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
   const [ps4ApprovalConfirmed, setPs4ApprovalConfirmed] = useState(false);
+  const [ps4RasterAsset, setPs4RasterAsset] = useState<{
+    kind: "raster" | "report"; sha256: string; size_bytes: number;
+    metadata?: { width?: number; height?: number; crs_wkt?: string;
+      wgs84_extent?: { type: string; coordinates: number[][][] } };
+  } | null>(null);
   const [ps4OrthoReport,setPs4OrthoReport] = useState<NonNullable<TopconDraft["ps4_ortho_report"]>>({
     scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false,
   });
@@ -3113,6 +3118,7 @@ export function PecasTecnicasWorkspace({
                             vertices={ps4Draft}
                             rmsFromWorkspace={ps4OrthoReport.rms_m}
                             onApprovalChange={setPs4ApprovalConfirmed}
+                            onRasterChange={setPs4RasterAsset}
                           />
                           <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
                             selecionada. A prévia será vinculada à cena e poderá compor a planta
@@ -3410,6 +3416,10 @@ export function PecasTecnicasWorkspace({
                     selected={pa2Witnesses}
                     method={constructionMethod}
                     ps4SceneId={ps4SceneId}
+                    ps4Raster={loadedPieceId && ps4RasterAsset?.kind === "raster"
+                      ? {pieceId:loadedPieceId, sha256:ps4RasterAsset.sha256,
+                         footprint:ps4RasterAsset.metadata?.wgs84_extent}
+                      : null}
                     ps4Points={ps4Draft}
                     ps4Candidate={ps4Candidate}
                     ps4ClosureGeometry={ps4PreviewGeometry}
