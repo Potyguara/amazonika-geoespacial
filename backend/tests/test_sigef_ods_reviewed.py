@@ -93,7 +93,7 @@ class ReviewedSigefOdsTests(unittest.TestCase):
     def test_blocks_missing_height_and_sigma(self):
         case = payload()
         case["parcels"][0]["vertices"][0]["sigma_lon_m"] = None
-        with self.assertRaisesRegex(ValueError, "sigma longitude"):
+        with self.assertRaisesRegex(ValueError, "Sigmas individuais ausentes|sigma longitude"):
             build_reviewed_sigef_ods(case)
 
     def test_blocks_ps4_even_with_filled_h_if_accuracy_not_verified(self):
