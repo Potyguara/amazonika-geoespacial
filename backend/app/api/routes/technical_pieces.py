@@ -101,7 +101,20 @@ def update_piece(
 ):
     piece = _owned(piece_id, db, user)
     piece.title = payload.title
-    piece.snapshot = payload.snapshot
+    snapshot = dict(payload.snapshot)
+    # Rota genérica não aceita validação PS4 inventada pelo navegador.
+    if "ps4" in snapshot:
+        try:
+            submitted = PS4Submission.model_validate(snapshot["ps4"]["submission"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(422, "Dados PS4 inválidos no snapshot.") from exc
+        snapshot["ps4"] = {
+            "submission": submitted.model_dump(mode="json"),
+            "validation": evaluate_ps4(submitted),
+        }
+    piece.snapshot = snapshot
+    if piece.status != "DRAFT":
+        piece.status = "DRAFT"
     db.commit()
     db.refresh(piece)
     return {**_view(piece), "snapshot": piece.snapshot}
