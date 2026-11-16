@@ -16,9 +16,9 @@ from app.services.auth import get_current_user, require_permission
 from app.services.audit import write_audit
 from app.services.ps4_validation import PS4Submission, evaluate_verified_ps4
 from app.services.inpe_ps4_import import (
-    fetch_inpe_item, examine_inpe_item, import_inpe_crop,
-    verified_official_xml_path,
+    fetch_inpe_item, examine_inpe_item, verified_official_xml_path,
 )
+from app.services.ps4_inpe_queue import new_job, save_job, read_job, safe_status, ACTIVE
 from app.services.ps4_assets import store_uploaded_asset, stored_file_path, exists_matching
 from app.services.ps4_tiles import mercator_tile_bounds, tile_intersects_footprint, render_png_tile, transparent_png_tile
 from app.services.technical_import import parse_sigef_ods
@@ -437,6 +437,7 @@ def get_ps4(
         "approval": current.get("approval"),
         "completed_at": current.get("completed_at"),
         "source_provenance": current.get("source_provenance"),
+        "import_job_id": current.get("import_job_id"),
         "validation": current.get("validation", {
             "status": "BLOCKED",
             "blockers": ["Validação PS4 não iniciada."],
@@ -703,59 +704,57 @@ def ps4_inpe_scene_info(
         raise HTTPException(502, str(exc)) from exc
 
 
-@router.post("/{piece_id}/ps4/inpe/prepare")
+@router.post("/{piece_id}/ps4/inpe/prepare", status_code=202)
 def ps4_prepare_inpe_scene(
     piece_id: UUID, payload: PS4InpeCropInput,
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    """Recorta diretamente da fonte COG do INPE, preservando proveniência.
-
-    Não aprova acurácia, não fabrica laudo e não conclui PS4.
-    """
-    from shapely.geometry import box, shape
-
+    """Enfileira recorte COG; não executa GDAL no request HTTP."""
     piece = _owned(piece_id, db, user)
+    ps4 = dict((piece.snapshot or {}).get("ps4") or {})
+    previous_id = ps4.get("import_job_id")
+    if previous_id:
+        try:
+            previous = read_job(UUID(str(previous_id)))
+        except (OSError, ValueError, KeyError):
+            previous = {}
+        if previous.get("status") in ACTIVE:
+            raise HTTPException(409, "Já existe recorte CBERS em processamento nesta peça.")
     try:
-        item = fetch_inpe_item(payload.item_id, payload.collection)
-        if not isinstance(item.get("geometry"), dict):
-            raise ValueError("Cena STAC sem geometria oficial.")
-        footprint = shape(item["geometry"])
-        if not footprint.is_valid or footprint.is_empty or not footprint.covers(
-            box(*payload.bbox)
-        ):
-            raise ValueError("Área solicitada não está inteiramente coberta pela cena STAC.")
-        result = import_inpe_crop(item, payload.bbox, user.id, piece.id)
+        job = new_job(user.id, piece.id, payload.item_id, payload.collection, payload.bbox)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(503, str(exc)) from exc
     snapshot = dict(piece.snapshot or {})
-    current = dict(snapshot.get("ps4") or {})
-    # A imagem mudou: relatório anterior não é evidência desta nova cena.
-    # A cópia física antiga permanece arquivada, mas deixa de estar vinculada.
-    assets = {"raster": result["asset"]}
-    current["assets"] = assets
-    current["source_provenance"] = result["provenance"]
-    current.pop("approval", None)
-    current.pop("completed_at", None)
-    if "submission" in current:
-        current["validation"] = evaluate_verified_ps4(
-            PS4Submission.model_validate(current["submission"]),
-            assets, user.id, piece.id,
-        )
-    snapshot["ps4"] = current
+    ps4["import_job_id"] = job["id"]
+    snapshot["ps4"] = ps4
     piece.snapshot = snapshot
-    piece.status = "DRAFT"
+    db.add(piece)
     db.commit()
-    db.refresh(piece)
-    return {
-        "piece_id": str(piece.id),
-        "source_provenance": result["provenance"],
-        "ps4": piece.snapshot["ps4"],
-        "message": "Recorte CBERS armazenado. RMS, precisão absoluta e relatório "
-                   "de ortorretificação permanecem pendentes de comprovação.",
-    }
+    try:
+        save_job(job)
+    except OSError as exc:
+        raise HTTPException(503, "Não foi possível criar trabalho de recorte.") from exc
+    return {"piece_id": str(piece.id), "job": safe_status(job),
+            "message": "Recorte enfileirado. Acompanhe no painel PS4."}
 
+
+@router.get("/{piece_id}/ps4/inpe/jobs/{job_id}")
+def ps4_inpe_job_status(
+    piece_id: UUID, job_id: UUID,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Status privado, vinculado ao usuário, peça e job ativo."""
+    piece = _owned(piece_id, db, user)
+    linked = ((piece.snapshot or {}).get("ps4") or {}).get("import_job_id")
+    if str(linked) != str(job_id):
+        raise HTTPException(404, "Trabalho não vinculado à peça.")
+    try:
+        job = read_job(job_id)
+    except (OSError, ValueError, KeyError) as exc:
+        raise HTTPException(404, "Trabalho não encontrado.") from exc
+    if job.get("piece_id") != str(piece.id) or job.get("user_id") != str(user.id):
+        raise HTTPException(404, "Trabalho não encontrado.")
+    return {"job": safe_status(job)}
 
 @router.get("/{piece_id}/ps4/inpe/metadata.xml")
 def ps4_download_official_xml(
