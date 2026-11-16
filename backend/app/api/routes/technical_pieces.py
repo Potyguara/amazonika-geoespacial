@@ -301,10 +301,20 @@ def _validated_snapshot(
         # Salvamentos de memorial/layout não invalidam o RT quando o traçado
         # e os dados topográficos permanecem exatamente iguais.
         old_snapshot = piece.snapshot or {} if piece else {}
+        relevant_topcon = (
+            "boundary", "ps4_draft", "ps4_selected_scene",
+            "ps4_ortho_report", "ps4_quality", "construction_skipped",
+            "ps4_closure",
+        )
+        current_topcon = snapshot.get("topcon") or {}
+        old_topcon = old_snapshot.get("topcon") or {}
         same_geometry = (
             piece is not None
-            and snapshot.get("topcon") == old_snapshot.get("topcon")
             and snapshot.get("features") == old_snapshot.get("features")
+            and all(
+                current_topcon.get(key) == old_topcon.get(key)
+                for key in relevant_topcon
+            )
         )
         if same_geometry and previous.get("approval"):
             snapshot["ps4"] = previous
