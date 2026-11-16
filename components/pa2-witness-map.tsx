@@ -101,7 +101,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     });
     cbersRef.current = cbersLayer;
     const rasterLayer = new TileLayer<XYZ>({
-      visible: false, opacity: 1, zIndex: 3,
+      visible: false, opacity: 1, zIndex: 0,
       source: new XYZ({
         url: "/__ps4_unconfigured__/{z}/{x}/{y}.png",
         crossOrigin: "use-credentials",
