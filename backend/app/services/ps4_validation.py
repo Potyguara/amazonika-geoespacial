@@ -147,6 +147,14 @@ def evaluate_verified_ps4(
             )
 
     raster = assets.get("raster") or {}
+    reported_crs = ((raster.get("metadata") or {}).get("crs_authority") or "").strip().upper()
+    declared_crs = data.evidence.scene_crs.strip().upper()
+    if not reported_crs:
+        blockers.append("A autoridade EPSG do GeoTIFF não foi identificada; revise o SRC.")
+    elif declared_crs != reported_crs:
+        blockers.append(
+            f"SRC declarado ({declared_crs}) não corresponde ao GeoTIFF ({reported_crs})."
+        )
     extent = (raster.get("metadata") or {}).get("wgs84_extent")
     if not isinstance(extent, dict):
         blockers.append(
