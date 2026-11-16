@@ -54,6 +54,7 @@ def _raster_info(path: Path) -> dict:
             "width": width, "height": height,
             "crs_wkt": info["coordinateSystem"]["wkt"],
             "geo_transform": info["geoTransform"],
+            "wgs84_extent": info.get("wgs84Extent"),
             "driver": "GTiff",
         }
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
