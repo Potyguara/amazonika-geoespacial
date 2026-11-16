@@ -344,10 +344,17 @@ def _validated_snapshot(
         validation = evaluate_verified_ps4(submitted, {}, user.id, UUID(int=0))
     else:
         validation = evaluate_verified_ps4(submitted, assets, user.id, piece.id)
+    preserved_source = previous.get("source_provenance") if isinstance(previous, dict) else None
+    if preserved_source and (
+        assets.get("raster", {}).get("sha256") !=
+        (previous.get("assets", {}).get("raster") or {}).get("sha256")
+    ):
+        preserved_source = None
     snapshot["ps4"] = {
         "submission": submitted.model_dump(mode="json"),
         "assets": assets,
         "validation": validation,
+        **({"source_provenance": preserved_source} if preserved_source else {}),
     }
     return snapshot
 
@@ -456,6 +463,9 @@ def upload_ps4_file(
     assets = dict(ps4.get("assets") or {})
     assets[kind] = record
     ps4["assets"] = assets
+    if kind == "raster":
+        # Novo arquivo manual não herda a origem comprovada de um CBERS anterior.
+        ps4.pop("source_provenance", None)
     # Substituir um arquivo invalida qualquer aprovação anterior.
     ps4.pop("approval", None)
     ps4.pop("completed_at", None)
