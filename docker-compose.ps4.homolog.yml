@@ -30,6 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://ps4_homolog:${PS4_DB_PASSWORD:?Defina PS4_DB_PASSWORD}@db:5432/ps4_homolog
       STORAGE_DIR: /data/uploads
+      PB1_ARTICULATION_GEOJSON: /data/reference/pb1_amapa.geojson
       CORS_ORIGINS: http://127.0.0.1:13140,http://localhost:13140
       PUBLIC_BASE_URL: http://127.0.0.1:18140
       GOOGLE_MAP_TILES_ENABLED: "false"
@@ -38,6 +39,7 @@ services:
       - "127.0.0.1:18140:8000"
     volumes:
       - ps4_uploads:/data/uploads
+      - ./deploy/pb1/articulacao_amapa_25k_pb1.geojson:/data/reference/pb1_amapa.geojson:ro
     networks:
       - ps4_private
       - ps4_egress

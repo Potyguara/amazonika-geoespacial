@@ -393,6 +393,27 @@ def _validated_snapshot(
     return snapshot
 
 
+
+class PB1SheetLookupInput(BaseModel):
+    geometry: dict
+
+
+@router.post("/pb1/sheets/lookup")
+def pb1_sheet_lookup(
+    payload: PB1SheetLookupInput,
+    user: User = Depends(get_current_user),
+):
+    """Consulta de articulação sem gravar ou validar certificação."""
+    from app.services.pb1_articulation import identify_pb1_sheets
+
+    try:
+        return identify_pb1_sheets(payload.geometry)
+    except FileNotFoundError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("", status_code=201)
 def create_piece(
     payload: PieceInput,
