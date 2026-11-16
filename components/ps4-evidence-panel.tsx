@@ -42,11 +42,12 @@ const emptyChecks = () => Object.fromEntries(
 ) as Record<CheckKey, boolean>;
 
 export function Ps4EvidencePanel({
-  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange,
+  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange, onReportChange,
 }: {
   pieceId: string | null | undefined;
   onApprovalChange?: (approved: boolean) => void;
   onRasterChange?: (asset: UploadedAsset | null) => void;
+  onReportChange?: (present: boolean) => void;
   sceneId: string;
   vertices: Vertex[];
   rmsFromWorkspace: number | null;
@@ -196,6 +197,12 @@ export function Ps4EvidencePanel({
     setNotice("Revisão do RT registrada com identificação e trilha de auditoria.");
   });
 
+  const reportKey = record.assets?.report?.sha256 ?? "";
+  useEffect(() => {
+    onReportChange?.(Boolean(reportKey));
+    // Stable parent state callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pieceId, reportKey]);
   const rasterAsset = record.assets?.raster ?? null;
   const rasterKey = rasterAsset?.sha256 ?? "";
   useEffect(() => {
