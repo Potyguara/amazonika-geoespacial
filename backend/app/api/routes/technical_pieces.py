@@ -302,6 +302,12 @@ def _validated_snapshot(
     """Preserva anexos confiáveis e recalcula os resultados a cada gravação."""
     snapshot = dict(incoming)
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
+    same_checkpoint_geometry = bool(
+        piece is not None and
+        snapshot.get("features") == (piece.snapshot or {}).get("features") and
+        (snapshot.get("topcon") or {}).get("ps4_draft") ==
+        ((piece.snapshot or {}).get("topcon") or {}).get("ps4_draft")
+    )
     if "ps4" not in snapshot and previous:
         # Salvamentos de texto/layout não podem revogar uma decisão PS4 válida.
         # Qualquer alteração do traçado ou metadados geoespaciais revoga
@@ -336,7 +342,7 @@ def _validated_snapshot(
         if piece and isinstance(previous, dict) and "submission" not in previous:
             snapshot["ps4"] = {"assets": previous.get("assets", {}),
                 **({"checkpoint_analysis": previous["checkpoint_analysis"]}
-                   if previous.get("checkpoint_analysis") else {})}
+                   if same_checkpoint_geometry and previous.get("checkpoint_analysis") else {})}
             return snapshot
         raise HTTPException(422, "Formulário PS4 não informado.")
     try:
@@ -363,8 +369,7 @@ def _validated_snapshot(
            if previous.get("checkpoint_analysis") and
               previous["checkpoint_analysis"].get("raster_sha256") ==
               (assets.get("raster") or {}).get("sha256") and
-              (snapshot.get("topcon") or {}).get("ps4_draft") ==
-              ((piece.snapshot or {}).get("topcon") or {}).get("ps4_draft")
+              same_checkpoint_geometry
            else {}),
         **({"source_provenance": preserved_source} if preserved_source else {}),
         **({"import_job_id": previous["import_job_id"]}
@@ -480,6 +485,7 @@ def upload_ps4_file(
     assets[kind] = record
     ps4["assets"] = assets
     if kind == "raster":
+        ps4.pop("checkpoint_analysis", None)
         # Novo arquivo manual cancela vínculo com qualquer recorte ainda em fila.
         ps4.pop("import_job_id", None)
         ps4.pop("source_provenance", None)
