@@ -45,7 +45,7 @@ class PS4GdalRasterIntegrationTests(unittest.TestCase):
                 ))
                 location = stored_file_path(uid, pid, "raster", record["sha256"])
                 image = render_png_tile(location, 10, 366, 511)
-                self.assertTrue(image.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+                self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
                 with Image.open(BytesIO(image)) as tile:
                     self.assertEqual(tile.size, (256, 256))
                     self.assertIn(tile.mode, {"RGB", "RGBA"})
