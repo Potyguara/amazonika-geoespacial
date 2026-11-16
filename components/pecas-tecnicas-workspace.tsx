@@ -844,6 +844,10 @@ export function PecasTecnicasWorkspace({
   };
   const downloadReviewedOds = async () => {
     if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
+    if (ps4SigefIncomplete) {
+      setReviewedOdsError("ODS preenchida bloqueada: os vértices PS4 exigem acurácia horizontal aprovada, h elipsoidal confirmada e sigmas individuais.");
+      return;
+    }
     // Original adjusted-point precisions from TOPCON are retained. Manual adjustment
     // and a second confirmation click are optional; mandatory SIGEF columns are not.
     const incomplete = topconBoundary.filter(point =>
@@ -1447,6 +1451,13 @@ export function PecasTecnicasWorkspace({
   const chosen = polygons.filter((polygon) => selectedIds.includes(polygon.id));
   const hasProvisionalPs4Parcel = chosen.some(p =>
     p.vertexDetails?.some(d => d.preliminary_ps4 === true && d.accuracy_verified !== true));
+  const ps4SigefIncomplete = topconBoundary.some(point => point.sigef_method === "PS4" && (
+    point.derived_calculation?.accuracy_verified !== true ||
+    point.height_reference_confirmed !== true ||
+    point.ellipsoidal_height_m === null ||
+    ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
+      .every(value => typeof value === "number" && Number.isFinite(value) && value > 0)
+  ));
   // Prévia cartográfica não substitui geometrias do mapa nem autoriza a ODS.
   // A sequência reflete o ordenamento atual do editor, inclusive erros a corrigir.
   const previewTopconGeometry = (() => {
@@ -2770,7 +2781,7 @@ export function PecasTecnicasWorkspace({
                                 Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
                               {sigefParcelReview.status === "PREVALIDATED" && <div>
                                 <button type="button" className="pecas-primary"
-                                  disabled={reviewedOdsBusy || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
+                                  disabled={reviewedOdsBusy || ps4SigefIncomplete || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
                                   onClick={() => void downloadReviewedOds()}>
                                   {reviewedOdsBusy ? "Gerando ODS..." : "Gerar ODS SIGEF revisada"}
                                 </button>
@@ -2806,7 +2817,7 @@ export function PecasTecnicasWorkspace({
                 <Download size={17} />
                 {blankOdsBusy?"Baixando modelo...":"Baixar modelo SIGEF (ODS em branco)"}
               </button>
-              <button disabled={!sigefAvailable || actionBusy || hasProvisionalPs4Parcel}
+              <button disabled={!sigefAvailable || actionBusy || hasProvisionalPs4Parcel || ps4SigefIncomplete}
                 onClick={() => void runAction(onDownloadSigef)}>
                 <Download size={17} /> ODS preenchida · somente dados validados
               </button>
@@ -2816,6 +2827,11 @@ export function PecasTecnicasWorkspace({
             <p className="pecas-note">O modelo em branco pode ser baixado a qualquer momento.
               A planilha preenchida depende de dados reais, incluindo h, coordenadas e precisão; HN estimada não substitui h SIGEF.</p>
             {!sigefAvailable && <p className="pecas-note">A exportação ODS SIGEF exige uma análise espacial registrada e a permissão correspondente. Conclua a análise no módulo existente para habilitá-la.</p>}
+            {ps4SigefIncomplete && <p className="pecas-warning" role="status">
+              Os vértices PS4 ainda não têm todos os atributos exigidos para a ODS preenchida:
+              acurácia horizontal revisada, altura elipsoidal h e sigmas individuais.
+              A ODS de trabalho e os documentos preliminares continuam disponíveis.
+            </p>}
             {hasProvisionalPs4Parcel && <p className="pecas-warning" role="status">
               Esta parcela contém vértices V restituídos por PS4 sem acurácia certificável.
               A ODS SIGEF permanece bloqueada. A planta e o memorial PRELIMINARES podem ser gerados.
