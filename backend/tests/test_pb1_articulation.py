@@ -41,7 +41,13 @@ class Pb1ArticulationTests(unittest.TestCase):
     def test_borda_contigua_e_informada(self):
         result = identify_pb1_sheets(mapping(box(-51.45, 1.90, -51.375, 1.95)), str(self.path))
         self.assertEqual(result["sheet_count"], 2)
-        self.assertTrue(result["matched_sheets"][1]["boundary_touch_only"])
+        by_inom = {item["inom"]: item for item in result["matched_sheets"]}
+        touching = by_inom["NA-22-Y-B-III-1-NE"]
+        overlapping = by_inom["NA-22-Y-B-III-1-NO"]
+        self.assertTrue(touching["boundary_touch_only"])
+        self.assertFalse(touching["area_overlap"])
+        self.assertTrue(overlapping["area_overlap"])
+        self.assertFalse(overlapping["boundary_touch_only"])
 
     def test_sem_folha_retorna_vazio(self):
         result = identify_pb1_sheets(mapping(box(-52, -1, -51.9, -0.9)), str(self.path))
