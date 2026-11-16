@@ -670,18 +670,19 @@ def ps4_raster_tile(
 
 class PS4InpeCropInput(BaseModel):
     item_id: str = Field(min_length=10, max_length=180)
+    collection: str = Field(default="CB4A-WPM-PCA-FUSED-1")
     bbox: tuple[float, float, float, float]
 
 
 @router.get("/{piece_id}/ps4/inpe/scenes/{item_id}")
 def ps4_inpe_scene_info(
-    piece_id: UUID, item_id: str,
+    piece_id: UUID, item_id: str, collection: str = "CB4A-WPM-PCA-FUSED-1",
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     """Analisa metadados STAC oficiais e explica documentação que falta."""
     _owned(piece_id, db, user)
     try:
-        item = fetch_inpe_item(item_id)
+        item = fetch_inpe_item(item_id, collection)
         return examine_inpe_item(item)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -702,7 +703,7 @@ def ps4_prepare_inpe_scene(
 
     piece = _owned(piece_id, db, user)
     try:
-        item = fetch_inpe_item(payload.item_id)
+        item = fetch_inpe_item(payload.item_id, payload.collection)
         if not isinstance(item.get("geometry"), dict):
             raise ValueError("Cena STAC sem geometria oficial.")
         footprint = shape(item["geometry"])
