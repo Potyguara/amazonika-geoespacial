@@ -6,7 +6,8 @@ import { getApiUrl } from "@/lib/api";
 type Vertex = { name: string; longitude: number; latitude: number };
 type UploadedAsset = {
   kind: "raster" | "report"; sha256: string; size_bytes: number;
-  metadata?: { width?: number; height?: number; crs_wkt?: string };
+  metadata?: { width?: number; height?: number; crs_wkt?: string;
+    wgs84_extent?: { type: string; coordinates: number[][][] } };
 };
 type Evidence = {
   scene_id: string; report_scene_id: string;
@@ -41,10 +42,11 @@ const emptyChecks = () => Object.fromEntries(
 ) as Record<CheckKey, boolean>;
 
 export function Ps4EvidencePanel({
-  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange,
+  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange,
 }: {
   pieceId: string | null | undefined;
   onApprovalChange?: (approved: boolean) => void;
+  onRasterChange?: (asset: UploadedAsset | null) => void;
   sceneId: string;
   vertices: Vertex[];
   rmsFromWorkspace: number | null;
@@ -194,6 +196,13 @@ export function Ps4EvidencePanel({
     setNotice("Revisão do RT registrada com identificação e trilha de auditoria.");
   });
 
+  const rasterAsset = record.assets?.raster ?? null;
+  const rasterKey = rasterAsset?.sha256 ?? "";
+  useEffect(() => {
+    onRasterChange?.(rasterAsset);
+    // Ref remains owned by parent; notify only when actual raster changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pieceId, rasterKey]);
   const saved = record.submission;
   const currentMatches = Boolean(
     saved?.needs_additional_vertices &&
