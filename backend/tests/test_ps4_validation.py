@@ -29,14 +29,14 @@ class PS4ValidationTests(unittest.TestCase):
     def test_sem_relatorio_bloqueado(self):
         result = evaluate_ps4(PS4Submission(
             needs_additional_vertices=True,
-            vertices=[PS4Vertex(vertex_id="V1", limit_type="natural", feature_type="river")],
+            vertices=[PS4Vertex(vertex_id="V1", longitude=-51.0, latitude=0.1, limit_type="natural", feature_type="river")],
         ))
         self.assertEqual(result["status"], "BLOCKED")
 
     def test_natural_requer_revisao_rt(self):
         result = evaluate_ps4(PS4Submission(
             needs_additional_vertices=True, evidence=evidence(),
-            vertices=[PS4Vertex(vertex_id="V1", limit_type="natural", feature_type="river")],
+            vertices=[PS4Vertex(vertex_id="V1", longitude=-51.0, latitude=0.1, limit_type="natural", feature_type="river")],
         ))
         self.assertEqual(result["status"], "REVIEW_REQUIRED")
         self.assertTrue(result["requires_rt_review"])
@@ -44,21 +44,21 @@ class PS4ValidationTests(unittest.TestCase):
     def test_cerca_nao_permitida(self):
         result = evaluate_ps4(PS4Submission(
             needs_additional_vertices=True, evidence=evidence(),
-            vertices=[PS4Vertex(vertex_id="V1", limit_type="artificial", feature_type="fence")],
+            vertices=[PS4Vertex(vertex_id="V1", longitude=-51.0, latitude=0.1, limit_type="artificial", feature_type="fence")],
         ))
         self.assertEqual(result["status"], "BLOCKED")
 
     def test_limite_incompativel(self):
         result = evaluate_ps4(PS4Submission(
             needs_additional_vertices=True, evidence=evidence(horizontal_positional_precision_m=3.1),
-            vertices=[PS4Vertex(vertex_id="V1", limit_type="natural", feature_type="river")],
+            vertices=[PS4Vertex(vertex_id="V1", longitude=-51.0, latitude=0.1, limit_type="natural", feature_type="river")],
         ))
         self.assertEqual(result["status"], "BLOCKED")
 
     def test_cena_diferente(self):
         result = evaluate_ps4(PS4Submission(
             needs_additional_vertices=True, evidence=evidence(report_scene_id="OUTRA"),
-            vertices=[PS4Vertex(vertex_id="V1", limit_type="natural", feature_type="river")],
+            vertices=[PS4Vertex(vertex_id="V1", longitude=-51.0, latitude=0.1, limit_type="natural", feature_type="river")],
         ))
         self.assertEqual(result["status"], "BLOCKED")
 
@@ -66,7 +66,7 @@ class PS4ValidationTests(unittest.TestCase):
         submitted = PS4Submission(
             needs_additional_vertices=True, evidence=evidence(),
             vertices=[PS4Vertex(
-                vertex_id="V1", limit_type="natural", feature_type="river"
+                vertex_id="V1", longitude=-51.0, latitude=0.1, limit_type="natural", feature_type="river"
             )],
         )
         result = evaluate_verified_ps4(submitted, {}, uuid4(), uuid4())
@@ -77,7 +77,7 @@ class PS4ValidationTests(unittest.TestCase):
         submitted = PS4Submission(
             needs_additional_vertices=True, evidence=evidence(),
             vertices=[PS4Vertex(
-                vertex_id="V1", limit_type="natural", feature_type="river"
+                vertex_id="V1", longitude=-51.0, latitude=0.1, limit_type="natural", feature_type="river"
             )],
         )
         assets = {
