@@ -535,6 +535,16 @@ def approve_ps4(
     if "submission" not in current:
         raise HTTPException(409, "Preencha o formulário PS4 antes da revisão.")
     submitted = PS4Submission.model_validate(current["submission"])
+    pending_job = current.get("import_job_id")
+    if pending_job:
+        try:
+            inpe_job = read_job(UUID(str(pending_job)))
+        except (OSError, ValueError, KeyError):
+            inpe_job = {}
+        if inpe_job.get("status") in ACTIVE:
+            raise HTTPException(
+                409, "O recorte CBERS ainda está em processamento; aprovação suspensa."
+            )
     assets = current.get("assets", {})
     validation = evaluate_verified_ps4(submitted, assets, user.id, piece.id)
     if validation["status"] == "BLOCKED":
@@ -632,6 +642,7 @@ def complete_ps4_not_applicable(
     snapshot["ps4"] = {
         "submission": submitted.model_dump(mode="json"),
         "assets": ps4.get("assets", {}),
+        # Não manter vínculo com recorte remoto quando a etapa foi dispensada.
         "validation": {
             "status": "NOT_APPLICABLE", "blockers": [],
             "requires_rt_review": False,
