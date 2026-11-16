@@ -37,6 +37,8 @@ class PS4Evidence(BaseModel):
 
 class PS4Vertex(BaseModel):
     vertex_id: str = Field(min_length=1, max_length=120)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
     limit_type: str
     feature_type: str = Field(min_length=1, max_length=80)
 
@@ -76,7 +78,12 @@ def evaluate_ps4(data: PS4Submission) -> dict:
             blockers.append("A feição do limite não está identificada inequivocamente.")
         # Este serviço não tem acesso ao conteúdo dos arquivos para conferir hashes,
         # autenticidade, dados RMS ou metadados; esses itens ficam sujeitos ao RT.
+        ids = [vertex.vertex_id.upper() for vertex in data.vertices]
+        if len(ids) != len(set(ids)):
+            blockers.append("Identificadores de vértice V duplicados.")
         for vertex in data.vertices:
+            if vertex.longitude is None or vertex.latitude is None:
+                blockers.append(f"{vertex.vertex_id}: coordenadas geográficas ausentes.")
             if vertex.limit_type not in LIMITS_M:
                 blockers.append(f"{vertex.vertex_id}: tipo de limite desconhecido.")
                 continue
