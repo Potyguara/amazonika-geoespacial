@@ -221,9 +221,8 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size, *, row_star
         (p.names[i],_dms(lon,"lon"),_dms(lat,"lat"),
          f"{transformer.transform(lon,lat)[0]:.3f}",
          f"{transformer.transform(lon,lat)[1]:.3f}",
-         ("HN~" if "-V-" in p.names[i].upper() else "HN ")+_br_number(p.normal_altitudes[i],2)
-         if len(p.normal_altitudes)>i and p.normal_altitudes[i] is not None else (
-             "h "+_br_number(p.altitudes[i],2) if p.altitudes[i] is not None else "—"),
+         (("HN~" if "-V-" in p.names[i].upper() else "HN ")+_br_number(p.normal_altitudes[i],2))
+         if len(p.normal_altitudes)>i and p.normal_altitudes[i] is not None else "—",
          _azimuth_minutes(seg["azimuth"]),
          _br_number(seg["distance"],2))
         for p in parcels

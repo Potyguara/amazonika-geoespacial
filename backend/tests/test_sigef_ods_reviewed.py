@@ -93,7 +93,19 @@ class ReviewedSigefOdsTests(unittest.TestCase):
     def test_blocks_missing_height_and_sigma(self):
         case = payload()
         case["parcels"][0]["vertices"][0]["sigma_lon_m"] = None
-        with self.assertRaisesRegex(ValueError, "sigma longitude"):
+        with self.assertRaisesRegex(ValueError, "Sigmas individuais ausentes|sigma longitude"):
+            build_reviewed_sigef_ods(case)
+
+    def test_blocks_ps4_even_with_filled_h_if_accuracy_not_verified(self):
+        case = payload()
+        vertex_v = case["parcels"][0]["vertices"][0]
+        vertex_v["sigef_vertex_code"] = "TEST-V-0001"
+        vertex_v["sigef_method"] = "PS4"
+        vertex_v["boundary_type"] = "LN1"
+        vertex_v["derived_calculation"] = {
+            "method": "PS4", "accuracy_verified": False,
+        }
+        with self.assertRaisesRegex(ValueError, "acurácia horizontal"):
             build_reviewed_sigef_ods(case)
 
     def test_blocks_internal_overlap(self):

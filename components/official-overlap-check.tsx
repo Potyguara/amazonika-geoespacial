@@ -25,7 +25,7 @@ export function OfficialOverlapCheck({ geometry, vertices = [], onNext, onReport
   const run=async()=>{
     setLoading(true);setError("");setReport(null);
     try {
-      if(!geometry)throw new Error("Feche a poligonal PS4 no mapa antes de verificar sobreposições.");
+      if(!geometry)throw new Error("Selecione uma parcela fechada (com ou sem vértices V) antes de verificar sobreposições.");
       const res=await fetch(`${getApiUrl()}/technical-pieces/official-overlaps/check`,{
         method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({geometry,near_m:3,include_touching:true,
@@ -51,8 +51,8 @@ export function OfficialOverlapCheck({ geometry, vertices = [], onNext, onReport
     </div>
     <div className="geo96-next-step">
       <strong>Poligonal de trabalho:</strong> {geometry
-        ? "Fechamento PS4 disponível para conferência espacial." :
-          "Ainda não existe uma poligonal PS4 fechada; volte ao espaço de construção."}
+        ? "Parcela selecionada disponível para conferência espacial." :
+          "Selecione uma parcela fechada. A verificação SIGEF não exige vértices V."}
     </div>
     <div className="pecas-card geo96-task-card">
       <h4>Fontes oficiais obrigatórias</h4>

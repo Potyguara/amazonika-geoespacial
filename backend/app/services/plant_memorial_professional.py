@@ -404,8 +404,9 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                 _str(pdf,f"POLÍGONO {p_index+1}",margin,y,8,"Helvetica-Bold",c["primary"])
                 y-=21
             starting=parcel.segments[0]
-            alt=parcel.altitudes[0]
-            altpart=f" e Altitude: {_br_number(alt,2)} m" if alt is not None else ""
+            hn=(parcel.normal_altitudes[0] if parcel.normal_altitudes else None)
+            altpart=(f" e {'HN estimada' if '-V-' in parcel.names[0].upper() else 'Altitude normal (HN)'}: "
+                     f"{_br_number(hn,2)} m") if hn is not None else ""
             intro=(f"Inicia-se a descrição deste perímetro no vértice <font color='#186C52'><b>{escape(starting['start'])}</b></font>, "
                    f"de coordenadas (Longitude: {_dms(starting['lon'],'lon')}, "
                    f"Latitude: {_dms(starting['lat'],'lat')}{altpart}); linha ideal.")
@@ -418,8 +419,10 @@ def render_memorial_professional(pdf,*,parcels,template,title,owner,owner_rg,
                 for segindex in group["segments"]:
                     seg=parcel.segments[segindex]
                     end_idx=(segindex+1)%len(parcel.points)
-                    alt=parcel.altitudes[end_idx]
-                    altpart=f" e Altitude: {_br_number(alt,2)} m" if alt is not None else ""
+                    hn=(parcel.normal_altitudes[end_idx]
+                        if end_idx < len(parcel.normal_altitudes) else None)
+                    altpart=(f" e {'HN estimada' if '-V-' in parcel.names[end_idx].upper() else 'Altitude normal (HN)'}: "
+                             f"{_br_number(hn,2)} m") if hn is not None else ""
                     close=end_idx==0
                     ending=("ponto inicial da descrição deste perímetro."
                             if close else

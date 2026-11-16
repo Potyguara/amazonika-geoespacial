@@ -5,6 +5,9 @@ import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide
 import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
 import { Pa2WitnessMap } from "@/components/pa2-witness-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
+import { Ps4EvidencePanel } from "@/components/ps4-evidence-panel";
+import { Ps4RasterDiagnosticCard } from "@/components/ps4-raster-diagnostic-card";
+import { Ps4CheckpointAnalysis } from "@/components/ps4-checkpoint-analysis";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
 import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
@@ -274,7 +277,7 @@ type Props = {
   onDeclinationChange: (value: string) => void;
   surveyDate: string;
   onSurveyDateChange: (value: string) => void;
-  onSavePiece: (memorialDraft: string, topconDraft: TopconDraft) => Promise<void>;
+  onSavePiece: (memorialDraft: string, topconDraft: TopconDraft) => Promise<string>;
   loadedTopconDraft?: TopconDraft | null;
   loadedTopconRevision?: number;
   onSaveMemorial: (text: string | null) => void;
@@ -373,10 +376,18 @@ export function PecasTecnicasWorkspace({
   const [topconReviewFeedback, setTopconReviewFeedback] = useState<{status:"info"|"error"|"success";message:string}|null>(null);
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionSkipped,setConstructionSkipped] = useState(false);
-  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PS4");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
+  const [ps4ApprovalConfirmed, setPs4ApprovalConfirmed] = useState(false);
+  const [ps4ReportAttached, setPs4ReportAttached] = useState(false);
+  const [ps4ImportRevision, setPs4ImportRevision] = useState(0);
+  const [ps4RasterAsset, setPs4RasterAsset] = useState<{
+    kind: "raster" | "report"; sha256: string; size_bytes: number;
+    metadata?: { width?: number; height?: number; crs_wkt?: string;
+      wgs84_extent?: { type: string; coordinates: number[][][] } };
+  } | null>(null);
   const [ps4OrthoReport,setPs4OrthoReport] = useState<NonNullable<TopconDraft["ps4_ortho_report"]>>({
     scene_id:"",reference:"",rms_m:null,reviewed_by_rt:false,
   });
@@ -391,6 +402,8 @@ export function PecasTecnicasWorkspace({
     kind: "info", message: "Etapa 1/3: marque os vértices V no mapa; depois feche o trecho entre dois marcos."
   });
   const [ps4Candidate, setPs4Candidate] = useState<{ longitude: number; latitude: number } | null>(null);
+  const [ps4CheckCapture,setPs4CheckCapture] = useState(false);
+  const [ps4CheckPoint,setPs4CheckPoint] = useState<{longitude:number;latitude:number}|null>(null);
   const [ps4CandidateName, setPs4CandidateName] = useState("");
   const [ps4Notice, setPs4Notice] = useState("");
   const [ps4ConfirmFeature, setPs4ConfirmFeature] = useState(false);
@@ -405,7 +418,6 @@ export function PecasTecnicasWorkspace({
     draft: ps4Draft.map(p => [p.name, p.longitude, p.latitude, p.scene_id]),
   });
   const ps4Ready = ps4ClosureConfirmed && ps4ConfirmedSignature === ps4Signature && ps4Closure.valid;
-  const overlapCurrent = officialOverlap?.signature === ps4Signature;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -750,7 +762,7 @@ export function PecasTecnicasWorkspace({
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     setPa2Mode(false);
-    setConstructionMethod(d.construction?.method ?? "PA2");
+    setConstructionMethod(d.construction?.method === "PT8" ? "PT8" : "PS4");
     setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
     setPa2Witnesses(d.construction?.witnesses ?? []);
     setConstructionDistance(d.construction?.distance ?? "");
@@ -785,6 +797,38 @@ export function PecasTecnicasWorkspace({
     },
   });
 
+  const skipAdditionalVertices = async () => {
+    if (ps4Draft.length && !window.confirm(
+      "Dispensar vértices adicionais removerá os V provisórios desta peça. Confirma?"
+    )) return;
+    setActionBusy(true); setActionError("");
+    try {
+      const draft = {
+        ...draftForSave(), construction_skipped: true, ps4_draft: [],
+        ps4_closure: {start:"", confirmed:false, signature:""},
+      };
+      const id = await onSavePiece(editableMemorial.trim(), draft);
+      const base = `${getApiUrl()}/technical-pieces/${id}/ps4`;
+      const response = await fetch(base, {
+        method:"PUT",credentials:"include",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({needs_additional_vertices:false,vertices:[]}),
+      });
+      if (!response.ok) throw new Error("Não foi possível registrar a dispensa do PS4.");
+      const finish = await fetch(base+"/complete-no-v", {
+        method:"POST",credentials:"include",
+      });
+      if (!finish.ok) throw new Error("A subetapa sem V não foi concluída no servidor.");
+      setPs4Draft([]); setPs4ClosureConfirmed(false);
+      setPs4ConfirmedSignature("");setPs4Candidate(null);
+      setConstructionSkipped(true);setPa2Mode(false);
+      setPs4ApprovalConfirmed(false);
+      setSavedPieceNotice("Sem vértices adicionais: subetapa concluída e salva.");
+      setWorkflowNotice("PS4 não aplicável: decisão persistida no servidor. Prossiga às etapas seguintes.");
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Falha ao concluir sem V.");
+    } finally { setActionBusy(false); }
+  };
   const [reviewedOdsError, setReviewedOdsError] = useState("");
   const [reviewedOdsNotice, setReviewedOdsNotice] = useState("");
   const makeSigefIdentity = () => ({
@@ -804,6 +848,10 @@ export function PecasTecnicasWorkspace({
   };
   const downloadReviewedOds = async () => {
     if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
+    if (ps4SigefIncomplete) {
+      setReviewedOdsError("ODS preenchida bloqueada: os vértices PS4 exigem acurácia horizontal aprovada, h elipsoidal confirmada e sigmas individuais.");
+      return;
+    }
     // Original adjusted-point precisions from TOPCON are retained. Manual adjustment
     // and a second confirmation click are optional; mandatory SIGEF columns are not.
     const incomplete = topconBoundary.filter(point =>
@@ -1298,7 +1346,8 @@ export function PecasTecnicasWorkspace({
             derived_physical_model:virtualHN[pointIndex]===null?null:("HN" as const),
             sigef_method:"PS4",boundary_type:"LN1",
             derived_calculation:{method:"PS4",scene_id:point.scene_id,
-              status:"PRELIMINAR",accuracy_verified:false,
+              status:ps4ApprovalConfirmed?"ACURACIA_HORIZONTAL_CONFERIDA_RT":"PRELIMINAR",
+              accuracy_verified:ps4ApprovalConfirmed,
               altitude_source:virtualHN[pointIndex]===null?"AUSENTE":"INTERPOLACAO_HN_M_V_M",
               altitude_quality:"INDICATIVA_NAO_MEDIDA",
               note:"Posicionamento orbital visual sem h medida. HN estimada somente por interpolação entre os dois M, não válida para SIGEF"},
@@ -1315,7 +1364,7 @@ export function PecasTecnicasWorkspace({
         throw new Error("A ordem dos vértices mudou. Feche a prévia novamente.");
       if(!window.confirm("Aplicar a poligonal de "+vertices.length+
          " vértices à PARCELA PRELIMINAR para elaborar planta e memorial?\n"+
-         "Os pontos V não possuem acurácia PS4 ou altitude comprovadas.\n"+
+         "Os pontos V só terão acurácia horizontal confirmada quando houver revisão do RT; a altura permanece pendente.\n"+
          "Isto não libera a ODS nem constitui certificação SIGEF."))return;
       onAdoptTopconParcels([{
         number:initial.parcel_number,
@@ -1406,6 +1455,13 @@ export function PecasTecnicasWorkspace({
   const chosen = polygons.filter((polygon) => selectedIds.includes(polygon.id));
   const hasProvisionalPs4Parcel = chosen.some(p =>
     p.vertexDetails?.some(d => d.preliminary_ps4 === true && d.accuracy_verified !== true));
+  const ps4SigefIncomplete = topconBoundary.some(point => point.sigef_method === "PS4" && (
+    point.derived_calculation?.accuracy_verified !== true ||
+    point.height_reference_confirmed !== true ||
+    point.ellipsoidal_height_m === null ||
+    ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
+      .every(value => typeof value === "number" && Number.isFinite(value) && value > 0)
+  ));
   // Prévia cartográfica não substitui geometrias do mapa nem autoriza a ODS.
   // A sequência reflete o ordenamento atual do editor, inclusive erros a corrigir.
   const previewTopconGeometry = (() => {
@@ -1431,6 +1487,28 @@ export function PecasTecnicasWorkspace({
     ]} : (previewTopconGeometry ?? situationGeometry);
   const displaySituationKey = chosen.length ? situationKey :
     JSON.stringify(displaySituationGeometry);
+  // SIGEF compara a parcela selecionada, independente de haver vertices V.
+  // Se nenhuma parcela foi selecionada, somente uma poligonal de previa
+  // inequivoca pode ser analisada; nunca supor ausencia de sobreposicao.
+  const overlapGeometry = (() => {
+    const selected = chosen.filter(p => p.coordinates && p.coordinates.length >= 3);
+    if (chosen.length === 1 && selected.length === 1) {
+      const coords = selected[0].coordinates!;
+      const ring = [...coords];
+      if (ring[0][0] !== ring[ring.length - 1][0] ||
+          ring[0][1] !== ring[ring.length - 1][1]) ring.push(ring[0]);
+      return { type: "Polygon" as const, coordinates: [ring] };
+    }
+    if (chosen.length > 1) return null;
+    if (ps4Ready) return ps4Closure.geometry;
+    if (previewTopconGeometry?.features.length === 1) {
+      return previewTopconGeometry.features[0].geometry;
+    }
+    return null;
+  })();
+  const overlapSignature = JSON.stringify(overlapGeometry);
+  const overlapCurrent = officialOverlap?.signature === overlapSignature;
+
   const displayVertexNames = chosen.length
     ? chosen.map(polygon => polygon.vertices)
     : ps4Ready ? [ps4Closure.names.map(name =>
@@ -1594,9 +1672,10 @@ export function PecasTecnicasWorkspace({
           <button type="button" onClick={() => setWorkflowNotice("")} aria-label="Fechar orientação">×</button>
         </div>}
         {stage === 0 && !showAllTasks && premiumStep === 4 && <OfficialOverlapCheck
-          geometry={ps4PreviewGeometry}
+          key={overlapSignature}
+          geometry={overlapGeometry}
           vertices={ps4Draft}
-          onReport={result=>setOfficialOverlap({...result,signature:ps4Signature})}
+          onReport={result=>setOfficialOverlap({...result,signature:overlapSignature})}
           onNext={() => jumpToWorkflow(5)}
           onOpenMap={() => {
             setWorkflowNotice("Abra as camadas auxiliares no mapa principal e retorne à peça para continuar a análise.");
@@ -1722,9 +1801,8 @@ export function PecasTecnicasWorkspace({
                 <label className="pecas-check">
                   <input type="checkbox" checked={!constructionSkipped}
                     onChange={e=>{
-                      const skip=!e.target.checked;
-                      setConstructionSkipped(skip);
-                      if(skip){setPa2Mode(false);setWorkflowNotice("Construção adicional dispensada; nenhuma nova restituição será exigida.");}
+                      if (!e.target.checked) void skipAdditionalVertices();
+                      else {setConstructionSkipped(false);setWorkflowNotice("Construção PS4 reativada.");}
                     }}/>
                   Preciso construir vértices adicionais (facultativo)
                 </label>
@@ -2730,7 +2808,7 @@ export function PecasTecnicasWorkspace({
                                 Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
                               {sigefParcelReview.status === "PREVALIDATED" && <div>
                                 <button type="button" className="pecas-primary"
-                                  disabled={reviewedOdsBusy || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
+                                  disabled={reviewedOdsBusy || ps4SigefIncomplete || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
                                   onClick={() => void downloadReviewedOds()}>
                                   {reviewedOdsBusy ? "Gerando ODS..." : "Gerar ODS SIGEF revisada"}
                                 </button>
@@ -2766,7 +2844,7 @@ export function PecasTecnicasWorkspace({
                 <Download size={17} />
                 {blankOdsBusy?"Baixando modelo...":"Baixar modelo SIGEF (ODS em branco)"}
               </button>
-              <button disabled={!sigefAvailable || actionBusy || hasProvisionalPs4Parcel}
+              <button disabled={!sigefAvailable || actionBusy || hasProvisionalPs4Parcel || ps4SigefIncomplete}
                 onClick={() => void runAction(onDownloadSigef)}>
                 <Download size={17} /> ODS preenchida · somente dados validados
               </button>
@@ -2776,6 +2854,11 @@ export function PecasTecnicasWorkspace({
             <p className="pecas-note">O modelo em branco pode ser baixado a qualquer momento.
               A planilha preenchida depende de dados reais, incluindo h, coordenadas e precisão; HN estimada não substitui h SIGEF.</p>
             {!sigefAvailable && <p className="pecas-note">A exportação ODS SIGEF exige uma análise espacial registrada e a permissão correspondente. Conclua a análise no módulo existente para habilitá-la.</p>}
+            {ps4SigefIncomplete && <p className="pecas-warning" role="status">
+              Os vértices PS4 ainda não têm todos os atributos exigidos para a ODS preenchida:
+              acurácia horizontal revisada, altura elipsoidal h e sigmas individuais.
+              A ODS de trabalho e os documentos preliminares continuam disponíveis.
+            </p>}
             {hasProvisionalPs4Parcel && <p className="pecas-warning" role="status">
               Esta parcela contém vértices V restituídos por PS4 sem acurácia certificável.
               A ODS SIGEF permanece bloqueada. A planta e o memorial PRELIMINARES podem ser gerados.
@@ -2820,7 +2903,7 @@ export function PecasTecnicasWorkspace({
             disabled={selectedIds.length === 0 || (stage === 3 && (!pdfReady || pdfBusy))}
             onClick={() => {
               if(stage===0)jumpToWorkflow(5);
-              else jumpToWorkflow(([0,0,6,7,9] as const)[stage]);
+              else jumpToWorkflow(([0,6,7,8,9] as const)[stage]);
             }}>
             Avançar <ArrowRight size={16} />
           </button>}
@@ -2830,7 +2913,7 @@ export function PecasTecnicasWorkspace({
         </div>
       </footer>
       {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4") && (
-        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico"
+        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" ? "ps4-redesigned-dialog" : undefined}
           style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
             border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
             flexDirection: "column", padding: 16, boxShadow: "0 10px 50px #0005" }}>
@@ -2850,6 +2933,9 @@ export function PecasTecnicasWorkspace({
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
                   return;
                 }
+                // Fechar a geometria M–V–M preliminar não certifica PS4.
+                // Documentos, precisão e RT continuam bloqueando a validação
+                // oficial em evaluate_verified_ps4 e exportação ODS SIGEF.
                 void runAction(async () => {
                   setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
                   await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
@@ -2858,7 +2944,9 @@ export function PecasTecnicasWorkspace({
                     ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
                     : "Construção salva e prévia atualizada");
                 });
-              }}>{actionBusy ? "Salvando..." : "Concluir, salvar e voltar à peça"}</button>
+              }}>{actionBusy ? "Salvando..." : constructionMethod === "PS4"
+                ? "Concluir traçado PRELIMINAR e voltar à peça"
+                : "Concluir, salvar e voltar à peça"}</button>
             {constructionMethod === "PS4" && <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => void runAction(async () => {
@@ -2874,12 +2962,105 @@ export function PecasTecnicasWorkspace({
               color: actionError ? "#932a1c" : "#12513b", fontWeight: 600 }}>
             {actionError ? "Não foi possível concluir: " + actionError : "Processando e salvando..."}
           </div>}
+          
+<style>{`
+.ps4-navigation {background:#05392e;color:#fff;border-radius:12px;display:flex;flex-direction:column;overflow-y:auto;min-height:0;padding:18px 12px;gap:24px;}
+.ps4-brand-lockup {display:flex;align-items:center;gap:8px;padding:0 4px;}
+.ps4-brand-mark {display:grid;place-items:center;width:31px;height:31px;min-width:31px;border-radius:8px;background:#43aa80;font-size:19px;font-weight:900;color:#064332;}
+.ps4-brand-lockup strong {font-size:13px;letter-spacing:.035em;display:block;}
+.ps4-brand-lockup small {font-size:9px;letter-spacing:.2em;color:#a2d6bf;display:block;margin-top:2px;}
+.ps4-navigation-label {font-size:10px;letter-spacing:.12em;color:#a2cfbd;font-weight:750;padding:0 6px;}
+.ps4-navigation-steps {padding:0;margin:0;list-style:none;display:grid;gap:6px;}
+.ps4-navigation-steps li {display:flex;gap:8px;padding:10px 7px;align-items:center;border-radius:9px;color:#bbd8cd;}
+.ps4-navigation-steps li>span {border:1px solid #3c7863;border-radius:100%;min-width:25px;height:25px;display:grid;place-items:center;font-size:10px;}
+.ps4-navigation-steps strong {font-size:11px;display:block;color:inherit;line-height:1.3;}
+.ps4-navigation-steps small {display:block;font-size:9px;margin-top:2px;color:#9dc5b5;}
+.ps4-navigation-steps .ps4-navigation-active {background:#165540;color:white;}
+.ps4-navigation-steps .ps4-navigation-active>span {border:0;background:#e1f4e7;color:#0b4e38;font-weight:900;}
+.ps4-navigation-foot {margin-top:auto;border-top:1px solid #326a55;padding:14px 6px 0;display:grid;gap:5px;font-size:12px;}
+.ps4-navigation-foot small {color:#a9d2bd;font-size:10px;}
+.ps4-navigation-foot .ps4-sidebar-warning {color:#ffb6bc;}
+@media(max-width:1180px) {.ps4-navigation {display:none;} .ps4-redesigned-dialog .ps4-main-grid {grid-template-columns:minmax(360px, 1fr) minmax(320px, 1fr)!important;}}
+@media(max-width:800px) {.ps4-redesigned-dialog .ps4-main-grid {grid-template-columns:minmax(0,1fr)!important;}}
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > label.pecas-field {display:none;}
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > section > h4 {display:none;}
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > section {display:grid;gap:7px;}
+.ps4-redesigned-dialog .ps4-main-grid {gap:12px!important;}
+.ps4-redesigned-dialog .ps4-flow-summary {padding:12px 14px;}
+.ps4-redesigned-dialog .ps4-flow-card {margin:7px 0;}
+.ps4-redesigned-dialog .ps4-redesign-intro {padding:13px 15px;}
+.ps4-redesigned-dialog .ps4-alert-red {padding:11px 14px;}
+.ps4-redesigned-dialog .ps4-flow-scroll {padding-bottom:18px;}
+.ps4-redesigned-dialog .ps4-map-column {overflow:auto;min-width:0;}
+.ps4-redesigned-dialog .ps4-map-column > .pecas-card {padding:12px;min-height:calc(100% - 6px);}
+.ps4-redesigned-dialog .ps4-map-column > .pecas-card > h4 {margin:0 0 8px;}
+.ps4-redesigned-dialog { --ps4-dark:#073b2f; --ps4-danger:#b4232d; --ps4-soft:#fff1f1; --ps4-line:#d9e3dc; background:#f4f8f5!important; }
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card { border:0; background:transparent; box-shadow:none; padding:0; }
+.ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > h4, .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > p { display:none; }
+.ps4-redesign-intro { display:flex; justify-content:space-between; gap:12px; align-items:center; background:#fff; border:1px solid var(--ps4-line); border-radius:13px; padding:18px; margin-bottom:10px; }
+.ps4-eyebrow { color:#257b61; font-size:10px; font-weight:800; letter-spacing:.14em; }
+.ps4-redesign-intro h4 { font-size:21px; color:#123d32; margin:2px 0; }
+.ps4-redesign-intro p {font-size:12px; color:#687a72; margin:0;}
+.ps4-state-pills {display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;}
+.ps4-pill {font-size:11px;font-weight:700;background:#edf1ed;color:#5c6e63;border-radius:999px;padding:6px 10px;white-space:nowrap;}
+.ps4-pill--ok {background:#e2f5e9;color:#17633b;}
+.ps4-pill--danger {background:#ffe9ea;color:#a31f2b;}
+.ps4-alert-red {padding:14px 16px;background:#fff0f1;border-left:4px solid #c42733;border-radius:9px;margin-bottom:12px;color:#8e222c;}
+.ps4-alert-red strong {font-size:13px;} .ps4-alert-red p {font-size:12px;margin:5px 0 0;}
+.ps4-flow-card {border:1px solid var(--ps4-line);border-radius:13px;background:#fff;margin:10px 0;overflow:hidden;}
+.ps4-flow-card--danger {border-color:#f0b6bb;}
+.ps4-flow-summary {display:flex;align-items:center;gap:11px;padding:15px;cursor:pointer;list-style:none;user-select:none;}
+.ps4-flow-summary::-webkit-details-marker {display:none;}
+.ps4-flow-summary:hover {background:#f5faf7;}
+.ps4-flow-card[open] .ps4-step-caret {transform:rotate(180deg);}
+.ps4-flow-summary:focus-visible {outline:3px solid #168a69;outline-offset:-3px;}
+.ps4-step-no {border-radius:50%;background:#e8f1eb;color:#14503c;width:29px;height:29px;min-width:29px;display:grid;place-items:center;font-size:13px;font-weight:800;}
+.ps4-flow-card--danger .ps4-step-no {background:#cc2a35;color:white;}
+.ps4-step-heading {display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;}
+.ps4-step-heading strong {font-size:14px;color:#183b2f;}
+.ps4-step-heading small {font-size:11px;color:#718178;}
+.ps4-step-state {font-size:11px;color:#2c7652;background:#e5f5eb;border-radius:999px;padding:5px 9px;white-space:nowrap;}
+.ps4-flow-card--danger .ps4-step-state {background:#ffe9eb;color:#b4232d;}
+.ps4-step-caret {color:#718178;font-size:20px;transition:transform .15s ease;}
+
+
+.ps4-v-panel {min-width:0;border:1px solid #dbe6de;border-radius:12px;padding:12px;background:#fafffc;display:grid;gap:10px;}
+.ps4-v-panel-head {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.ps4-v-panel-head strong {font-size:13px;color:#173d2f;}
+.ps4-v-count {background:#e4f4e9;color:#17633e;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;}
+.ps4-v-actions {display:flex;gap:8px;flex-wrap:wrap;}
+.ps4-v-actions button {font-size:12px;padding:8px 12px;min-height:36px;}
+.ps4-v-table-wrap {width:100%;min-width:0;overflow-x:auto;border:1px solid #dce7e0;border-radius:10px;background:#fff;}
+.ps4-v-table {width:100%;border-collapse:collapse;table-layout:auto;font-size:12px;}
+.ps4-v-table th {background:#eff7f2;color:#345847;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:11px 12px;white-space:nowrap;}
+.ps4-v-table td {padding:11px 12px;color:#173a2c;border-top:1px solid #e7eee9;vertical-align:middle;white-space:nowrap;}
+.ps4-v-table tbody tr:nth-child(even) {background:#fbfdfb;}
+.ps4-v-table tbody tr:hover {background:#f1f8f3;}
+.ps4-v-code {font-weight:750;color:#16533b;font-variant-numeric:tabular-nums;}
+.ps4-v-coord {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-variant-numeric:tabular-nums;letter-spacing:-.025em;}
+.ps4-v-row-action {border:1px solid #f0c9cc;background:#fff6f6;color:#a02c35;border-radius:8px;padding:7px 10px;cursor:pointer;font-weight:650;font-size:11px;}
+.ps4-v-row-action:hover {background:#fde6e8;}
+.ps4-v-row-action:focus-visible {outline:3px solid #ad343d;outline-offset:2px;}
+.ps4-v-help {font-size:11px;color:#687b70;margin:0;line-height:1.5;}
+.ps4-flow-body {border-top:1px solid #edf1ee;padding:14px 15px 17px;display:grid;gap:8px;}
+.ps4-flow-body .geo97-cbers-panel {border-radius:9px;}
+.ps4-analysis-note {background:#fff2f2;color:#96343b;border-left:3px solid #c62734;border-radius:8px;padding:12px;font-size:12px;}
+.ps4-analysis-note p {margin:5px 0 0;}
+.ps4-documentary-toggle {border:1px solid #e0e6e1;border-radius:10px;padding:10px;}
+.ps4-documentary-toggle > summary {cursor:pointer;font-size:12px;font-weight:750;color:#315d4d;}
+.ps4-redesigned-dialog .pecas-warning {border-left:3px solid #c42733!important;background:#fff0f0!important;color:#98232c!important;}
+@media(max-width:1050px) {.ps4-redesigned-dialog {inset:4px!important;padding:9px!important;}  .ps4-redesign-intro {flex-wrap:wrap;} }
+@media(prefers-reduced-motion:reduce) {.ps4-step-caret {transition:none;}}
+`}</style>
           <div role="toolbar" aria-label="Métodos de construção e ferramentas cartográficas"
             style={{ display: "flex", alignItems: "center", gap: 8,
               flexWrap: "wrap", paddingBottom: 12, borderBottom: "1px solid #b8cfc5",
               marginBottom: 12 }}>
             {(["PA1", "PA2", "PT8", "PS4"] as const).map(method => <button
               key={method} type="button"
+              disabled={method === "PA1" || method === "PA2"}
+              title={method === "PA1" || method === "PA2"
+                ? "Vértices V nesta versão utilizam somente PS4 com relatório" : undefined}
               className={constructionMethod === method ? "pecas-primary" : "pecas-secondary"}
               onClick={() => {
                 setConstructionMethod(method);
@@ -2921,9 +3102,10 @@ export function PecasTecnicasWorkspace({
                   não a V automaticamente.</p>}
             </details>
           </div>
-          <div style={{ flex: 1, minHeight: 0, display: "grid",
-            gridTemplateColumns: "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
-            <div style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
+          <div className={constructionMethod === "PS4" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
+            gridTemplateColumns: constructionMethod === "PS4" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+            
+            <div className={constructionMethod === "PS4" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
                         <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
                         <p>PA1, PA2 e PT8 exigem conversão altimétrica prévia. Método PT8 gera
@@ -2940,13 +3122,13 @@ export function PecasTecnicasWorkspace({
                         <label className="pecas-check"><input type="checkbox"
                           checked={pa2Mode}
                           onChange={(e) => {
-                            if(e.target.checked)setConstructionSkipped(false);
-                            setPa2Mode(e.target.checked);
                             setPa2Result(null);
-                            if(!e.target.checked) {
-                              setConstructionSkipped(true);
-                              setPa2Witnesses([]);setMapHint(null);setPs4Candidate(null);
-                              setWorkflowNotice("Construção adicional desativada. Os marcos TOPCON originais permanecem disponíveis para a peça.");
+                            if (!e.target.checked) {
+                              void skipAdditionalVertices();
+                              setPa2Witnesses([]);setMapHint(null);
+                            } else {
+                              setConstructionSkipped(false);
+                              setPa2Mode(true);
                             }
                           }} />
                           Preciso construir vértices adicionais</label>
@@ -2957,16 +3139,346 @@ export function PecasTecnicasWorkspace({
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
-                            <option value="PA1">PA1 — Paralela (tipo V)</option>
-                            <option value="PA2">PA2 — Vértice virtual (tipo V)</option>
+                            <option value="PA1" disabled>PA1 — Não disponível nesta versão</option>
+                            <option value="PA2" disabled>PA2 — Não disponível nesta versão</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
                             <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
                           </select>
                         </label>}
                         {pa2Mode && constructionMethod === "PS4" && <section aria-label="Restituição orbital PS4">
                           <h4>PS4 — Delimitação de feição natural na imagem</h4>
-                          <details className="geo97-cbers-panel">
-                            <summary>Acurácia posicional PS4 · relatório de ortorretificação e controles complementares</summary>
+                          
+                          <div className="ps4-redesign-intro">
+                            <div><span className="ps4-eyebrow">PS4 · FLUXO EM CINCO ETAPAS</span>
+                              <h4>Sensores orbitais</h4>
+                              <p>Construa a geometria de forma independente. A aferição posicional é uma etapa técnica posterior.</p></div>
+                            <div className="ps4-state-pills">
+                              <span className={ps4Ready ? "ps4-pill ps4-pill--ok" : "ps4-pill"}>{ps4Ready ? "Traçado fechado" : "Traçado em edição"}</span>
+                              <span className={ps4ApprovalConfirmed ? "ps4-pill ps4-pill--ok" : "ps4-pill ps4-pill--danger"}>{ps4ApprovalConfirmed ? "RT aprovou PS4" : "Acurácia pendente"}</span>
+                            </div>
+                          </div>
+                          {!ps4ApprovalConfirmed && <div className="ps4-alert-red" role="alert">
+                            <strong>PS4 ainda é preliminar</strong>
+                            <p>A restituição na imagem não comprova precisão horizontal. A avaliação da imagem e a conferência do RT são independentes do fechamento geométrico. A ODS oficial permanece sujeita aos controles técnicos.</p>
+                          </div>}
+
+                          <details className={"ps4-flow-card ps4-flow-card--normal"} open>
+                            <summary className="ps4-flow-summary">
+                              <span className="ps4-step-no">1</span>
+                              <span className="ps4-step-heading"><strong>Escolher cena orbital</strong><small>Selecionar ou reutilizar o recorte CBERS-4A</small></span>
+                              <span className="ps4-step-state">{ps4RasterAsset ? "Recorte pronto" : "Selecionar cena"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
+                              
+                            </summary>
+                            <div className="ps4-flow-body">
+                              <details className="geo97-cbers-panel" open>
+                            <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
+                            {ps4RasterAsset && <div className="geo96-next-step" role="status">
+                              <strong>RECORTE JÁ EXISTENTE NESTA PEÇA — não é necessário importar novamente.</strong>
+                              <p>GeoTIFF armazenado: {ps4RasterAsset.metadata?.width ?? "?"} ×
+                                {ps4RasterAsset.metadata?.height ?? "?"} pixels ·
+                                {(ps4RasterAsset.size_bytes/1024/1024).toFixed(2)} MB ·
+                                SHA-256 {ps4RasterAsset.sha256.slice(0,16)}…</p>
+                              <p>Você pode utilizar o recorte atual para marcar vértices V provisórios.
+                                Para substituí-lo, selecione outra imagem, confirme a operação e aguarde
+                                a importação completa. O raster anterior permanece preservado se a nova
+                                importação falhar. A certificação exige relatório e aprovação RT.</p>
+                            </div>}
+                            <p className="pecas-note">Escolha a imagem com base no enquadramento do imóvel.
+                              As cenas RGB disponíveis são carregadas no mapa após a seleção.
+                              A coleção L4 oferece metadados/miniaturas; sua composição multibanda
+                              ainda depende de um renderizador específico.</p>
+                            <InpeCbersSceneSearch geometry={displaySituationGeometry}
+                              geometryKey={displaySituationKey}
+                              selectedScene={ps4SceneId}
+                              onPrepareScene={async (scene, collection, bounds) => {
+                                if (ps4RasterAsset && !window.confirm(
+                                  "Já existe um recorte salvo nesta peça. Deseja solicitar outro? " +
+                                  "O anterior será excluído SOMENTE após o novo arquivo ser recebido e vinculado com sucesso. " +
+                                  "Os vértices PS4 anteriores deverão ser novamente conferidos."
+                                )) throw new Error("Importação cancelada; recorte existente preservado.");
+                                if (scene !== ps4SceneId && ps4Draft.length &&
+                                  !window.confirm("Importar outra cena removerá os vértices V anteriores. Confirma?")) {
+                                  throw new Error("Troca de cena cancelada.");
+                                }
+                                // Não apagar os V atuais ANTES de a substituição ser validada.
+                                // A API rejeita recortes duplicados ou concorrentes (409).
+                                const id = await onSavePiece(editableMemorial.trim(), draftForSave());
+                                const response = await fetch(
+                                  `${getApiUrl()}/technical-pieces/${id}/ps4/inpe/prepare`,
+                                  {
+                                    method:"POST",credentials:"include",
+                                    headers:{"Content-Type":"application/json"},
+                                    body:JSON.stringify({
+                                      item_id:scene,
+                                      collection,
+                                      bbox:[bounds.west,bounds.south,bounds.east,bounds.north],
+                                    }),
+                                  },
+                                );
+                                const result = await response.json().catch(() => null);
+                                if (!response.ok) {
+                                  const reason = result?.detail;
+                                  throw new Error(typeof reason === "string"
+                                    ? reason : "Recorte CBERS não foi gerado.");
+                                }
+                                const jobId = String(result?.job?.id ?? "");
+                                if (!jobId) throw new Error("O servidor não retornou o identificador do recorte CBERS.");
+                                setPs4Status({kind:"info",message:"Recorte CBERS enfileirado. Aguardando o worker GDAL..."});
+                                let completed = false;
+                                for (let attempt = 0; attempt < 96; attempt += 1) {
+                                  await new Promise(resolve => window.setTimeout(resolve, 2500));
+                                  const check = await fetch(
+                                    `${getApiUrl()}/technical-pieces/${id}/ps4/inpe/jobs/${jobId}`,
+                                    {credentials:"include",cache:"no-store"},
+                                  );
+                                  const outcome = await check.json().catch(() => null);
+                                  if (!check.ok) throw new Error(
+                                    typeof outcome?.detail === "string" ? outcome.detail :
+                                    "Não foi possível consultar o andamento do recorte."
+                                  );
+                                  const status = String(outcome?.job?.status ?? "");
+                                  if (status === "READY") { completed = true; break; }
+                                  if (status === "FAILED" || status === "CANCELLED") {
+                                    throw new Error(String(outcome?.job?.message || "Importação CBERS não concluída."));
+                                  }
+                                  if (attempt % 4 === 0) {
+                                    setPs4Status({kind:"info",message:
+                                      String(outcome?.job?.message || "Preparando recorte orbital...")});
+                                  }
+                                }
+                                if (!completed) throw new Error(
+                                  "O recorte continua no servidor. Reabra a peça para consultar o resultado."
+                                );
+                                setPs4Draft([]);
+                                setPs4ClosureConfirmed(false);
+                                setPs4ConfirmedSignature("");
+                                setPs4Quality(undefined);
+                                setOfficialOverlap(undefined);
+                                setPs4Candidate(null);
+                                setPs4ApprovalConfirmed(false);
+                                setPs4OrthoReport({
+                                  scene_id:scene,reference:"",rms_m:null,reviewed_by_rt:false,
+                                });
+                                setPs4SceneId(scene);
+                                setPs4Armed(true);
+                                setPs4ImportRevision(value=>value+1);
+                                setPs4Status({kind:"info",message:
+                                  "Recorte CBERS da cena "+scene+
+                                  " importado. Falta conferir o relatório e a acurácia absoluta pelo RT."});
+                              }}
+                              onSelectScene={scene=>{
+                                if (scene!==ps4SceneId && ps4Draft.length>0 &&
+                                  !window.confirm("Trocar de cena remove os pontos V deste rascunho para evitar misturar imagens. Deseja continuar?"))return;
+                                if(scene!==ps4SceneId){
+                                  setPs4Draft([]);setPs4ClosureConfirmed(false);
+                                  setPs4ConfirmedSignature("");setPs4Candidate(null);
+                                  setPs4Quality(undefined);setOfficialOverlap(undefined);
+                                }
+                                setPs4SceneId(scene);setPs4Armed(true);
+                                if(scene!==ps4OrthoReport.scene_id)
+                                  setPs4OrthoReport({scene_id:scene,reference:"",rms_m:null,reviewed_by_rt:false});
+                                setPs4Status({kind:"success",message:
+                                  "Cena "+scene+" ativada para vetorização. Os pontos V serão vinculados a esta cena."});
+                              }}/>
+                            <div className="geo96-next-step" role="status">
+                              Cena no mapa: <strong>{ps4SceneId}</strong>.
+                              {ps4Armed?" Vetorização habilitada.":" Selecione a cena acima antes de criar novos V."}
+                            </div>
+                            {!ps4Armed&&<button type="button" className="pecas-primary"
+                              onClick={()=>{setPs4Armed(true);setPs4Status({
+                                kind:"info",message:"Cena atual confirmada. Clique no mapa para criar V."});
+                              }}>Usar cena atual para iniciar vetorização</button>}
+                          </details>
+                          
+                            </div>
+                          </details>
+
+                          <details className={"ps4-flow-card ps4-flow-card--normal"} open>
+                            <summary className="ps4-flow-summary">
+                              <span className="ps4-step-no">2</span>
+                              <span className="ps4-step-heading"><strong>Marcar vértices V</strong><small>Digitalização sobre a feição natural da cena</small></span>
+                              <span className="ps4-step-state">{ps4Draft.length + " V"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
+                              
+                            </summary>
+                            <div className="ps4-flow-body">
+                              <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
+                            background: "#f6faf8", display: "grid", gap: 9 }}>
+                            <strong>Fluxo guiado PS4 — 3 etapas</strong>
+                            <div aria-label="Andamento da restituição PS4" style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                              <span style={{ fontWeight: 700 }}>1. Marcar V {ps4Draft.length >= 2 ? "✓" : "•"}</span>
+                              <span>→</span>
+                              <span style={{ fontWeight: 700 }}>2. Fechar perímetro {ps4Ready ? "✓" : "•"}</span>
+                              <span>→</span>
+                              <span style={{ fontWeight: 700 }}>3. Salvar e revisar</span>
+                            </div>
+                            <p style={{ margin: 0 }}>{ps4Draft.length < 2
+                              ? "Clique na imagem para adicionar pelo menos dois vértices V na sequência da feição."
+                              : !ps4Ready
+                                ? "Os pontos V já estão ligados. Selecione agora o segmento entre dois marcos para fechar a prévia do imóvel."
+                                : "Prévia fechada em azul: confira a geometria, salve o rascunho e retorne à peça."}</p>
+                            <div role={ps4Status.kind === "error" ? "alert" : "status"}
+                              aria-live="polite" style={{ borderRadius: 8, padding: "9px 11px",
+                                background: ps4Status.kind === "error" ? "#fff1ed" : "#e8f3ed",
+                                color: ps4Status.kind === "error" ? "#942d19" : "#12513b" }}>
+                              {ps4Status.message}
+                            </div>
+                            <div className="ps4-v-panel-head"><strong>Vértices V provisórios</strong><span className="ps4-v-count">{ps4Draft.length} vértice(s)</span></div>
+                            {ps4Draft.length > 0 && <div className="ps4-v-actions">
+                              <button type="button" className="pecas-secondary"
+                                onClick={() => {
+                                  const last = ps4Draft[ps4Draft.length - 1];
+                                  setPs4Draft(old => old.slice(0,-1));
+                                  setPs4ClosureConfirmed(false);
+                                  setPs4Status({kind:"info",message:`Último vértice ${last.name} desfeito. A prévia de fechamento precisa ser confirmada novamente.`});
+                                }}>Desfazer último V</button>
+                              <button type="button" className="pecas-secondary"
+                                onClick={() => {
+                                  if (!window.confirm("Remover todos os pontos V deste rascunho PS4?")) return;
+                                  setPs4Draft([]);
+                                  setPs4ClosureConfirmed(false);
+                                  setPs4Candidate(null);
+                                  setPs4Status({kind:"info",message:"Rascunho PS4 limpo. Marque o primeiro vértice na imagem."});
+                                }}>Limpar traçado V</button>
+                            </div>}
+                          </div>
+                          {ps4Candidate && <div className="pecas-card" role="group" aria-label="Nomear vértice PS4">
+                            <p>Posição clicada: {ps4Candidate.latitude.toFixed(8)}°, {ps4Candidate.longitude.toFixed(8)}°.</p>
+                            <label className="pecas-field"><span>Código do novo vértice V</span>
+                              <input value={ps4CandidateName} onChange={e => setPs4CandidateName(e.target.value)}
+                                aria-label="Código do novo vértice PS4" />
+                            </label>
+                            <p className="pecas-note">Numeração sugerida somente dentro desta peça.
+                              A reserva de códigos por usuário credenciado ainda depende de serviço transacional.</p>
+                            <label className="pecas-check"><input type="checkbox"
+                              checked={ps4ConfirmFeature} onChange={e => setPs4ConfirmFeature(e.target.checked)} />
+                              Confirmo que identifiquei visualmente a feição natural nesta cena.
+                            </label>
+                            <button type="button" className="pecas-primary" onClick={addPs4DraftPoint}>
+                              Adicionar V ao rascunho
+                            </button>
+                            <button type="button" className="pecas-secondary" onClick={() => {
+                              setPs4Candidate(null);
+                              setPs4Status({kind:"info",message:"Ponto candidato cancelado. Nenhum vértice foi criado."});
+                            }}>
+                              Cancelar ponto
+                            </button>
+                          </div>}
+                          {ps4Notice && <p role="status" className="pecas-note">{ps4Notice}</p>}
+                          <div className="ps4-v-panel">
+                            <div className="ps4-v-panel-head"><strong>Vértices digitalizados</strong><span className="ps4-v-count">{ps4Draft.length} V</span></div>
+                            {ps4Draft.length > 0 ? <div className="ps4-v-table-wrap">
+                            <table className="ps4-v-table" aria-label="Vértices V provisórios"><thead><tr><th scope="col">Ordem</th><th scope="col">Código provisório</th><th scope="col">Latitude (°)</th><th scope="col">Longitude (°)</th><th scope="col">Ação</th></tr></thead>
+                              <tbody>{ps4Draft.map((point, index) => <tr key={point.name}>
+                                <td>{String(index+1).padStart(2,"0")}</td>
+                                <td><span className="ps4-v-code">{point.name}</span></td>
+                                <td className="ps4-v-coord">{point.latitude.toFixed(8)}</td>
+                                <td className="ps4-v-coord">{point.longitude.toFixed(8)}</td>
+                                <td><button type="button" className="ps4-v-row-action" aria-label={"Remover vértice " + point.name}
+                                  onClick={() => {
+                                    setPs4Draft(old => old.filter((_, i) => i !== index));
+                                    setPs4ClosureConfirmed(false);
+                                    setPs4Status({kind:"info",message:`Vértice ${point.name} removido. Confira e feche novamente a poligonal.`});
+                                  }}>
+                                  Remover
+                                </button></td>
+                              </tr>)}</tbody>
+                            </table>
+                          </div> : <p className="ps4-v-help">Nenhum vértice V criado. Marque uma feição no mapa para começar.</p>}
+                            <p className="ps4-v-help">Use “Salvar peça” para guardar o traçado. A atribuição definitiva do código SIGEF depende de validação e unicidade.</p>
+                          </div>
+
+                            </div>
+                          </details>
+
+                          <details className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <summary className="ps4-flow-summary">
+                              <span className="ps4-step-no">3</span>
+                              <span className="ps4-step-heading"><strong>Fechar poligonal M–V–M</strong><small>Substituição de um segmento entre marcos GNSS</small></span>
+                              <span className="ps4-step-state">{ps4Ready ? "Consistente" : "Pendente"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
+                              
+                            </summary>
+                            <div className="ps4-flow-body">
+                              <div className="pecas-card" style={{ marginTop: 12 }} aria-label="Fechar prévia da poligonal">
+                            <h4>Etapa 2 · Fechar prévia da poligonal</h4>
+                            <p>O imóvel já tem os marcos de divisa. Selecione qual <strong>segmento entre marcos consecutivos</strong>
+                              deve ser substituído pela sequência V. O sistema conecta o primeiro e último V aos respectivos
+                              marcos, conserva os demais limites e fecha a poligonal para revisão, sem alterar o perímetro oficial.</p>
+                            <label className="pecas-field"><span>Segmento natural a substituir (início → fim)</span>
+                              <select aria-label="Segmento entre marcos para PS4"
+                                value={ps4Start} onChange={e => {
+                                  setPs4Start(e.target.value);
+                                  setPs4ClosureConfirmed(false);
+                                  setPs4Status({kind:"info",message:"Segmento selecionado. Confira se os pontos V seguem do marco inicial ao final antes de confirmar."});
+                                }}>
+                                <option value="">Selecione o segmento...</option>
+                                {topconBoundary.map((p,i) => {
+                                  const end = topconBoundary[(i+1)%topconBoundary.length];
+                                  return <option key={p.name} value={p.name}>
+                                    {p.sigef_vertex_code || p.name} → {end.sigef_vertex_code || end.name}
+                                  </option>;
+                                })}
+                              </select>
+                            </label>
+                            <p className="pecas-note">Ordem adotada: {ps4Start
+                              ? (topconBoundary.find(p=>p.name===ps4Start)?.sigef_vertex_code || ps4Start) +
+                                " → " + ps4Draft.map(p=>p.name).join(" → ") + " → " +
+                                (topconBoundary.find(p=>p.name===ps4End)?.sigef_vertex_code || ps4End)
+                              : "nenhum segmento selecionado"}</p>
+                            {ps4Start && <p className={ps4Closure.valid ? "pecas-note" : "pecas-warning"}
+                              role={ps4Closure.valid ? "status" : "alert"}>{ps4Closure.message}</p>}
+                            <label className="pecas-check"><input type="checkbox"
+                              disabled={!ps4Closure.valid}
+                              checked={ps4ClosureConfirmed && ps4Closure.valid}
+                              onChange={e => {
+                                setPs4ClosureConfirmed(e.target.checked);
+                                setPs4ConfirmedSignature(e.target.checked ? ps4Signature : "");
+                                setPs4Status(e.target.checked
+                                  ? {kind:"success",message:"Prévia de poligonal fechada! Confira o contorno azul no mapa. Ainda pendente de validação técnica PS4."}
+                                  : {kind:"info",message:"Prévia de fechamento desmarcada. Selecione o segmento e confirme."});
+                              }}/>
+                              Confirmo a sequência dos V e a ligação com esses dois marcos (somente prévia).
+                            </label>
+                            <button type="button" className="pecas-primary" disabled={!ps4Ready}
+                              onClick={() => setPs4Status({kind:"success",message:
+                                "Fechamento revisado geometricamente. Próximo: Concluir, salvar e voltar à peça; depois revisar a planta provisória."})}>
+                              Verificar prévia fechada
+                            </button>
+                            <p className="pecas-note">Contorno azul tracejado = poligonal proposta, não certificada.
+                              A precisão PS4 e os dados oficiais do perímetro ainda dependem de revisão do RT.</p>
+                          </div>
+                          
+                            </div>
+                          </details>
+
+                          <details className={"ps4-flow-card ps4-flow-card--danger"}>
+                            <summary className="ps4-flow-summary">
+                              <span className="ps4-step-no">4</span>
+                              <span className="ps4-step-heading"><strong>Avaliação de acurácia</strong><small>Separada da restituição; não impede salvar rascunho</small></span>
+                              <span className="ps4-step-state">{ps4ApprovalConfirmed ? "Conferida pelo RT" : "Pendente"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
+                              
+                            </summary>
+                            <div className="ps4-flow-body">
+                              <Ps4RasterDiagnosticCard pieceId={loadedPieceId}
+                              rasterSha256={ps4RasterAsset?.sha256 ?? null}
+                              vertices={ps4Draft} sceneId={ps4SceneId} />
+                            <Ps4CheckpointAnalysis pieceId={loadedPieceId}
+                              sceneId={ps4SceneId}
+                              rasterSha256={ps4RasterAsset?.sha256 ?? null}
+                              marks={topconBoundary.filter(p=>p.name.includes("-M-") || p.name.startsWith("M")).map(p=>({
+                                name: p.name, longitude: p.longitude, latitude: p.latitude,
+                              }))}
+                              lastImageClick={ps4CheckPoint}
+                              capturing={ps4CheckCapture}
+                              onCapture={enabled=>{setPs4CheckCapture(enabled);setPs4CheckPoint(null);}} />
+                            <div className="ps4-analysis-note" role="status">
+                              <strong>Processamento próprio ativo · análise visual e geométrica</strong>
+                              <p>O sistema calcula indicadores de contraste, textura e cobertura sobre o GeoTIFF real. Esses indicadores ajudam a avaliar o material, mas não fornecem acurácia absoluta. RMS/EMQ posicional e sigmas permanecem pendentes.</p>
+                            </div><details className="geo97-cbers-panel">
+                            <summary>Via complementar · relatório ou pontos independentes (opcional)</summary>
                             <div className="geo97-ortho-rms">
                               <h4>Via principal · RMS do relatório de ortorretificação (INCRA 3.4.2)</h4>
                               <p className="pecas-note">Pontos GNSS independentes são facultativos.
@@ -3031,41 +3543,40 @@ export function PecasTecnicasWorkspace({
                                 "Triagem não atendida. Não utilizar a cena como fonte de precisão comprovada."}</p>
                             </div>}
                           </details>
-                          <details className="geo97-cbers-panel">
-                            <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
-                            <p className="pecas-note">Escolha a imagem com base no enquadramento do imóvel.
-                              As cenas RGB disponíveis são carregadas no mapa após a seleção.
-                              A coleção L4 oferece metadados/miniaturas; sua composição multibanda
-                              ainda depende de um renderizador específico.</p>
-                            <InpeCbersSceneSearch geometry={displaySituationGeometry}
-                              geometryKey={displaySituationKey}
-                              selectedScene={ps4SceneId}
-                              onSelectScene={scene=>{
-                                if (scene!==ps4SceneId && ps4Draft.length>0 &&
-                                  !window.confirm("Trocar de cena remove os pontos V deste rascunho para evitar misturar imagens. Deseja continuar?"))return;
-                                if(scene!==ps4SceneId){
-                                  setPs4Draft([]);setPs4ClosureConfirmed(false);
-                                  setPs4ConfirmedSignature("");setPs4Candidate(null);
-                                  setPs4Quality(undefined);setOfficialOverlap(undefined);
-                                }
-                                setPs4SceneId(scene);setPs4Armed(true);
-                                if(scene!==ps4OrthoReport.scene_id)
-                                  setPs4OrthoReport({scene_id:scene,reference:"",rms_m:null,reviewed_by_rt:false});
-                                setPs4Status({kind:"success",message:
-                                  "Cena "+scene+" ativada para vetorização. Os pontos V serão vinculados a esta cena."});
-                              }}/>
-                            <div className="geo96-next-step" role="status">
-                              Cena no mapa: <strong>{ps4SceneId}</strong>.
-                              {ps4Armed?" Vetorização habilitada.":" Selecione a cena acima antes de criar novos V."}
-                            </div>
-                            {!ps4Armed&&<button type="button" className="pecas-primary"
-                              onClick={()=>{setPs4Armed(true);setPs4Status({
-                                kind:"info",message:"Cena atual confirmada. Clique no mapa para criar V."});
-                              }}>Usar cena atual para iniciar vetorização</button>}
-                          </details>
-                          <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
-                            selecionada. A prévia será vinculada à cena e poderá compor a planta
-                            PRELIMINAR, sem substituir automaticamente a validação SIGEF.</p>
+                          <details className="ps4-documentary-toggle"><summary>Via documental legada · anexar relatório (opcional nesta fase de estudo)</summary><Ps4EvidencePanel
+                            pieceId={loadedPieceId}
+                            refreshRevision={ps4ImportRevision}
+                            sceneId={ps4SceneId}
+                            vertices={ps4Draft}
+                            rmsFromWorkspace={ps4OrthoReport.rms_m}
+                            onApprovalChange={setPs4ApprovalConfirmed}
+                            onRasterChange={setPs4RasterAsset}
+                            onReportChange={setPs4ReportAttached}
+                            onEnsurePieceSaved={() => onSavePiece(
+                              editableMemorial.trim(), draftForSave()
+                            )}
+                            onSceneChange={scene => {
+                              if (scene !== ps4SceneId && ps4Draft.length &&
+                                !window.confirm(
+                                  "Trocar a cena invalida os vértices V associados à anterior. Deseja removê-los?"
+                                )) return;
+                              if (scene !== ps4SceneId) {
+                                setPs4Draft([]); setPs4ClosureConfirmed(false);
+                                setPs4ConfirmedSignature(""); setPs4Candidate(null);
+                                setPs4ApprovalConfirmed(false); setOfficialOverlap(undefined);
+                              }
+                              setPs4SceneId(scene);
+                              setPs4Armed(true);
+                              setPs4Status({kind:"info", message:
+                                "Cena do relatório vinculada ao mapa: " + scene +
+                                ". Salve a peça antes de solicitar a aprovação."});
+                            }}
+                          />
+                          <p>Marque pontos sucessivos na imagem INPE carregada ou no recorte privado.
+                            O GeoTIFF manual e o relatório PDF NÃO são pré-requisitos para DESENHAR
+                            os pontos V como rascunho. Para validar tecnicamente o PS4, os documentos,
+                            a precisão absoluta e a conferência do RT continuam obrigatórios.
+                            A prévia é PRELIMINAR e não substitui a validação SIGEF.</p>
                           <div className={ps4Ready?"geo96-next-step":"pecas-note"} role="status">
                             <strong>{ps4Ready
                               ? "Construção PS4 concluída: traçado M–V–M fechado e pronto para peça preliminar."
@@ -3089,135 +3600,27 @@ export function PecasTecnicasWorkspace({
                           </div>
                           <p><strong>Cena em edição:</strong> {ps4SceneId} ·
                             {ps4Armed?" vetorização habilitada":" escolha a cena antes de clicar"}.</p>
-                          <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
-                            background: "#f6faf8", display: "grid", gap: 9 }}>
-                            <strong>Fluxo guiado PS4 — 3 etapas</strong>
-                            <div aria-label="Andamento da restituição PS4" style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                              <span style={{ fontWeight: 700 }}>1. Marcar V {ps4Draft.length >= 2 ? "✓" : "•"}</span>
-                              <span>→</span>
-                              <span style={{ fontWeight: 700 }}>2. Fechar perímetro {ps4Ready ? "✓" : "•"}</span>
-                              <span>→</span>
-                              <span style={{ fontWeight: 700 }}>3. Salvar e revisar</span>
+                          </details>
                             </div>
-                            <p style={{ margin: 0 }}>{ps4Draft.length < 2
-                              ? "Clique na imagem para adicionar pelo menos dois vértices V na sequência da feição."
-                              : !ps4Ready
-                                ? "Os pontos V já estão ligados. Selecione agora o segmento entre dois marcos para fechar a prévia do imóvel."
-                                : "Prévia fechada em azul: confira a geometria, salve o rascunho e retorne à peça."}</p>
-                            <div role={ps4Status.kind === "error" ? "alert" : "status"}
-                              aria-live="polite" style={{ borderRadius: 8, padding: "9px 11px",
-                                background: ps4Status.kind === "error" ? "#fff1ed" : "#e8f3ed",
-                                color: ps4Status.kind === "error" ? "#942d19" : "#12513b" }}>
-                              {ps4Status.message}
+                          </details>
+
+                          <details className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <summary className="ps4-flow-summary">
+                              <span className="ps4-step-no">5</span>
+                              <span className="ps4-step-heading"><strong>Salvar e revisar</strong><small>Persistir os vértices provisórios e retornar à peça</small></span>
+                              <span className="ps4-step-state">{ps4Ready ? "Pronto para salvar" : "Rascunho"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
+                              
+                            </summary>
+                            <div className="ps4-flow-body">
+                              <p>O arquivo da peça guarda os V provisórios sem confundi-los com posicionamento certificável. O processamento da cena e a conferência RT serão executados separadamente.</p>
+                              <button type="button" className="pecas-primary" disabled={actionBusy}
+                                onClick={() => void runAction(async () => {
+                                  await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
+                                  setSavedPieceNotice("Vértices V provisórios salvos. Acurácia PS4 ainda pendente.");
+                                })}>{actionBusy ? "Salvando..." : "Salvar rascunho dos vértices V"}</button>
                             </div>
-                            <strong>Vértices V provisórios: {ps4Draft.length}</strong>
-                            {ps4Draft.length > 0 && <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-                              <button type="button" className="pecas-secondary"
-                                onClick={() => {
-                                  const last = ps4Draft[ps4Draft.length - 1];
-                                  setPs4Draft(old => old.slice(0,-1));
-                                  setPs4ClosureConfirmed(false);
-                                  setPs4Status({kind:"info",message:`Último vértice ${last.name} desfeito. A prévia de fechamento precisa ser confirmada novamente.`});
-                                }}>Desfazer último V</button>
-                              <button type="button" className="pecas-secondary"
-                                onClick={() => {
-                                  if (!window.confirm("Remover todos os pontos V deste rascunho PS4?")) return;
-                                  setPs4Draft([]);
-                                  setPs4ClosureConfirmed(false);
-                                  setPs4Candidate(null);
-                                  setPs4Status({kind:"info",message:"Rascunho PS4 limpo. Marque o primeiro vértice na imagem."});
-                                }}>Limpar traçado V</button>
-                            </div>}
-                          </div>
-                          <div className="pecas-card" style={{ marginTop: 12 }} aria-label="Fechar prévia da poligonal">
-                            <h4>Etapa 2 · Fechar prévia da poligonal</h4>
-                            <p>O imóvel já tem os marcos de divisa. Selecione qual <strong>segmento entre marcos consecutivos</strong>
-                              deve ser substituído pela sequência V. O sistema conecta o primeiro e último V aos respectivos
-                              marcos, conserva os demais limites e fecha a poligonal para revisão, sem alterar o perímetro oficial.</p>
-                            <label className="pecas-field"><span>Segmento natural a substituir (início → fim)</span>
-                              <select aria-label="Segmento entre marcos para PS4"
-                                value={ps4Start} onChange={e => {
-                                  setPs4Start(e.target.value);
-                                  setPs4ClosureConfirmed(false);
-                                  setPs4Status({kind:"info",message:"Segmento selecionado. Confira se os pontos V seguem do marco inicial ao final antes de confirmar."});
-                                }}>
-                                <option value="">Selecione o segmento...</option>
-                                {topconBoundary.map((p,i) => {
-                                  const end = topconBoundary[(i+1)%topconBoundary.length];
-                                  return <option key={p.name} value={p.name}>
-                                    {p.sigef_vertex_code || p.name} → {end.sigef_vertex_code || end.name}
-                                  </option>;
-                                })}
-                              </select>
-                            </label>
-                            <p className="pecas-note">Ordem adotada: {ps4Start
-                              ? (topconBoundary.find(p=>p.name===ps4Start)?.sigef_vertex_code || ps4Start) +
-                                " → " + ps4Draft.map(p=>p.name).join(" → ") + " → " +
-                                (topconBoundary.find(p=>p.name===ps4End)?.sigef_vertex_code || ps4End)
-                              : "nenhum segmento selecionado"}</p>
-                            {ps4Start && <p className={ps4Closure.valid ? "pecas-note" : "pecas-warning"}
-                              role={ps4Closure.valid ? "status" : "alert"}>{ps4Closure.message}</p>}
-                            <label className="pecas-check"><input type="checkbox"
-                              disabled={!ps4Closure.valid}
-                              checked={ps4ClosureConfirmed && ps4Closure.valid}
-                              onChange={e => {
-                                setPs4ClosureConfirmed(e.target.checked);
-                                setPs4ConfirmedSignature(e.target.checked ? ps4Signature : "");
-                                setPs4Status(e.target.checked
-                                  ? {kind:"success",message:"Prévia de poligonal fechada! Confira o contorno azul no mapa. Ainda pendente de validação técnica PS4."}
-                                  : {kind:"info",message:"Prévia de fechamento desmarcada. Selecione o segmento e confirme."});
-                              }}/>
-                              Confirmo a sequência dos V e a ligação com esses dois marcos (somente prévia).
-                            </label>
-                            <button type="button" className="pecas-primary" disabled={!ps4Ready}
-                              onClick={() => setPs4Status({kind:"success",message:
-                                "Fechamento revisado geometricamente. Próximo: Concluir, salvar e voltar à peça; depois revisar a planta provisória."})}>
-                              Verificar prévia fechada
-                            </button>
-                            <p className="pecas-note">Contorno azul tracejado = poligonal proposta, não certificada.
-                              A precisão PS4 e os dados oficiais do perímetro ainda dependem de revisão do RT.</p>
-                          </div>
-                          {ps4Candidate && <div className="pecas-card" role="group" aria-label="Nomear vértice PS4">
-                            <p>Posição clicada: {ps4Candidate.latitude.toFixed(8)}°, {ps4Candidate.longitude.toFixed(8)}°.</p>
-                            <label className="pecas-field"><span>Código do novo vértice V</span>
-                              <input value={ps4CandidateName} onChange={e => setPs4CandidateName(e.target.value)}
-                                aria-label="Código do novo vértice PS4" />
-                            </label>
-                            <p className="pecas-note">Numeração sugerida somente dentro desta peça.
-                              A reserva de códigos por usuário credenciado ainda depende de serviço transacional.</p>
-                            <label className="pecas-check"><input type="checkbox"
-                              checked={ps4ConfirmFeature} onChange={e => setPs4ConfirmFeature(e.target.checked)} />
-                              Confirmo que identifiquei visualmente a feição natural nesta cena.
-                            </label>
-                            <button type="button" className="pecas-primary" onClick={addPs4DraftPoint}>
-                              Adicionar V ao rascunho
-                            </button>
-                            <button type="button" className="pecas-secondary" onClick={() => {
-                              setPs4Candidate(null);
-                              setPs4Status({kind:"info",message:"Ponto candidato cancelado. Nenhum vértice foi criado."});
-                            }}>
-                              Cancelar ponto
-                            </button>
-                          </div>}
-                          {ps4Notice && <p role="status" className="pecas-note">{ps4Notice}</p>}
-                          {ps4Draft.length > 0 && <div style={{ overflowX: "auto" }}>
-                            <table><thead><tr><th>Código</th><th>Latitude</th><th>Longitude</th><th>Ação</th></tr></thead>
-                              <tbody>{ps4Draft.map((point, index) => <tr key={point.name}>
-                                <td>{point.name}</td><td>{point.latitude.toFixed(8)}</td>
-                                <td>{point.longitude.toFixed(8)}</td>
-                                <td><button type="button" className="pecas-secondary"
-                                  onClick={() => {
-                                    setPs4Draft(old => old.filter((_, i) => i !== index));
-                                    setPs4ClosureConfirmed(false);
-                                    setPs4Status({kind:"info",message:`Vértice ${point.name} removido. Confira e feche novamente a poligonal.`});
-                                  }}>
-                                  Remover
-                                </button></td>
-                              </tr>)}</tbody>
-                            </table>
-                          </div>}
-                          <p>Use “Salvar peça” para guardar o traçado no rascunho associado ao usuário autenticado.
-                            A atribuição definitiva de código SIGEF dependerá de validação e unicidade.</p>
+                          </details>
                         </section>}
                         {pa2Mode && constructionMethod !== "PS4" && <>
                           {constructionMethod === "PA2" && <label className="pecas-field">
@@ -3338,7 +3741,7 @@ export function PecasTecnicasWorkspace({
 
 
             </div>
-            <div style={{ overflow: "auto", minHeight: 0 }}>
+            <div className={constructionMethod === "PS4" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
               <div className="pecas-card">
                   <h4>Mapa ampliado — {constructionMethod}</h4>
                   <Pa2WitnessMap
@@ -3359,10 +3762,21 @@ export function PecasTecnicasWorkspace({
                     selected={pa2Witnesses}
                     method={constructionMethod}
                     ps4SceneId={ps4SceneId}
+                    ps4ReportAttached={ps4ReportAttached}
+                    ps4Raster={loadedPieceId && ps4RasterAsset?.kind === "raster"
+                      ? {pieceId:loadedPieceId, sha256:ps4RasterAsset.sha256,
+                         footprint:ps4RasterAsset.metadata?.wgs84_extent}
+                      : null}
                     ps4Points={ps4Draft}
                     ps4Candidate={ps4Candidate}
+                    ps4CheckCapture={ps4CheckCapture}
                     ps4ClosureGeometry={ps4PreviewGeometry}
                     onPs4Click={point => {
+                       if (ps4CheckCapture) {
+                         setPs4CheckPoint(point);setPs4CheckCapture(false);
+                         setPs4Status({kind:"info",message:"Ponto de imagem capturado para confronto GNSS. Confirme a feição na etapa 4."});
+                         return;
+                       }
                       if(!ps4Armed){
                         setPs4Status({kind:"error",message:"Selecione uma cena INPE e clique em iniciar vetorização antes de marcar V."});
                         return;

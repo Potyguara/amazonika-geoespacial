@@ -97,6 +97,7 @@ type Props = {
   geometryKey?: string;
   selectedScene?: string;
   onSelectScene?: (sceneId: string) => void;
+  onPrepareScene?: (sceneId: string, collection: string, bbox: InpeBounds) => Promise<void>;
 };
 const RENDERABLE_SCENES = new Set([
   "CBERS4A_WPM_PCA_RGB321_20261016_214_113",
@@ -105,13 +106,25 @@ const RENDERABLE_SCENES = new Set([
 ]);
 
 export function InpeCbersSceneSearch({
-  geometry, geometryKey = "", selectedScene, onSelectScene,
+  geometry, geometryKey = "", selectedScene, onSelectScene, onPrepareScene,
 }: Props) {
   const [kind, setKind] = useState<"rgb" | "ortho">("rgb");
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [preparingScene, setPreparingScene] = useState("");
+  const [inspectionScene, setInspectionScene] = useState("");
+  const [sceneInspection, setSceneInspection] = useState<{
+    id: string; collection: string; asset_key: string; source_type: string;
+    metadata_assets: string[]; import_supported: boolean;
+    reason: string | null; orthorectified_origin_declared: boolean;
+    absolute_accuracy_verified: boolean; report_available: boolean; warning: string;
+  } | null>(null);
+  const [prepareNotice, setPrepareNotice] = useState("");
   const bounds = useMemo(() => boundsFromPolygon(geometry), [geometryKey, geometry]);
+  const canCrop = Boolean(bounds &&
+    bounds.east - bounds.west <= 0.05 &&
+    bounds.north - bounds.south <= 0.025);
   const bboxKey = bounds ? [bounds.west, bounds.south, bounds.east, bounds.north].join(",") : "";
   useEffect(() => {
     if (!bboxKey) {
@@ -148,6 +161,11 @@ export function InpeCbersSceneSearch({
     <div className="pecas-card" aria-label="Consulta automática de imagens CBERS-4A INPE">
       <h4>INPE · CBERS-4A WPM — enquadramento automático</h4>
       <p>O sistema pesquisa as cenas que intersectam a poligonal selecionada, sem exigir coordenadas manuais.</p>
+      <p className="pecas-note">
+        A importação cria um recorte GeoTIFF da fonte STAC do INPE, mas NÃO
+        importa relatório RMS nem comprova automaticamente a precisão posicional.
+        A revisão do RT permanece obrigatória.
+      </p>
       <p className="pecas-note">Escolha preferencialmente uma cena com menor presença de nuvens
         sobre o imóvel. Miniaturas e metadados não garantem ausência de nuvens em todos os
         pixels; a composição RGB exibida será a cena selecionada, e não uma imagem limpa sintética.</p>
@@ -202,10 +220,68 @@ export function InpeCbersSceneSearch({
                         !RENDERABLE_SCENES.has(scene.id)?"Raster ainda não habilitado":
                         "Usar esta cena para vetorizar"}
                     </button>}
+                    <button type="button" className="pecas-secondary"
+                      disabled={Boolean(inspectionScene)}
+                      onClick={() => {
+                        setInspectionScene(scene.id);
+                        setSceneInspection(null);
+                        setPrepareNotice("");
+                        void fetch(`${getApiUrl()}/inpe-cbers/inspect/${kind}/${encodeURIComponent(scene.id)}`, {
+                          credentials: "include", cache: "no-store",
+                        }).then(async response => {
+                          const data = await response.json().catch(() => ({}));
+                          if (!response.ok) throw new Error(
+                            typeof data.detail === "string" ? data.detail : "Falha na inspeção STAC"
+                          );
+                          setSceneInspection(data);
+                        }).catch(error => setPrepareNotice(
+                          error instanceof Error ? error.message : "Metadados indisponíveis."
+                        )).finally(() => setInspectionScene(""));
+                      }}>
+                      {inspectionScene === scene.id ? "Conferindo catálogo…" : "Inspecionar produto e documentos"}
+                    </button>
+                    {sceneInspection?.id === scene.id && <div className="pecas-note" role="status">
+                      <strong>Fonte:</strong> {sceneInspection.source_type} ·
+                      Ativo: {sceneInspection.asset_key}.
+                      <p>{sceneInspection.warning}</p>
+                      <p>Metadados XML: {sceneInspection.metadata_assets.length
+                        ? sceneInspection.metadata_assets.join(", ") : "não identificados"}.
+                        Relatório de acurácia: {sceneInspection.report_available
+                          ? "identificado" : "não identificado no catálogo"}.</p>
+                      {!sceneInspection.import_supported && <p className="pecas-warning">
+                        Importação automática ainda incompatível: {sceneInspection.reason}
+                      </p>}
+                    </div>}
+                    {onPrepareScene && (
+                      <button type="button" className="pecas-primary"
+                        disabled={!canCrop || Boolean(preparingScene)}
+                        onClick={() => {
+                          if (!bounds) return;
+                          setPreparingScene(scene.id);
+                          setPrepareNotice("");
+                          void onPrepareScene(scene.id, scene.collection, bounds)
+                            .then(() => setPrepareNotice("Recorte CBERS preparado e vinculado ao GeoTIFF PS4."))
+                            .catch(error => setPrepareNotice(
+                              error instanceof Error ? error.message : "Falha ao preparar recorte CBERS."
+                            ))
+                            .finally(() => setPreparingScene(""));
+                        }}>
+                        {preparingScene === scene.id
+                          ? "Preparando recorte ortorretificado…"
+                          : kind === "ortho"
+                            ? "Importar recorte L4 ortorretificado"
+                            : "Importar recorte RGB derivado de L4"}
+                      </button>
+                    )}
                     <a href={scene.stac_item_url} target="_blank" rel="noopener noreferrer">Ver metadados no INPE</a>
                   </article>
                 ))}
               </div>
+              {!canCrop && <p className="pecas-note">
+                O recorte automático inicial está limitado a 0,05° por eixo.
+                Divida áreas extensas ou utilize o GeoTIFF manual.
+              </p>}
+              {prepareNotice && <p role="status" className="pecas-note">{prepareNotice}</p>}
               {!results.scenes.length && <p>Nenhuma cena encontrada. Verifique a cobertura do catálogo para esse imóvel.</p>}
             </div>
           )}

@@ -222,7 +222,12 @@ def _rows(parcels, transformer):
             rows.append((
                 p.names[i], _dms(lon, "lon"), _dms(lat, "lat"),
                 f"{east:.3f}", f"{north:.3f}",
-                _br_number(p.altitudes[i], 2) if p.altitudes[i] is not None else "—",
+                # O quadro usa a mesma HN do memorial; nunca h elipsoidal.
+                # V é uma altitude INTERPOLADA, não medição observada.
+                (( _br_number(p.normal_altitudes[i], 2) +
+                    ("~" if "-V-" in p.names[i].upper() else ""))
+                 if i < len(p.normal_altitudes) and p.normal_altitudes[i] is not None
+                 else "—"),
                 _azimuth_minutes(segment["azimuth"]), _br_number(segment["distance"], 2),
             ))
     return rows
@@ -238,7 +243,7 @@ def _table(pdf, box, rows, palette, *, columns=1, font_size=6.2):
     _text(pdf, "QUADRO DE COORDENADAS E SEGMENTOS", box.x + 9,
           box.top - 16, 8.0, bold, "#FFFFFF")
     header = ("VÉRTICE", "LONGITUDE", "LATITUDE", "ESTE (m)", "NORTE (m)",
-              "ALT. (m)", "AZIMUTE", "DIST. (m)")
+              "HN (m)", "AZIMUTE", "DIST. (m)")
     fractions = (.145, .158, .155, .13, .13, .086, .089, .107)
     inner_top = box.top - 24
     row_h = max(12.0, font_size + 5.8)
