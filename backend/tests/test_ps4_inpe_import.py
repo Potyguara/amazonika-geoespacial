@@ -86,18 +86,19 @@ class Ps4InpeImportTests(TestCase):
 
     def test_recorte_bloqueado_com_espaco_insuficiente(self):
         item = scene()
-        with TemporaryDirectory() as directory, (
-            patch("app.services.inpe_ps4_import.get_settings",
-                  return_value=SimpleNamespace(storage_dir=Path(directory))),
-            patch("app.services.inpe_ps4_import.shutil.disk_usage",
-                  return_value=SimpleNamespace(free=1 * 1024**3)),
-            patch("app.services.inpe_ps4_import.subprocess.run") as gdal,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "2 GiB"):
-                import_inpe_crop(
-                    item, (-51.001, 0.0, -51.0, 0.001), uuid4(), uuid4(),
-                )
-            gdal.assert_not_called()
+        with TemporaryDirectory() as directory:
+            with (
+                patch("app.services.inpe_ps4_import.get_settings",
+                      return_value=SimpleNamespace(storage_dir=Path(directory))),
+                patch("app.services.inpe_ps4_import.shutil.disk_usage",
+                      return_value=SimpleNamespace(free=1 * 1024**3)),
+                patch("app.services.inpe_ps4_import.subprocess.run") as gdal,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "2 GiB"):
+                    import_inpe_crop(
+                        item, (-51.001, 0.0, -51.0, 0.001), uuid4(), uuid4(),
+                    )
+                gdal.assert_not_called()
 
     def test_recorte_pequeno_em_utm(self):
         epsg, res = validate_crop((-51.01, 0.01, -51.0, 0.02))
