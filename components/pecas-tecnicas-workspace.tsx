@@ -6,6 +6,7 @@ import { SituationMapPreview, type SituationSnapshot } from "@/components/situat
 import { Pa2WitnessMap } from "@/components/pa2-witness-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { Ps4EvidencePanel } from "@/components/ps4-evidence-panel";
+import { Ps4RasterDiagnosticCard } from "@/components/ps4-raster-diagnostic-card";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
 import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
@@ -3398,7 +3399,10 @@ export function PecasTecnicasWorkspace({
                               <span className="ps4-step-caret" aria-hidden="true">⌄</span>
                             </summary>
                             <div className="ps4-flow-body">
-                              <div className="ps4-analysis-note" role="status">
+                              <Ps4RasterDiagnosticCard pieceId={loadedPieceId}
+                              rasterSha256={ps4RasterAsset?.sha256 ?? null}
+                              vertices={ps4Draft} sceneId={ps4SceneId} />
+                            <div className="ps4-analysis-note" role="status">
                               <strong>Processamento próprio da imagem — próximo módulo</strong>
                               <p>O recorte georreferenciado permite restituição e análise geométrica, mas sozinho não produz EMQ independente ou sigmas. Preservaremos este estado como pendente até existir uma avaliação de qualidade tecnicamente rastreável.</p>
                             </div><details className="geo97-cbers-panel">
