@@ -91,3 +91,50 @@ def evaluate_ps4(data: PS4Submission) -> dict:
             "resolução, método de cálculo e parecer do RT antes da aprovação."
         ),
     }
+
+
+def evaluate_verified_ps4(
+    data: PS4Submission,
+    assets: dict,
+    user_id,
+    piece_id,
+) -> dict:
+    """Acrescenta verificação de arquivos reais à avaliação declaratória.
+
+    Metadados e RMS continuam sujeitos à análise técnica do RT.
+    """
+    from app.services.ps4_assets import exists_matching
+
+    result = evaluate_ps4(data)
+    if not data.needs_additional_vertices:
+        return result
+
+    blockers = list(result["blockers"])
+    if data.evidence is None:
+        return result
+
+    for kind, declared in (
+        ("raster", data.evidence.raster_sha256.lower()),
+        ("report", data.evidence.report_sha256.lower()),
+    ):
+        stored = assets.get(kind)
+        if not isinstance(stored, dict) or stored.get("sha256") != declared:
+            blockers.append(
+                f"Arquivo {kind} não corresponde à evidência armazenada nesta peça."
+            )
+        elif not exists_matching(user_id, piece_id, stored):
+            blockers.append(
+                f"Integridade do arquivo {kind} não foi comprovada no armazenamento."
+            )
+
+    return {
+        **result,
+        "status": "BLOCKED" if blockers else "REVIEW_REQUIRED",
+        "blockers": blockers,
+        "message": (
+            "Pendências técnicas impedem o fechamento."
+            if blockers else
+            "Arquivos armazenados e íntegros. Conferência de RMS, relatório, "
+            "identificação da cena, precisão e assinatura do RT ainda obrigatórias."
+        ),
+    }
