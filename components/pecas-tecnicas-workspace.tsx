@@ -8,6 +8,7 @@ import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { Ps4EvidencePanel } from "@/components/ps4-evidence-panel";
 import { Ps4RasterDiagnosticCard } from "@/components/ps4-raster-diagnostic-card";
 import { Ps4CheckpointAnalysis } from "@/components/ps4-checkpoint-analysis";
+import { Pb1SheetLookup } from "@/components/pb1-sheet-lookup";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
 import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
@@ -419,6 +420,17 @@ export function PecasTecnicasWorkspace({
   });
   const ps4Ready = ps4ClosureConfirmed && ps4ConfirmedSignature === ps4Signature && ps4Closure.valid;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
+  // A folha deve ser identificada antes da restituição quando a parcela já está desenhada.
+  const pb1SelectedParcel = polygons.find(p =>
+    selectedIds.includes(p.id) && (p.coordinates?.length ?? 0) >= 3
+  );
+  const pb1LookupGeometry: Record<string, unknown> | null = pb1SelectedParcel?.coordinates
+    ? {type:"Polygon", coordinates:[[
+        ...pb1SelectedParcel.coordinates,
+        pb1SelectedParcel.coordinates[0],
+      ]]}
+    : ps4Closure.valid ? ps4Closure.geometry : null;
+
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
     const prefix = code.length >= 3 && code.length <= 6 ? code : "VIRTUAL";
@@ -1814,6 +1826,7 @@ export function PecasTecnicasWorkspace({
                     setConstructionSkipped(false);
                     setConstructionMethod("PS4");setPa2Mode(true);
                   }}>Abrir mapa PS4 e imagens INPE</button>
+                <Pb1SheetLookup geometry={pb1LookupGeometry} />
                 {ps4Ready&&<div className="geo97-adopt-banner" role="status">
                   <strong>Poligonal fechada com {ps4Closure.names.length} vértices.</strong>
                   <p>A prévia e o PDF de cinco marcos são diferentes até aplicar
