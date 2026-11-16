@@ -42,13 +42,14 @@ const emptyChecks = () => Object.fromEntries(
 ) as Record<CheckKey, boolean>;
 
 export function Ps4EvidencePanel({
-  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange, onReportChange, onEnsurePieceSaved,
+  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange, onReportChange, onEnsurePieceSaved, onSceneChange,
 }: {
   pieceId: string | null | undefined;
   onApprovalChange?: (approved: boolean) => void;
   onRasterChange?: (asset: UploadedAsset | null) => void;
   onReportChange?: (present: boolean) => void;
   onEnsurePieceSaved?: () => Promise<string>;
+  onSceneChange?: (sceneId: string) => void;
   sceneId: string;
   vertices: Vertex[];
   rmsFromWorkspace: number | null;
@@ -295,7 +296,17 @@ export function Ps4EvidencePanel({
       <label className="pecas-field"><span>Identificador da cena conforme o relatório</span>
         <input value={reportScene} onChange={e => {
           setReportScene(e.target.value); setDirty(true);
-        }} placeholder="Identificador que consta efetivamente no PDF" /></label>
+        }} placeholder="Identificador que consta efetivamente no PDF" />
+        <button type="button" className="pecas-secondary"
+          disabled={busy || !reportScene.trim() || reportScene.trim() === sceneId}
+          onClick={() => onSceneChange?.(reportScene.trim())}>
+          Vincular esta cena à ortoimagem e ao mapa
+        </button>
+        {reportScene.trim() !== sceneId && <small role="status">
+          A cena do mapa ainda é {sceneId}. Vincule a identificação do relatório
+          antes de criar ou validar os vértices.
+        </small>}
+      </label>
       <label className="pecas-field"><span>Precisão posicional horizontal avaliada (m)</span>
         <input type="number" min="0" step="0.001" value={precision}
           onChange={e => { setPrecision(e.target.value); setDirty(true); }} /></label>
