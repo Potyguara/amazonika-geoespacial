@@ -26,7 +26,23 @@ export function Ps4CheckpointAnalysis({
   const [error,setError] = useState("");
   const [confirmed,setConfirmed] = useState(false);
   useEffect(()=>{ if(lastImageClick) setImagePoint(lastImageClick); },[lastImageClick]);
-  useEffect(()=>{setResult(null);setChecks([]);setImagePoint(null);setConfirmed(false);},[rasterSha256,pieceId]);
+  useEffect(()=>{
+    setResult(null);setChecks([]);setImagePoint(null);setConfirmed(false);
+    if(!pieceId || !rasterSha256)return;
+    const controller=new AbortController();
+    fetch(`${getApiUrl()}/technical-pieces/${pieceId}/ps4`,{
+      credentials:"include",cache:"no-store",signal:controller.signal,
+    }).then(r=>r.ok?r.json():null).then(json=>{
+      if(controller.signal.aborted)return;
+      const stored=json?.checkpoint_analysis;
+      if(stored?.raster_sha256!==rasterSha256)return;
+      if(Array.isArray(stored.checkpoints)){
+        setChecks(stored.checkpoints.filter((c:Check)=>c.used_for_orthorectification===false));
+      }
+      if(stored.result)setResult(stored.result as Result);
+    }).catch(()=>{});
+    return ()=>controller.abort();
+  },[rasterSha256,pieceId]);
   const selected=marks.find(m=>m.name===markName);
   const add = () => {
     if(!selected || selected.longitude==null || selected.latitude==null || !imagePoint || !confirmed)return;
