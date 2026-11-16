@@ -54,6 +54,10 @@ services:
   worker:
     image: ${PS4_IMAGE:-amazonika-ps4-candidato:l4-fix-20261116}
     command: ["python", "-m", "app.workers.package_worker"]
+    # A imagem da API possui um healthcheck HTTP /ready que não se aplica
+    # a um processo de fila sem servidor HTTP.
+    healthcheck:
+      disable: true
     restart: "no"
     profiles: ["worker"]
     environment:
