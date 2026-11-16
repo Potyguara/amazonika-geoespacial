@@ -12,6 +12,20 @@ df -h /
 free -h
 printf '\n=== CONTAINERS ===\n'
 docker compose --env-file .env.production -f docker-compose.production.yml ps
+printf '\n=== COMPARTILHAMENTO DO VOLUME DE DADOS ===\n'
+docker compose --env-file .env.production -f docker-compose.production.yml \
+  config --format json | python3 -c '
+import json,sys
+settings=json.load(sys.stdin)
+for name in ("api","package-worker"):
+    values=settings["services"][name].get("volumes",[])
+    print(name,[(v.get("source"),v.get("target")) for v in values if v.get("target")=="/data/uploads"])
+'
+printf '\n=== WORKER E FILA PS4 ===\n'
+docker compose --env-file .env.production -f docker-compose.production.yml \
+  logs --tail=20 package-worker | tail -n 25
+printf '\n=== RESERVA DE ARMAZENAMENTO ===\n'
+df -h /opt /tmp
 printf '\n=== API (somente saúde) ===\n'
 curl --max-time 10 --fail --silent --show-error http://127.0.0.1:18000/ready
 printf '\n\n=== GDAL NO CONTAINER API ===\n'
