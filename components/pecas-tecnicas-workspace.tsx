@@ -642,6 +642,21 @@ export function PecasTecnicasWorkspace({
   const [sigefParcelBusy, setSigefParcelBusy] = useState(false);
   const [sigefValidatedSignature, setSigefValidatedSignature] = useState("");
   const [reviewedOdsBusy, setReviewedOdsBusy] = useState(false);
+  const [blankOdsBusy,setBlankOdsBusy] = useState(false);
+  const [blankOdsError,setBlankOdsError] = useState("");
+  const downloadBlankSigefOds = async () => {
+    setBlankOdsBusy(true);setBlankOdsError("");
+    try {
+      const response=await fetch(getApiUrl()+"/technical-pieces/sigef/modelo-ods",{
+        credentials:"include",cache:"no-store",
+      });
+      if(!response.ok)throw new Error("Modelo SIGEF indisponível (HTTP "+response.status+").");
+      const blob=await response.blob();
+      downloadBlob(blob,"MODELO_SIGEF_EM_BRANCO.ods");
+    }catch(e){setBlankOdsError(e instanceof Error?e.message:"Falha no download do modelo ODS.");}
+    finally{setBlankOdsBusy(false);}
+  };
+
   useEffect(() => {
     if (!loadedTopconDraft || loadedTopconDraft.version !== 1) return;
     const d = loadedTopconDraft;
@@ -2633,10 +2648,19 @@ export function PecasTecnicasWorkspace({
               <button disabled={actionBusy} onClick={() => void runAction(onDownloadDocx)}>
                 <FileText size={17} /> Memorial descritivo (DOCX)
               </button>
-              <button disabled={!sigefAvailable || actionBusy || hasProvisionalPs4Parcel} onClick={() => void runAction(onDownloadSigef)}>
-                <Download size={17} /> SIGEF — simulação (ODS)
+              <button type="button" disabled={blankOdsBusy}
+                onClick={() => void downloadBlankSigefOds()}>
+                <Download size={17} />
+                {blankOdsBusy?"Baixando modelo...":"Baixar modelo SIGEF (ODS em branco)"}
+              </button>
+              <button disabled={!sigefAvailable || actionBusy || hasProvisionalPs4Parcel}
+                onClick={() => void runAction(onDownloadSigef)}>
+                <Download size={17} /> ODS preenchida · somente dados validados
               </button>
             </div>
+            {blankOdsError && <p role="alert" className="pecas-warning">{blankOdsError}</p>}
+            <p className="pecas-note">O modelo em branco pode ser baixado a qualquer momento.
+              A planilha preenchida depende de dados reais, incluindo h, coordenadas e precisão; HN estimada não substitui h SIGEF.</p>
             {!sigefAvailable && <p className="pecas-note">A exportação ODS SIGEF exige uma análise espacial registrada e a permissão correspondente. Conclua a análise no módulo existente para habilitá-la.</p>}
             {hasProvisionalPs4Parcel && <p className="pecas-warning" role="status">
               Esta parcela contém vértices V restituídos por PS4 sem acurácia certificável.
