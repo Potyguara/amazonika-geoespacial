@@ -12,8 +12,8 @@ class TestPs4PdfNormalAltitudes(unittest.TestCase):
         raw = [{
             "name": "Teste M-V-M",
             "geometry": {"type": "Polygon", "coordinates": [[
-                [-50.876, 0.407], [-50.875, 0.406],
-                [-50.874, 0.405], [-50.873, 0.404],
+                [-50.876, 0.407], [-50.875, 0.407],
+                [-50.874, 0.406], [-50.873, 0.404],
                 [-50.876, 0.407],
             ]]},
             "vertex_names": ["CPBR-M-578", "VIRTUAL-V-0001",
