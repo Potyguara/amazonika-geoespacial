@@ -141,6 +141,31 @@ def evaluate_verified_ps4(
                 f"Integridade do arquivo {kind} não foi comprovada no armazenamento."
             )
 
+    raster = assets.get("raster") or {}
+    extent = (raster.get("metadata") or {}).get("wgs84_extent")
+    if not isinstance(extent, dict):
+        blockers.append(
+            "Não foi possível comprovar a cobertura geográfica da ortoimagem."
+        )
+    else:
+        try:
+            from shapely.geometry import Point, shape
+            footprint = shape(extent)
+            if footprint.is_empty or not footprint.is_valid:
+                raise ValueError("Cobertura raster inválida.")
+            for v in data.vertices:
+                if v.longitude is not None and v.latitude is not None:
+                    if not footprint.buffer(1e-9).covers(
+                        Point(v.longitude, v.latitude)
+                    ):
+                        blockers.append(
+                            f"{v.vertex_id}: vértice fora da cobertura GeoTIFF."
+                        )
+        except (ValueError, TypeError, KeyError) as exc:
+            blockers.append(
+                "Metadados de cobertura da imagem orbital são inválidos."
+            )
+
     return {
         **result,
         "status": "BLOCKED" if blockers else "REVIEW_REQUIRED",
