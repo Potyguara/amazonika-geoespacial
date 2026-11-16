@@ -123,7 +123,7 @@ export function InpeCbersSceneSearch({
   const [prepareNotice, setPrepareNotice] = useState("");
   const bounds = useMemo(() => boundsFromPolygon(geometry), [geometryKey, geometry]);
   const canCrop = Boolean(bounds &&
-    bounds.east - bounds.west <= 0.025 &&
+    bounds.east - bounds.west <= 0.05 &&
     bounds.north - bounds.south <= 0.025);
   const bboxKey = bounds ? [bounds.west, bounds.south, bounds.east, bounds.north].join(",") : "";
   useEffect(() => {
@@ -278,7 +278,7 @@ export function InpeCbersSceneSearch({
                 ))}
               </div>
               {!canCrop && <p className="pecas-note">
-                O recorte automático inicial está limitado a 0,025° por eixo.
+                O recorte automático inicial está limitado a 0,05° por eixo.
                 Divida áreas extensas ou utilize o GeoTIFF manual.
               </p>}
               {prepareNotice && <p role="status" className="pecas-note">{prepareNotice}</p>}
