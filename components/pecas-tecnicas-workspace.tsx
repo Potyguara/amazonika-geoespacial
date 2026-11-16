@@ -429,7 +429,7 @@ export function PecasTecnicasWorkspace({
         ...pb1SelectedParcel.coordinates,
         pb1SelectedParcel.coordinates[0],
       ]]}
-    : ps4Closure.valid ? ps4Closure.geometry : null;
+    : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
   const ps4SuggestedName = () => {
     const code = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
