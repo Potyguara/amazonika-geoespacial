@@ -304,10 +304,32 @@ def _validated_snapshot(
     # PB1 utiliza ativos privados independentes do PS4. Cliente não pode
     # substituir metadados confiáveis do upload nem forjar aprovação.
     old_pb1 = ((piece.snapshot or {}).get("pb1") or {}) if piece else {}
+    trusted_assets = old_pb1.get("assets", {})
     snapshot["pb1"] = {
-        "assets": old_pb1.get("assets", {}),
+        "assets": trusted_assets,
         "review_status": "PRELIMINARY",
     }
+    # Não aceitar pontos PB1 de outra cena, fora do GeoTIFF vinculado,
+    # nem resultados de aprovação autodeclarados pelo navegador.
+    pb1_points = ((snapshot.get("topcon") or {}).get("pb1_draft") or [])
+    if pb1_points:
+        official_color = (trusted_assets.get("pb1_color") or {}).get("sha256")
+        if not official_color:
+            raise HTTPException(422, "Vértices PB1 requerem ORIXP oficial vinculado no servidor.")
+        if len(pb1_points) > 5000:
+            raise HTTPException(422, "Limite de 5000 vértices PB1 excedido.")
+        for point in pb1_points:
+            if not isinstance(point, dict) or point.get("raster_sha256") != official_color:
+                raise HTTPException(422, "Vértice PB1 vinculado a outro GeoTIFF. Refaça a captura.")
+            if not isinstance(point.get("name"), str) or not point["name"].strip():
+                raise HTTPException(422, "Código de vértice PB1 inválido.")
+            if not all(isinstance(point.get(key), (int, float)) and
+                       not isinstance(point.get(key), bool) and
+                       float("-inf") < point[key] < float("inf")
+                       for key in ("longitude", "latitude")):
+                raise HTTPException(422, "Coordenada PB1 inválida.")
+            if not (-180 <= point["longitude"] <= 180 and -90 <= point["latitude"] <= 90):
+                raise HTTPException(422, "Vértice PB1 fora de longitude/latitude WGS84.")
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
     same_checkpoint_geometry = bool(
         piece is not None and
@@ -527,6 +549,21 @@ def upload_pb1_file(
     assets = dict(pb1.get("assets") or {})
     assets[kind] = record
     pb1["assets"] = assets
+    if kind == "pb1_color":
+        # Troca da ortoimagem invalida somente o traçado PB1, não o PS4.
+        topcon = dict(snapshot.get("topcon") or {})
+        topcon["pb1_draft"] = []
+        topcon["pb1_closure"] = {"start": "", "confirmed": False, "signature": ""}
+        snapshot["topcon"] = topcon
+    elif kind == "pb1_dtm":
+        topcon = dict(snapshot.get("topcon") or {})
+        if isinstance(topcon.get("pb1_draft"), list):
+            topcon["pb1_draft"] = [
+                {**p, "source_elevation_m": None}
+                for p in topcon["pb1_draft"] if isinstance(p, dict)
+            ]
+            topcon["pb1_closure"] = {"start": "", "confirmed": False, "signature": ""}
+            snapshot["topcon"] = topcon
     pb1["review_status"] = "PRELIMINARY"
     pb1.pop("approval", None)
     snapshot["pb1"] = pb1
