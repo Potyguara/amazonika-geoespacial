@@ -103,10 +103,11 @@ services:
     # Sem CAP_CHOWN, isso falha. UID/GID nginx e PID em /tmp evitam
     # elevar privilégios, preservando cap_drop ALL.
     user: "101:101"
-    command: ["nginx", "-g", "pid /tmp/nginx.pid; daemon off;"]
+    command: ["nginx", "-g", "daemon off;"]
     ports:
       - "127.0.0.1:13140:8080"
     volumes:
+      - ./deploy/ps4/nginx-main.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/ps4/nginx-homolog.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - ps4_private
