@@ -9,7 +9,8 @@ from uuid import uuid4
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageStat
+import numpy as np
 
 from app.services.ps4_assets import store_uploaded_asset, stored_file_path
 from app.services.ps4_tiles import render_png_tile, tile_intersects_footprint
@@ -20,6 +21,33 @@ from app.services.ps4_tiles import render_png_tile, tile_intersects_footprint
     "GDAL CLI é obrigatório para a integração raster",
 )
 class PS4GdalRasterIntegrationTests(unittest.TestCase):
+    def test_l4_int16_variavel_nao_gera_tile_opaco_uniforme(self):
+        """Regressão: L4 Int16 tinha RGB constante após gdal_translate."""
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "l4.png"
+            grid = np.linspace(150, 900, 256*256, dtype=np.uint16).reshape(256, 256)
+            Image.fromarray(grid).save(source)
+            tif = root / "l4.tif"
+            subprocess.run(
+                ["gdal_translate", "-q", "-of", "GTiff",
+                 "-a_srs", "EPSG:4326",
+                 "-a_ullr", "-51.08", "0.01", "-51.07", "0",
+                 str(source), str(tif)],
+                check=True,
+            )
+            # Tile XYZ da própria imagem: sobreposição substancial.
+            z, lon, lat = 17, -51.075, 0.005
+            from math import asinh, radians, tan, pi
+            x = int((lon+180)/360*2**z)
+            y = int((1-asinh(tan(radians(lat)))/pi)/2*2**z)
+            png = render_png_tile(tif, z, x, y)
+            with Image.open(BytesIO(png)) as image:
+                rgba = image.convert("RGBA")
+                self.assertEqual(rgba.size, (256, 256))
+                self.assertGreater(ImageStat.Stat(rgba.convert("RGB")).stddev[0], 1.0)
+                self.assertGreater(rgba.getchannel("A").getextrema()[1], 0)
+
     def test_geotiff_geo_referenciado_gera_tile_png(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
