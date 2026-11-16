@@ -165,6 +165,8 @@ export type TopconDraft = {
   situation: string;
   cns: string;
   registration: string;
+  area_nature?:string;
+  sncr?:string;
   stage: number;
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
   ps4_selected_scene?: string;
@@ -236,6 +238,7 @@ type Props = {
   onClose: () => void;
   data: PecasData;
   onDataChange: (key: keyof PecasData, value: string | boolean) => void;
+  onLegalMetadataChange: (values: Record<string,string>) => void;
   polygons: PecasPolygon[];
   importedMetadata?: Record<string, string> | null;
   selectedIds: string[];
@@ -308,7 +311,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function PecasTecnicasWorkspace({
-  open, onClose, data, onDataChange, polygons, importedMetadata, selectedIds, rasterKey, onSelect,
+  open, onClose, data, onDataChange, onLegalMetadataChange, polygons, importedMetadata, selectedIds, rasterKey, onSelect,
   onRenamePolygon, onRenameVertex, onConfrontant, onAdoptTopconParcels, memorialText,
   memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
@@ -643,6 +646,8 @@ export function PecasTecnicasWorkspace({
   const [sigefSituation, setSigefSituation] = useState("Área não Titulada");
   const [sigefCns, setSigefCns] = useState("");
   const [sigefRegistration, setSigefRegistration] = useState("");
+  const [areaNature,setAreaNature] = useState("");
+  const [sncr,setSncr] = useState("");
   const [sigefParcelReview, setSigefParcelReview] = useState<{
     status: string; errors: string[]; warnings: string[];
     parcels: Array<{ number: string; area_ha: number }>;
@@ -668,7 +673,7 @@ export function PecasTecnicasWorkspace({
             return {
               sigef_vertex_code:name,
               longitude:coord[0],latitude:coord[1],
-              ellipsoidal_height_m:height===""?null:Number(height?.replace(",",".")),
+              ellipsoidal_height_m:height?Number(height.replace(",",".")):null,
               sigma_lon_m:typeof details.sigma_lon_m==="number"?details.sigma_lon_m:null,
               sigma_lat_m:typeof details.sigma_lat_m==="number"?details.sigma_lat_m:null,
               sigma_h_m:typeof details.sigma_h_m==="number"?details.sigma_h_m:null,
@@ -738,6 +743,7 @@ export function PecasTecnicasWorkspace({
     setSigefSituation(d.situation);
     setSigefCns(d.cns);
     setSigefRegistration(d.registration);
+    setAreaNature(d.area_nature??"");setSncr(d.sncr??"");
     setStage(d.stage >= 0 && d.stage <= 4 ? d.stage : 0);
     setPremiumStep(d.stage>0?[0,5,6,7,9][d.stage]:d.ps4_closure?.confirmed?3:0);
     setTopconReview(null);
@@ -768,7 +774,8 @@ export function PecasTecnicasWorkspace({
     vertical_origin: verticalOrigin, vertical_confirmed: verticalConfirmed,
     vertical_calculated: verticalCalculated,
     municipalities: sigefMunicipalities, situation: sigefSituation,
-    cns: sigefCns, registration: sigefRegistration, stage,
+    cns: sigefCns, registration: sigefRegistration,
+    area_nature:areaNature, sncr, stage,
     construction: {
       method: constructionMethod, pa2_variant: pa2Variant,
       witnesses: pa2Witnesses, distance: constructionDistance,
@@ -2657,18 +2664,38 @@ export function PecasTecnicasWorkspace({
                             </label>
                             <label className="pecas-field"><span>Situação jurídica</span>
                               <select value={sigefSituation}
-                                onChange={(e) => { setSigefSituation(e.target.value); setSigefParcelReview(null); }}>
+                                onChange={(e) => {
+                                  setSigefSituation(e.target.value);setSigefParcelReview(null);
+                                  onLegalMetadataChange({legal_status:e.target.value});
+                                  setPdfBlob(null);setPdfUrl(null);
+                                }}>
                                 <option>Imóvel Registrado</option>
                                 <option>Área Titulada não Registrada</option>
                                 <option>Área não Titulada</option>
                               </select>
                             </label>
+                            <label className="pecas-field"><span>Natureza da área</span>
+                              <select value={areaNature} onChange={e=>{
+                                setAreaNature(e.target.value);onLegalMetadataChange({area_nature:e.target.value});
+                                setPdfBlob(null);setPdfUrl(null);
+                              }}>
+                                <option value="">Selecione a natureza</option>
+                                <option value="Particular">Particular</option>
+                                <option value="Pública">Pública</option>
+                              </select>
+                            </label>
+                            <label className="pecas-field"><span>Código SNCR / INCRA</span>
+                              <input value={sncr} onChange={e=>{
+                                setSncr(e.target.value);onLegalMetadataChange({sncr:e.target.value});
+                                setPdfBlob(null);setPdfUrl(null);
+                              }}/>
+                            </label>
                             {sigefSituation === "Imóvel Registrado" && <div>
                               <label className="pecas-field"><span>CNS cartório</span>
-                                <input value={sigefCns} onChange={(e) => { setSigefCns(e.target.value); setSigefParcelReview(null); }} />
+                                <input value={sigefCns} onChange={(e) => { setSigefCns(e.target.value); setSigefParcelReview(null);onLegalMetadataChange({cns:e.target.value});setPdfBlob(null);setPdfUrl(null); }} />
                               </label>
                               <label className="pecas-field"><span>Matrícula / transcrição</span>
-                                <input value={sigefRegistration} onChange={(e) => { setSigefRegistration(e.target.value); setSigefParcelReview(null); }} />
+                                <input value={sigefRegistration} onChange={(e) => { setSigefRegistration(e.target.value); setSigefParcelReview(null);onLegalMetadataChange({registration:e.target.value});setPdfBlob(null);setPdfUrl(null); }} />
                               </label>
                             </div>}
                             <button type="button" className="pecas-primary" disabled={sigefParcelBusy}
