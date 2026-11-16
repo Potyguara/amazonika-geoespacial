@@ -374,7 +374,7 @@ export function PecasTecnicasWorkspace({
   const [topconReviewFeedback, setTopconReviewFeedback] = useState<{status:"info"|"error"|"success";message:string}|null>(null);
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionSkipped,setConstructionSkipped] = useState(false);
-  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PA2");
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PS4");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
@@ -752,7 +752,7 @@ export function PecasTecnicasWorkspace({
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     setPa2Mode(false);
-    setConstructionMethod(d.construction?.method ?? "PA2");
+    setConstructionMethod(d.construction?.method === "PT8" ? "PT8" : "PS4");
     setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
     setPa2Witnesses(d.construction?.witnesses ?? []);
     setConstructionDistance(d.construction?.distance ?? "");
@@ -2921,6 +2921,9 @@ export function PecasTecnicasWorkspace({
               marginBottom: 12 }}>
             {(["PA1", "PA2", "PT8", "PS4"] as const).map(method => <button
               key={method} type="button"
+              disabled={method === "PA1" || method === "PA2"}
+              title={method === "PA1" || method === "PA2"
+                ? "Vértices V nesta versão utilizam somente PS4 com relatório" : undefined}
               className={constructionMethod === method ? "pecas-primary" : "pecas-secondary"}
               onClick={() => {
                 setConstructionMethod(method);
@@ -2998,8 +3001,8 @@ export function PecasTecnicasWorkspace({
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
-                            <option value="PA1">PA1 — Paralela (tipo V)</option>
-                            <option value="PA2">PA2 — Vértice virtual (tipo V)</option>
+                            <option value="PA1" disabled>PA1 — Não disponível nesta versão</option>
+                            <option value="PA2" disabled>PA2 — Não disponível nesta versão</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
                             <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
                           </select>
