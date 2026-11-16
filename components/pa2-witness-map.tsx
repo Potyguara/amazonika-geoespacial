@@ -481,11 +481,15 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
 
   useEffect(() => {
     cbersActiveRef.current = cbersEnabled;
-    cbersRef.current?.setVisible(cbersEnabled);
-    // Alternar as camadas evita digitalizar imagem oculta por outra camada.
-    rasterRef.current?.setVisible(Boolean(ps4Raster) && !cbersEnabled);
+    const previewSupported = /^CBERS4A_WPM_PCA_RGB321_2026(?:1016|0815|0715)_214_113$/.test(ps4SceneId);
+    const showPreview = cbersEnabled && previewSupported;
+    cbersRef.current?.setVisible(showPreview);
+    // Nunca esconder o recorte privado se a cena auxiliar não possuir tiles.
+    rasterRef.current?.setVisible(Boolean(ps4Raster) && !showPreview);
     cbersRef.current?.setOpacity(cbersOpacity);
-    if (cbersEnabled) setCbersError("Cena selecionada " + ps4SceneId + " · PS4 experimental sem acurácia demonstrada.");
+    if (cbersEnabled) setCbersError(previewSupported
+      ? "Cena INPE auxiliar selecionada; acurácia PS4 ainda não comprovada."
+      : "Esta cena não possui tiles RGB auxiliares nesta versão. Exibindo o GeoTIFF privado, se disponível.");
     else setCbersError("");
   }, [cbersEnabled, cbersOpacity, ps4SceneId, ps4Raster?.sha256]);
 
