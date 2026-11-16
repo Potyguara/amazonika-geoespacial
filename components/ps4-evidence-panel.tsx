@@ -26,6 +26,8 @@ type Ps4Record = {
   assets?: Partial<Record<"raster" | "report", UploadedAsset>>;
   validation?: { status: string; blockers: string[]; message?: string };
   approval?: { approved_at: string; rt_name: string; art: string };
+  source_provenance?: { provider: string; item_id: string; source_type: string;
+    requires_rt_review: boolean; requires_orthorectification_report: boolean };
 };
 const reviewLabels = [
   ["report_scene_correspondence_checked", "O PDF identifica a mesma cena da ortoimagem"],
@@ -42,9 +44,10 @@ const emptyChecks = () => Object.fromEntries(
 ) as Record<CheckKey, boolean>;
 
 export function Ps4EvidencePanel({
-  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange, onReportChange, onEnsurePieceSaved, onSceneChange,
+  pieceId, sceneId, vertices, rmsFromWorkspace, onApprovalChange, onRasterChange, onReportChange, onEnsurePieceSaved, onSceneChange, refreshRevision = 0,
 }: {
   pieceId: string | null | undefined;
+  refreshRevision?: number;
   onApprovalChange?: (approved: boolean) => void;
   onRasterChange?: (asset: UploadedAsset | null) => void;
   onReportChange?: (present: boolean) => void;
@@ -95,7 +98,7 @@ export function Ps4EvidencePanel({
       }
     })();
     return () => { active = false; };
-  }, [pieceId]);
+  }, [pieceId, refreshRevision]);
 
   const operation = async (callback: () => Promise<void>) => {
     if (!pieceId) { setNotice("Salve a peça técnica antes de anexar evidências."); return; }
@@ -251,6 +254,13 @@ export function Ps4EvidencePanel({
       <h4>PS4 — Imagem orbital e comprovação documental</h4>
       <p className="pecas-note">Somente GeoTIFF ortorretificado e relatório PDF correspondente.
         A verificação de hash e metadados não substitui o exame da acurácia pelo RT.</p>
+      {record.source_provenance && <p className="pecas-note" role="status">
+        Fonte: {record.source_provenance.provider} ·
+        Cena: {record.source_provenance.item_id} ·
+        Recorte georreferenciado importado automaticamente do catálogo STAC.
+        O recorte NÃO comprova RMS, precisão absoluta ou aptidão PS4.
+        O relatório técnico e a conferência do RT continuam obrigatórios.
+      </p>}
       {!pieceId && <div className="pecas-warning" role="status">
         <p>Salve a peça técnica sem sair desta tela para habilitar os anexos.</p>
         <button type="button" className="pecas-primary"
