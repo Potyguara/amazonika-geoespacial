@@ -3122,6 +3122,17 @@ export function PecasTecnicasWorkspace({
                           </details>
                           <details className="geo97-cbers-panel">
                             <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
+                            {ps4RasterAsset && <div className="geo96-next-step" role="status">
+                              <strong>RECORTE JÁ EXISTENTE NESTA PEÇA — não é necessário importar novamente.</strong>
+                              <p>GeoTIFF armazenado: {ps4RasterAsset.metadata?.width ?? "?"} ×
+                                {ps4RasterAsset.metadata?.height ?? "?"} pixels ·
+                                {(ps4RasterAsset.size_bytes/1024/1024).toFixed(2)} MB ·
+                                SHA-256 {ps4RasterAsset.sha256.slice(0,16)}…</p>
+                              <p>Você pode utilizar o recorte atual para marcar vértices V provisórios.
+                                Para substituí-lo, selecione outra imagem, confirme a operação e aguarde
+                                a importação completa. O raster anterior permanece preservado se a nova
+                                importação falhar. A certificação exige relatório e aprovação RT.</p>
+                            </div>}
                             <p className="pecas-note">Escolha a imagem com base no enquadramento do imóvel.
                               As cenas RGB disponíveis são carregadas no mapa após a seleção.
                               A coleção L4 oferece metadados/miniaturas; sua composição multibanda
@@ -3130,6 +3141,11 @@ export function PecasTecnicasWorkspace({
                               geometryKey={displaySituationKey}
                               selectedScene={ps4SceneId}
                               onPrepareScene={async (scene, collection, bounds) => {
+                                if (ps4RasterAsset && !window.confirm(
+                                  "Já existe um recorte salvo nesta peça. Deseja solicitar outro? " +
+                                  "O anterior será excluído SOMENTE após o novo arquivo ser recebido e vinculado com sucesso. " +
+                                  "Os vértices PS4 anteriores deverão ser novamente conferidos."
+                                )) throw new Error("Importação cancelada; recorte existente preservado.");
                                 if (scene !== ps4SceneId && ps4Draft.length &&
                                   !window.confirm("Importar outra cena removerá os vértices V anteriores. Confirma?")) {
                                   throw new Error("Troca de cena cancelada.");
@@ -3259,9 +3275,11 @@ export function PecasTecnicasWorkspace({
                                 ". Salve a peça antes de solicitar a aprovação."});
                             }}
                           />
-                          <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
-                            selecionada. A prévia será vinculada à cena e poderá compor a planta
-                            PRELIMINAR, sem substituir automaticamente a validação SIGEF.</p>
+                          <p>Marque pontos sucessivos na imagem INPE carregada ou no recorte privado.
+                            O GeoTIFF manual e o relatório PDF NÃO são pré-requisitos para DESENHAR
+                            os pontos V como rascunho. Para validar tecnicamente o PS4, os documentos,
+                            a precisão absoluta e a conferência do RT continuam obrigatórios.
+                            A prévia é PRELIMINAR e não substitui a validação SIGEF.</p>
                           <div className={ps4Ready?"geo96-next-step":"pecas-note"} role="status">
                             <strong>{ps4Ready
                               ? "Construção PS4 concluída: traçado M–V–M fechado e pronto para peça preliminar."
