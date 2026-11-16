@@ -439,7 +439,7 @@ def upload_ps4_file(
     if kind not in ("raster", "report"):
         raise HTTPException(422, "Tipo deve ser raster ou report.")
     filename = (file.filename or "").lower()
-    if not filename.endswith(".tif" if kind == "raster" else ".pdf"):
+    if not filename.endswith((".tif", ".tiff") if kind == "raster" else (".pdf",)):
         raise HTTPException(422, "Extensão inválida: envie GeoTIFF ou PDF.")
     try:
         record = store_uploaded_asset(file.file, user.id, piece.id, kind)
