@@ -1,4 +1,7 @@
 """Testes de segurança e proveniência para importação automática CBERS-4A."""
+from tempfile import TemporaryDirectory
+from pathlib import Path
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
@@ -7,6 +10,7 @@ import json
 from app.services.inpe_ps4_import import (
     COLLECTION, L4_COLLECTION, _allowed_asset_url,
     fetch_inpe_item, examine_inpe_item, validate_crop,
+    fetch_official_xml, verified_official_xml_path,
 )
 
 
@@ -41,6 +45,33 @@ class FakeResponse:
 
 
 class Ps4InpeImportTests(TestCase):
+    def test_metadata_xml_arquivado_com_sha_e_sem_acuracia_automatica(self):
+        item = scene(L4_COLLECTION)
+        xml = b'<?xml version="1.0"?><Scene><GeometricRMSE>1.7</GeometricRMSE></Scene>'
+        item["assets"]["BAND0.xml"] = {
+            "href": "https://data.inpe.br/imagery/metadata.xml",
+        }
+        class XmlResponse:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def geturl(self): return "https://data.inpe.br/imagery/metadata.xml"
+            def read(self, limit=None): return xml
+        uid, pid = uuid4(), uuid4()
+        with TemporaryDirectory() as directory, (
+            patch("app.services.inpe_ps4_import.urlopen", return_value=XmlResponse()),
+            patch("app.services.inpe_ps4_import.get_settings",
+                  return_value=SimpleNamespace(storage_dir=Path(directory))),
+        ):
+            result = fetch_official_xml(item, uid, pid)
+            self.assertEqual(result["status"], "ARCHIVED_UNVERIFIED")
+            self.assertFalse(result["absolute_accuracy_verified"])
+            self.assertIn("GeometricRMSE", result["candidate_field_names"])
+            path = verified_official_xml_path(uid, pid, result)
+            self.assertEqual(path.read_bytes(), xml)
+            path.write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "Integridade"):
+                verified_official_xml_path(uid, pid, result)
+
     def test_item_rgb_e_l4_sem_certificacao_automatica(self):
         for collection in (COLLECTION, L4_COLLECTION):
             with self.subTest(collection=collection):
