@@ -13,6 +13,8 @@ type Scene = {
   thumbnail_url: string | null;
   stac_item_url: string;
   ps4_status: string;
+  cloud_cover?: number | null;
+  gsd_m?: number | null;
 };
 type SearchResponse = {
   provider: string;
@@ -146,6 +148,9 @@ export function InpeCbersSceneSearch({
     <div className="pecas-card" aria-label="Consulta automática de imagens CBERS-4A INPE">
       <h4>INPE · CBERS-4A WPM — enquadramento automático</h4>
       <p>O sistema pesquisa as cenas que intersectam a poligonal selecionada, sem exigir coordenadas manuais.</p>
+      <p className="pecas-note">Escolha preferencialmente uma cena com menor presença de nuvens
+        sobre o imóvel. Miniaturas e metadados não garantem ausência de nuvens em todos os
+        pixels; a composição RGB exibida será a cena selecionada, e não uma imagem limpa sintética.</p>
       {!bounds ? (
         <p className="pecas-warning" role="status">
           Nenhuma poligonal válida disponível ou extensão superior a 0,9°.
@@ -178,8 +183,16 @@ export function InpeCbersSceneSearch({
                   }}>
                     <SceneThumbnail url={scene.thumbnail_url} id={scene.id} />
                     <strong style={{ overflowWrap: "anywhere" }}>{scene.id}</strong>
-                    <p>{scene.datetime ? new Date(scene.datetime).toLocaleDateString("pt-BR") : "Data não informada"}</p>
-                    <p className="pecas-note">PS4: acurácia pendente de comprovação.</p>
+                    <p>{scene.datetime
+                      ? scene.datetime.slice(0,10).split("-").reverse().join("/")
+                      : "Data não informada"}</p>
+                    <p className="pecas-note">
+                      {typeof scene.cloud_cover==="number"
+                        ? "Nuvens catalogadas: "+scene.cloud_cover.toLocaleString("pt-BR")+"%. "
+                        : "Nuvens: informação não disponível. "}
+                      {typeof scene.gsd_m==="number"
+                        ? "GSD "+scene.gsd_m.toLocaleString("pt-BR")+" m. ":""}
+                      PS4: acurácia pendente de comprovação.</p>
                     {onSelectScene && <button type="button"
                       className={selectedScene===scene.id?"pecas-primary":"pecas-secondary"}
                       disabled={kind!=="rgb" || !RENDERABLE_SCENES.has(scene.id)}
