@@ -7,6 +7,7 @@ um resultado tecnicamente consistente ainda exige conferência documental.
 from __future__ import annotations
 
 from math import isfinite
+from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 LIMITS_M = {"natural": 3.0, "artificial": 0.5, "inaccessible": 7.5}
@@ -23,6 +24,12 @@ class PS4Evidence(BaseModel):
     gsd_m: float = Field(gt=0)
     scene_crs: str = Field(min_length=3, max_length=100)
     feature_identifiable: bool = False
+    # LEGACY preserva os registros anteriores. DOCUMENTAL exige a fonte
+    # identificável da métrica e dispensa pontos GNSS de checagem próprios.
+    validation_mode: Literal["LEGACY", "DOCUMENTAL"] = "LEGACY"
+    report_page: int | None = Field(default=None, ge=1, le=10000)
+    accuracy_source: Literal["RMS_ORTHORECTIFICATION", "EXTERNAL_ACCURACY_REPORT"] | None = None
+    report_metric_reference: str | None = Field(default=None, max_length=300)
 
     @model_validator(mode="after")
     def validate_finite(self):
@@ -76,6 +83,14 @@ def evaluate_ps4(data: PS4Submission) -> dict:
             blockers.append("A cena informada difere da identificação no relatório.")
         if not e.feature_identifiable:
             blockers.append("A feição do limite não está identificada inequivocamente.")
+        if e.validation_mode == "DOCUMENTAL":
+            if e.report_page is None:
+                blockers.append("Informe a página do relatório que documenta a acurácia/RMS da cena.")
+            if e.accuracy_source is None:
+                blockers.append("Informe a origem do indicador de precisão presente no relatório.")
+            if not (e.report_metric_reference or "").strip():
+                blockers.append("Informe a tabela, seção ou referência da métrica no relatório.")
+
         # Este serviço não tem acesso ao conteúdo dos arquivos para conferir hashes,
         # autenticidade, dados RMS ou metadados; esses itens ficam sujeitos ao RT.
         ids = [vertex.vertex_id.upper() for vertex in data.vertices]
