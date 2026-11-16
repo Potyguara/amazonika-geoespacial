@@ -714,7 +714,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           ? "" : String(p.ellipsoidal_height_m)), true);
       // HN interpolada é um atributo DE VISUALIZAÇÃO separado de h GNSS.
       feature.set("normalAltitudeEstimates", vertices.map(p =>
-        p.sigef_method==="PS4" && p.derived_calculation?.altitude_source==="INTERPOLACAO_HN_M_V_M"
+        p.derived_physical_model==="HN" && Number.isFinite(p.derived_physical_altitude_m)
           ? p.derived_physical_altitude_m : null), true);
       feature.set("technical_piece_status",
         vertices.some(p => p.sigef_method === "PS4" && p.derived_calculation?.accuracy_verified !== true)
