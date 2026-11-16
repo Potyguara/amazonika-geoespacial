@@ -78,7 +78,17 @@ def create_piece(
     payload: PieceInput,
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
-    piece = TechnicalPiece(user_id=user.id, title=payload.title, snapshot=payload.snapshot)
+    snapshot = dict(payload.snapshot)
+    if "ps4" in snapshot:
+        try:
+            submitted = PS4Submission.model_validate(snapshot["ps4"]["submission"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(422, "Dados PS4 inválidos no snapshot.") from exc
+        snapshot["ps4"] = {
+            "submission": submitted.model_dump(mode="json"),
+            "validation": evaluate_ps4(submitted),
+        }
+    piece = TechnicalPiece(user_id=user.id, title=payload.title, snapshot=snapshot)
     db.add(piece)
     db.commit()
     db.refresh(piece)
