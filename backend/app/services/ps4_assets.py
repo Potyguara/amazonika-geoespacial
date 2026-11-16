@@ -95,8 +95,8 @@ def store_uploaded_asset(
             raise ValueError("Arquivo vazio.")
         metadata = {}
         if kind == "raster":
-            if first[:4] not in (b"II*\\x00", b"MM\\x00*",
-                                 b"II+\\x00", b"MM\\x00+"):
+            if first[:4] not in (b"II*\x00", b"MM\x00*",
+                                 b"II+\x00", b"MM\x00+"):
                 raise ValueError("Arquivo não corresponde a TIFF/BigTIFF.")
             metadata = _raster_info(temp_name)
         else:
