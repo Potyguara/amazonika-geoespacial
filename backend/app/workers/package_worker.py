@@ -11,6 +11,7 @@ from app.db.session import SessionLocal
 from app.models.catalog import Source
 from app.services.importer import import_vector_file
 from app.services.package_importer import import_package, inspect_package
+from app.workers.ps4_inpe_worker import recover_jobs as recover_ps4_jobs, process_next_job as process_next_ps4_job
 
 
 POLL_SECONDS = 3
@@ -617,6 +618,7 @@ def main() -> None:
 
     _recover_interrupted_jobs()
     _recover_interrupted_vector_jobs()
+    recover_ps4_jobs()
 
     while True:
         # Pacotes compostos continuam com prioridade, pois podem
@@ -631,6 +633,11 @@ def main() -> None:
 
         if vector_job is not None:
             _process_vector(vector_job)
+            continue
+
+        # Recortes CBERS são processados em separado do HTTP, aproveitando o
+        # worker já implantado e o volume compartilhado uploads_data.
+        if process_next_ps4_job():
             continue
 
         time.sleep(POLL_SECONDS)
