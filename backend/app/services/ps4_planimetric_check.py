@@ -8,11 +8,18 @@ from __future__ import annotations
 from math import sqrt, isfinite
 from pyproj import CRS, Transformer
 
+# Limite de TRIAGEM INTERNA, não quantidade mínima regulamentar do INCRA.
+# A suficiência técnica depende também do desenho amostral e da revisão RT.
+SCREENING_REFERENCE_COUNT = 20
+
 
 def evaluate_checkpoints(records: list[dict], raster_metadata: dict) -> dict:
     if not records:
         return {"status": "NO_CHECKPOINTS", "count": 0,
                 "rms_e_m": None, "rms_n_m": None, "rms_horizontal_m": None,
+                "checkpoints": [], "screening_reference_count": SCREENING_REFERENCE_COUNT,
+                "screening_missing_count": SCREENING_REFERENCE_COUNT,
+                "max_radial_error_m": None,
                 "checkpoints": [], "warnings": ["Sem pontos GNSS independentes fotoidentificados: EMQ indisponível."]}
     crs_code = raster_metadata.get("crs_authority")
     if not crs_code:
@@ -52,13 +59,18 @@ def evaluate_checkpoints(records: list[dict], raster_metadata: dict) -> dict:
     rms_n = sqrt(sum(r["delta_n_m"] ** 2 for r in rows) / n)
     horizontal = sqrt(rms_e * rms_e + rms_n * rms_n)
     # A amostra reduzida não é representativa da ortoimagem inteira.
-    status = "REVIEW_REQUIRED" if n >= 20 else "INSUFFICIENT_CHECKPOINTS"
+    status = "REVIEW_REQUIRED" if n >= SCREENING_REFERENCE_COUNT else "INSUFFICIENT_CHECKPOINTS"
     return {
         "status": status, "count": n, "rms_e_m": round(rms_e, 4),
         "rms_n_m": round(rms_n, 4), "rms_horizontal_m": round(horizontal, 4),
+        "screening_reference_count": SCREENING_REFERENCE_COUNT,
+        "screening_missing_count": max(0, SCREENING_REFERENCE_COUNT - n),
+        "max_radial_error_m": max(r["radial_error_m"] for r in rows),
         "checkpoints": rows,
         "warnings": [
             "Resíduos amostrais não equivalem a sigmas individuais dos vértices V.",
+            "20 pontos é referência de triagem interna, não mínimo normativo universal nem aprovação automática.",
+            "Não descarte pontos discrepantes somente para reduzir o EMQ: registre a investigação técnica.",
             "Amostra requer distribuição espacial, independência e revisão do RT.",
             "Os resultados não aprovam automaticamente PS4 nem a ODS SIGEF.",
         ],
