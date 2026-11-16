@@ -13,6 +13,8 @@ from io import BytesIO
 from PIL import Image
 from tempfile import TemporaryDirectory
 from threading import BoundedSemaphore
+from functools import lru_cache
+from math import isfinite
 
 from shapely.geometry import box, shape
 
@@ -56,29 +58,37 @@ def tile_intersects_footprint(metadata: dict, z: int, x: int, y: int) -> bool:
     return polygon.intersects(box(lon_min, lat_min, lon_max, lat_max))
 
 
-def _render_grayscale_tile(target: Path, temp: Path, env: dict) -> bytes:
-    """Pancromático Int16 -> PNG RGBA de visualização, mantendo alpha real.
-
-    Escala radiométrica por tile: melhora visualização local, mas não deve ser
-    usada para análises quantitativas ou comparações radiométricas entre tiles.
-    """
-    stats = subprocess.run(
-        ["gdalinfo", "-json", "-stats", str(target)],
-        capture_output=True, text=True, check=False, timeout=20,
-        env={**env, "GDAL_PAM_ENABLED": "NO"},
+@lru_cache(maxsize=32)
+def _source_stretch(source_name: str, modified_ns: int) -> tuple[float, float]:
+    """Uma única escala visual por imagem; evita tiles em tabuleiro."""
+    env = {**os.environ, "GDAL_PAM_ENABLED": "NO", "GDAL_CACHEMAX": "32"}
+    info = subprocess.run(
+        ["gdalinfo", "-json", "-approx_stats", source_name],
+        capture_output=True, text=True, timeout=40, check=False, env=env,
     )
-    if stats.returncode:
-        raise ValueError("Não foi possível calcular contraste pancromático.")
-    bands = json.loads(stats.stdout).get("bands") or []
-    metadata = (bands[0].get("metadata") or {}).get("") or {}
-    try:
-        low = float(metadata["STATISTICS_MINIMUM"])
-        high = float(metadata["STATISTICS_MAXIMUM"])
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise ValueError("Tile L4 sem estatísticas radiométricas válidas.") from exc
+    if info.returncode:
+        raise ValueError("Não foi possível obter estatísticas globais do GeoTIFF.")
+    bands = json.loads(info.stdout).get("bands") or []
+    if not bands:
+        raise ValueError("GeoTIFF sem bandas para visualização.")
+    band = bands[0]
+    stats = (band.get("metadata") or {}).get("") or {}
+    low = float(stats.get("STATISTICS_MINIMUM", band.get("minimum", "nan")))
+    high = float(stats.get("STATISTICS_MAXIMUM", band.get("maximum", "nan")))
+    if not (isfinite(low) and isfinite(high)):
+        raise ValueError("GeoTIFF sem estatísticas globais válidas.")
     if high <= low:
-        # Pixel constante legítimo; não produzir intervalo -scale degenerado.
         high = low + 1
+    return low, high
+
+
+def _render_grayscale_tile(target: Path, temp: Path, env: dict,
+                           source: Path) -> bytes:
+    """Mesmo contraste para TODOS os tiles da imagem real.
+
+    Modifica somente os PNGs de visualização, não os dados raster.
+    """
+    low, high = _source_stretch(str(source), source.stat().st_mtime_ns)
     grey = temp / "grayscale.png"
     alpha = temp / "alpha.png"
     for command, output in (
@@ -100,7 +110,6 @@ def _render_grayscale_tile(target: Path, temp: Path, env: dict) -> bytes:
         stream = BytesIO()
         output.save(stream, "PNG")
         return stream.getvalue()
-
 
 def render_png_tile(path: Path, z: int, x: int, y: int) -> bytes:
     """Gera PNG de 256x256 sem persistir tiles temporários no volume."""
@@ -146,7 +155,7 @@ def render_png_tile(path: Path, z: int, x: int, y: int) -> bytes:
                 if len(bands) == 2 and bands[1].get("colorInterpretation") == "Alpha":
                     # Para L4 (uma banda + alpha), preservar a máscara de
                     # cobertura e aplicar contraste à banda Int16 separadamente.
-                    result = _render_grayscale_tile(target, temp, env)
+                    result = _render_grayscale_tile(target, temp, env, path)
                     return result
                 converted = subprocess.run(
                     ["gdal_translate", "-q", "-of", "PNG", str(target), str(png)],
