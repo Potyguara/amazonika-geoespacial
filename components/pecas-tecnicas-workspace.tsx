@@ -3009,8 +3009,10 @@ export function PecasTecnicasWorkspace({
 .ps4-alert-red strong {font-size:13px;} .ps4-alert-red p {font-size:12px;margin:5px 0 0;}
 .ps4-flow-card {border:1px solid var(--ps4-line);border-radius:13px;background:#fff;margin:10px 0;overflow:hidden;}
 .ps4-flow-card--danger {border-color:#f0b6bb;}
-.ps4-flow-summary {display:flex;align-items:center;gap:11px;padding:15px;cursor:default;list-style:none;user-select:none;}
+.ps4-flow-summary {display:flex;align-items:center;gap:11px;padding:15px;cursor:pointer;list-style:none;user-select:none;}
 .ps4-flow-summary::-webkit-details-marker {display:none;}
+.ps4-flow-summary:hover {background:#f5faf7;}
+.ps4-flow-card[open] .ps4-step-caret {transform:rotate(180deg);}
 .ps4-flow-summary:focus-visible {outline:3px solid #168a69;outline-offset:-3px;}
 .ps4-step-no {border-radius:50%;background:#e8f1eb;color:#14503c;width:29px;height:29px;min-width:29px;display:grid;place-items:center;font-size:13px;font-weight:800;}
 .ps4-flow-card--danger .ps4-step-no {background:#cc2a35;color:white;}
@@ -3141,13 +3143,14 @@ export function PecasTecnicasWorkspace({
                             <p>A restituição na imagem não comprova precisão horizontal. A avaliação da imagem e a conferência do RT são independentes do fechamento geométrico. A ODS oficial permanece sujeita aos controles técnicos.</p>
                           </div>}
 
-                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
-                            <div className="ps4-flow-summary">
+                          <details className={"ps4-flow-card ps4-flow-card--normal"} open>
+                            <summary className="ps4-flow-summary">
                               <span className="ps4-step-no">1</span>
                               <span className="ps4-step-heading"><strong>Escolher cena orbital</strong><small>Selecionar ou reutilizar o recorte CBERS-4A</small></span>
                               <span className="ps4-step-state">{ps4RasterAsset ? "Recorte pronto" : "Selecionar cena"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
                               
-                            </div>
+                            </summary>
                             <div className="ps4-flow-body">
                               <details className="geo97-cbers-panel" open>
                             <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
@@ -3270,15 +3273,16 @@ export function PecasTecnicasWorkspace({
                           </details>
                           
                             </div>
-                          </section>
+                          </details>
 
-                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
-                            <div className="ps4-flow-summary">
+                          <details className={"ps4-flow-card ps4-flow-card--normal"} open>
+                            <summary className="ps4-flow-summary">
                               <span className="ps4-step-no">2</span>
                               <span className="ps4-step-heading"><strong>Marcar vértices V</strong><small>Digitalização sobre a feição natural da cena</small></span>
                               <span className="ps4-step-state">{ps4Draft.length + " V"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
                               
-                            </div>
+                            </summary>
                             <div className="ps4-flow-body">
                               <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
                             background: "#f6faf8", display: "grid", gap: 9 }}>
@@ -3363,15 +3367,16 @@ export function PecasTecnicasWorkspace({
                             A atribuição definitiva de código SIGEF dependerá de validação e unicidade.</p>
 
                             </div>
-                          </section>
+                          </details>
 
-                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
-                            <div className="ps4-flow-summary">
+                          <details className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <summary className="ps4-flow-summary">
                               <span className="ps4-step-no">3</span>
                               <span className="ps4-step-heading"><strong>Fechar poligonal M–V–M</strong><small>Substituição de um segmento entre marcos GNSS</small></span>
                               <span className="ps4-step-state">{ps4Ready ? "Consistente" : "Pendente"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
                               
-                            </div>
+                            </summary>
                             <div className="ps4-flow-body">
                               <div className="pecas-card" style={{ marginTop: 12 }} aria-label="Fechar prévia da poligonal">
                             <h4>Etapa 2 · Fechar prévia da poligonal</h4>
@@ -3423,15 +3428,16 @@ export function PecasTecnicasWorkspace({
                           </div>
                           
                             </div>
-                          </section>
+                          </details>
 
-                          <section className={"ps4-flow-card ps4-flow-card--danger"}>
-                            <div className="ps4-flow-summary">
+                          <details className={"ps4-flow-card ps4-flow-card--danger"}>
+                            <summary className="ps4-flow-summary">
                               <span className="ps4-step-no">4</span>
                               <span className="ps4-step-heading"><strong>Avaliação de acurácia</strong><small>Separada da restituição; não impede salvar rascunho</small></span>
                               <span className="ps4-step-state">{ps4ApprovalConfirmed ? "Conferida pelo RT" : "Pendente"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
                               
-                            </div>
+                            </summary>
                             <div className="ps4-flow-body">
                               <Ps4RasterDiagnosticCard pieceId={loadedPieceId}
                               rasterSha256={ps4RasterAsset?.sha256 ?? null}
@@ -3573,15 +3579,16 @@ export function PecasTecnicasWorkspace({
                             {ps4Armed?" vetorização habilitada":" escolha a cena antes de clicar"}.</p>
                           </details>
                             </div>
-                          </section>
+                          </details>
 
-                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
-                            <div className="ps4-flow-summary">
+                          <details className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <summary className="ps4-flow-summary">
                               <span className="ps4-step-no">5</span>
                               <span className="ps4-step-heading"><strong>Salvar e revisar</strong><small>Persistir os vértices provisórios e retornar à peça</small></span>
                               <span className="ps4-step-state">{ps4Ready ? "Pronto para salvar" : "Rascunho"}</span>
+                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
                               
-                            </div>
+                            </summary>
                             <div className="ps4-flow-body">
                               <p>O arquivo da peça guarda os V provisórios sem confundi-los com posicionamento certificável. O processamento da cena e a conferência RT serão executados separadamente.</p>
                               <button type="button" className="pecas-primary" disabled={actionBusy}
@@ -3590,7 +3597,7 @@ export function PecasTecnicasWorkspace({
                                   setSavedPieceNotice("Vértices V provisórios salvos. Acurácia PS4 ainda pendente.");
                                 })}>{actionBusy ? "Salvando..." : "Salvar rascunho dos vértices V"}</button>
                             </div>
-                          </section>
+                          </details>
                         </section>}
                         {pa2Mode && constructionMethod !== "PS4" && <>
                           {constructionMethod === "PA2" && <label className="pecas-field">
