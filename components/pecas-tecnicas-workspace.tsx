@@ -2961,6 +2961,23 @@ export function PecasTecnicasWorkspace({
           </div>}
           
 <style>{`
+.ps4-navigation {background:#05392e;color:#fff;border-radius:12px;display:flex;flex-direction:column;overflow-y:auto;min-height:0;padding:18px 12px;gap:24px;}
+.ps4-brand-lockup {display:flex;align-items:center;gap:8px;padding:0 4px;}
+.ps4-brand-mark {display:grid;place-items:center;width:31px;height:31px;min-width:31px;border-radius:8px;background:#43aa80;font-size:19px;font-weight:900;color:#064332;}
+.ps4-brand-lockup strong {font-size:13px;letter-spacing:.035em;display:block;}
+.ps4-brand-lockup small {font-size:9px;letter-spacing:.2em;color:#a2d6bf;display:block;margin-top:2px;}
+.ps4-navigation-label {font-size:10px;letter-spacing:.12em;color:#a2cfbd;font-weight:750;padding:0 6px;}
+.ps4-navigation-steps {padding:0;margin:0;list-style:none;display:grid;gap:6px;}
+.ps4-navigation-steps li {display:flex;gap:8px;padding:10px 7px;align-items:center;border-radius:9px;color:#bbd8cd;}
+.ps4-navigation-steps li>span {border:1px solid #3c7863;border-radius:100%;min-width:25px;height:25px;display:grid;place-items:center;font-size:10px;}
+.ps4-navigation-steps strong {font-size:11px;display:block;color:inherit;line-height:1.3;}
+.ps4-navigation-steps small {display:block;font-size:9px;margin-top:2px;color:#9dc5b5;}
+.ps4-navigation-steps .ps4-navigation-active {background:#165540;color:white;}
+.ps4-navigation-steps .ps4-navigation-active>span {border:0;background:#e1f4e7;color:#0b4e38;font-weight:900;}
+.ps4-navigation-foot {margin-top:auto;border-top:1px solid #326a55;padding:14px 6px 0;display:grid;gap:5px;font-size:12px;}
+.ps4-navigation-foot small {color:#a9d2bd;font-size:10px;}
+.ps4-navigation-foot .ps4-sidebar-warning {color:#ffb6bc;}
+@media(max-width:1180px) {.ps4-navigation {display:none;}}
 .ps4-redesigned-dialog { --ps4-dark:#073b2f; --ps4-danger:#b4232d; --ps4-soft:#fff1f1; --ps4-line:#d9e3dc; background:#f4f8f5!important; }
 .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card { border:0; background:transparent; box-shadow:none; padding:0; }
 .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > h4, .ps4-redesigned-dialog .ps4-flow-scroll > .pecas-card > p { display:none; }
@@ -3049,7 +3066,26 @@ export function PecasTecnicasWorkspace({
             </details>
           </div>
           <div style={{ flex: 1, minHeight: 0, display: "grid",
-            gridTemplateColumns: constructionMethod === "PS4" ? "minmax(480px, 56%) minmax(360px, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+            gridTemplateColumns: constructionMethod === "PS4" ? "190px minmax(460px, 1.3fr) minmax(330px, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+            {constructionMethod === "PS4" && <aside className="ps4-navigation" aria-label="Progresso das peças técnicas">
+              <div className="ps4-brand-lockup"><span className="ps4-brand-mark">A</span>
+                <span><strong>AMAZÔNIKA</strong><small>GEOESPACIAL</small></span>
+              </div>
+              <span className="ps4-navigation-label">PROGRESSO DO PROJETO</span>
+              <ol className="ps4-navigation-steps">
+                <li><span>01</span><div><strong>Importação GNSS</strong><small>Levantamento de campo</small></div></li>
+                <li><span>02</span><div><strong>Vértices da divisa</strong><small>Seleção e ordenamento</small></div></li>
+                <li><span>03</span><div><strong>Conversão altimétrica</strong><small>Referencial dos marcos</small></div></li>
+                <li className="ps4-navigation-active" aria-current="step"><span>04</span><div><strong>Construção de vértices</strong><small>PS4 · sensores orbitais</small></div></li>
+                <li><span>05</span><div><strong>Sobreposições SIGEF</strong><small>Verificação independente</small></div></li>
+                <li><span>06</span><div><strong>Áreas e vértices</strong><small>Conferência da geometria</small></div></li>
+                <li><span>07</span><div><strong>Memorial</strong><small>Peças preliminares</small></div></li>
+              </ol>
+              <div className="ps4-navigation-foot"><strong>{ps4Draft.length} pontos V</strong>
+                <small>{ps4Ready ? "Traçado geométrico concluído" : "Traçado em andamento"}</small>
+                <small className="ps4-sidebar-warning">Acurácia PS4 {ps4ApprovalConfirmed ? "revisada" : "pendente"}</small>
+              </div>
+            </aside>}
             <div className={constructionMethod === "PS4" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
                         <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
