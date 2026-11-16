@@ -316,7 +316,7 @@ def _validated_snapshot(
                 for key in relevant_topcon
             )
         )
-        if same_geometry and previous.get("approval"):
+        if same_geometry and (previous.get("approval") or previous.get("completed_at")):
             snapshot["ps4"] = previous
             return snapshot
         snapshot["ps4"] = previous
@@ -519,6 +519,22 @@ def approve_ps4(
                                   "blockers": validation["blockers"]})
     if validation["status"] == "NOT_APPLICABLE":
         raise HTTPException(409, "PS4 não se aplica; utilize a conclusão sem V.")
+    topcon = (piece.snapshot or {}).get("topcon") or {}
+    draft_vertices = topcon.get("ps4_draft") or []
+    if len(draft_vertices) != len(submitted.vertices):
+        raise HTTPException(
+            409, "Os vértices V da evidência divergem do traçado salvo na peça."
+        )
+    for expected, actual in zip(draft_vertices, submitted.vertices):
+        if (
+            expected.get("name") != actual.vertex_id
+            or expected.get("longitude") != actual.longitude
+            or expected.get("latitude") != actual.latitude
+            or expected.get("scene_id") != submitted.evidence.scene_id
+        ):
+            raise HTTPException(
+                409, "O traçado salvo não corresponde aos vértices submetidos à revisão PS4."
+            )
     checks = payload.model_dump()
     if not all(checks.values()):
         raise HTTPException(422, "Todos os itens de revisão do RT são obrigatórios.")
@@ -581,6 +597,14 @@ def complete_ps4_not_applicable(
         raise HTTPException(422, "Informe a opção de necessidade de vértices.") from exc
     if submitted.needs_additional_vertices or submitted.vertices:
         raise HTTPException(409, "Há vértices V registrados; não aplicável é inválido.")
+    topcon = (piece.snapshot or {}).get("topcon") or {}
+    if topcon.get("ps4_draft") or any(
+        p.get("sigef_method") == "PS4"
+        for p in (topcon.get("boundary") or [])
+    ):
+        raise HTTPException(
+            409, "A peça possui vértices PS4 persistidos. Remova-os antes de dispensar a etapa."
+        )
     snapshot = dict(piece.snapshot or {})
     snapshot["ps4"] = {
         "submission": submitted.model_dump(mode="json"),
