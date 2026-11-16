@@ -597,6 +597,10 @@ def approve_ps4(
                        "requires_rt_review": False,
                        "message": "Revisão técnica registrada pelo RT."},
         "approval": approval,
+        **({"source_provenance": current["source_provenance"]}
+           if current.get("source_provenance") else {}),
+        **({"import_job_id": current["import_job_id"]}
+           if current.get("import_job_id") else {}),
     }
     piece.snapshot = snapshot
     db.add(piece)
