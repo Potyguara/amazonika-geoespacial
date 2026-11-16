@@ -17,6 +17,7 @@ from app.services.topcon_perimeter_review import review_topcon_perimeter
 from app.services.sigef_parcel_review import review_sigef_parcels
 from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
 from app.services.sigef_ods import _template_path
+from app.services.sigef_ods_working import build_working_sigef_ods
 from app.services.vertical_datum import convert_altitudes
 from app.services.pa2_intersection import intersect_pa2
 from app.services.constructed_vertices import calculate_constructed_vertex
@@ -192,6 +193,27 @@ class ReviewedSigefOdsInput(BaseModel):
     identification: dict = Field(default_factory=dict)
     parcels: list[dict] = Field(default_factory=list, max_length=50)
     neighbors: list[dict] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/sigef/rascunho-ods")
+def download_working_sigef_ods(
+    payload: ReviewedSigefOdsInput,
+    user: User = Depends(get_current_user),
+):
+    """Planilha de trabalho marcada INCOMPLETA; nunca suplanta validação SIGEF."""
+    try:
+        data = build_working_sigef_ods(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=data,
+        media_type="application/vnd.oasis.opendocument.spreadsheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="RASCUNHO_INCOMPLETO_NAO_SUBMETER_SIGEF.ods"',
+            "Cache-Control": "private, no-store",
+            "X-Sigef-Validation": "RASCUNHO_NAO_SUBMETER",
+        },
+    )
 
 
 @router.get("/sigef/modelo-ods")
