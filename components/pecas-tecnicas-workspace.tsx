@@ -3121,6 +3121,9 @@ export function PecasTecnicasWorkspace({
                             onApprovalChange={setPs4ApprovalConfirmed}
                             onRasterChange={setPs4RasterAsset}
                             onReportChange={setPs4ReportAttached}
+                            onEnsurePieceSaved={() => onSavePiece(
+                              editableMemorial.trim(), draftForSave()
+                            )}
                           />
                           <p>Marque pontos sucessivos ao longo do limite natural identificável na imagem
                             selecionada. A prévia será vinculada à cena e poderá compor a planta
