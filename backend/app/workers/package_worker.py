@@ -12,6 +12,7 @@ from app.models.catalog import Source
 from app.services.importer import import_vector_file
 from app.services.package_importer import import_package, inspect_package
 from app.workers.ps4_inpe_worker import recover_jobs as recover_ps4_jobs, process_next_job as process_next_ps4_job
+from app.services.ps4_inpe_queue import prune_terminal_jobs
 
 
 POLL_SECONDS = 3
@@ -619,6 +620,11 @@ def main() -> None:
     _recover_interrupted_jobs()
     _recover_interrupted_vector_jobs()
     recover_ps4_jobs()
+    try:
+        count = prune_terminal_jobs(days=90)
+        print(f"[package-worker] PS4 arquivos de status antigos eliminados: {count}", flush=True)
+    except Exception as exc:
+        print(f"[package-worker] limpeza de status PS4 ignorada: {exc}", flush=True)
 
     while True:
         # Pacotes compostos continuam com prioridade, pois podem
