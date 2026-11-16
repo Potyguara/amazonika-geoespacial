@@ -2980,12 +2980,13 @@ export function PecasTecnicasWorkspace({
                         <label className="pecas-check"><input type="checkbox"
                           checked={pa2Mode}
                           onChange={(e) => {
-                            if(e.target.checked)setConstructionSkipped(false);
-                            setPa2Mode(e.target.checked);
                             setPa2Result(null);
-                            if(!e.target.checked) {
+                            if (!e.target.checked) {
                               void skipAdditionalVertices();
                               setPa2Witnesses([]);setMapHint(null);
+                            } else {
+                              setConstructionSkipped(false);
+                              setPa2Mode(true);
                             }
                           }} />
                           Preciso construir vértices adicionais</label>
