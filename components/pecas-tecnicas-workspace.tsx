@@ -3993,17 +3993,26 @@ export function PecasTecnicasWorkspace({
                         }))]}
                     selected={pa2Witnesses}
                     method={constructionMethod}
+                    pb1Raster={constructionMethod==="PB1" && pb1Raster && pb1PieceId
+                      ?{pieceId:pb1PieceId,sha256:pb1Raster.sha256,
+                        footprint:pb1Raster.metadata?.wgs84_extent}:null}
                     ps4SceneId={ps4SceneId}
                     ps4ReportAttached={ps4ReportAttached}
                     ps4Raster={loadedPieceId && ps4RasterAsset?.kind === "raster"
                       ? {pieceId:loadedPieceId, sha256:ps4RasterAsset.sha256,
                          footprint:ps4RasterAsset.metadata?.wgs84_extent}
                       : null}
-                    ps4Points={ps4Draft}
-                    ps4Candidate={ps4Candidate}
-                    ps4CheckCapture={ps4CheckCapture}
-                    ps4ClosureGeometry={ps4PreviewGeometry}
+                    ps4Points={constructionMethod==="PB1"?pb1Draft:ps4Draft}
+                    ps4Candidate={constructionMethod==="PB1"?pb1Candidate:ps4Candidate}
+                    ps4CheckCapture={constructionMethod==="PB1"?false:ps4CheckCapture}
+                    ps4ClosureGeometry={constructionMethod==="PB1"?(pb1Ready?pb1Closure.geometry:null):ps4PreviewGeometry}
                     onPs4Click={point => {
+                       if(constructionMethod==="PB1"){
+                         if(!pb1Raster){setPb1Notice("Importe o ORIXP georreferenciado antes de capturar V.");return;}
+                         setPb1Candidate(point);
+                         setPb1Notice("Ponto capturado no ORIXP. Confirme a inclusão e a amostragem MDT na coluna esquerda.");
+                         return;
+                       }
                        if (ps4CheckCapture) {
                          setPs4CheckPoint(point);setPs4CheckCapture(false);
                          setPs4Status({kind:"info",message:"Ponto de imagem capturado para confronto GNSS. Confirme a feição na etapa 4."});
@@ -4045,7 +4054,7 @@ export function PecasTecnicasWorkspace({
                       }
                       pickPa2Witness(name);
                     }} />
-                  {constructionMethod !== "PS4" ? <>
+                  {constructionMethod !== "PS4" && constructionMethod !== "PB1" ? <>
                     <button type="button" className="pecas-secondary"
                       onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
                       Limpar testemunhos selecionados
