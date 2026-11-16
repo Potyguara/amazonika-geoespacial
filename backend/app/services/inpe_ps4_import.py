@@ -123,6 +123,24 @@ def fetch_official_xml(item: dict, user_id, piece_id) -> dict:
     }
 
 
+def verified_official_xml_path(user_id, piece_id, metadata: dict) -> Path:
+    if metadata.get("status") != "ARCHIVED_UNVERIFIED":
+        raise ValueError("Metadados XML não arquivados.")
+    digest = metadata.get("sha256", "")
+    if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise ValueError("Identificador XML inválido.")
+    path = (get_settings().storage_dir / "ps4" / str(user_id) /
+            str(piece_id) / f"inpe-metadata-{digest}.xml")
+    try:
+        if path.stat().st_size > MAX_XML_BYTES or path.stat().st_size == 0:
+            raise ValueError("Arquivo XML inconsistente.")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise ValueError("Integridade do XML de origem não comprovada.")
+    except OSError as exc:
+        raise ValueError("XML de origem não encontrado.") from exc
+    return path
+
+
 def fetch_inpe_item(item_id: str, collection: str = COLLECTION) -> dict:
     """Consulta item fixo na API oficial, sem aceitar URL fornecida pelo navegador."""
     if collection not in COLLECTIONS:
