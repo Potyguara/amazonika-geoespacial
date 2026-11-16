@@ -3009,7 +3009,7 @@ export function PecasTecnicasWorkspace({
 .ps4-alert-red strong {font-size:13px;} .ps4-alert-red p {font-size:12px;margin:5px 0 0;}
 .ps4-flow-card {border:1px solid var(--ps4-line);border-radius:13px;background:#fff;margin:10px 0;overflow:hidden;}
 .ps4-flow-card--danger {border-color:#f0b6bb;}
-.ps4-flow-summary {display:flex;align-items:center;gap:11px;padding:15px;cursor:pointer;list-style:none;user-select:none;}
+.ps4-flow-summary {display:flex;align-items:center;gap:11px;padding:15px;cursor:default;list-style:none;user-select:none;}
 .ps4-flow-summary::-webkit-details-marker {display:none;}
 .ps4-flow-summary:focus-visible {outline:3px solid #168a69;outline-offset:-3px;}
 .ps4-step-no {border-radius:50%;background:#e8f1eb;color:#14503c;width:29px;height:29px;min-width:29px;display:grid;place-items:center;font-size:13px;font-weight:800;}
@@ -3437,6 +3437,7 @@ export function PecasTecnicasWorkspace({
                               rasterSha256={ps4RasterAsset?.sha256 ?? null}
                               vertices={ps4Draft} sceneId={ps4SceneId} />
                             <Ps4CheckpointAnalysis pieceId={loadedPieceId}
+                              sceneId={ps4SceneId}
                               rasterSha256={ps4RasterAsset?.sha256 ?? null}
                               marks={topconBoundary.filter(p=>p.name.includes("-M-") || p.name.startsWith("M")).map(p=>({
                                 name: p.name, longitude: p.longitude, latitude: p.latitude,
