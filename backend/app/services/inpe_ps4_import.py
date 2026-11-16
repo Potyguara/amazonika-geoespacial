@@ -24,7 +24,7 @@ L4_COLLECTION = "CB4A-WPM-L4-DN-1"
 COLLECTIONS = frozenset((COLLECTION, L4_COLLECTION))
 STAC_BASE = "https://data.inpe.br/bdc/stac/v1"
 MAX_ITEM_BYTES = 1_000_000
-MAX_EXPORT_AREA_DEGREES = 0.025
+MAX_EXPORT_AREA_DEGREES = 0.05
 MAX_OUTPUT_PIXELS = 3000 * 3000
 _IMPORT_SEMAPHORE = BoundedSemaphore(1)
 _ITEM_ID = re.compile(r"^CBERS4A_WPM_PCA_RGB321_\d{8}_\d{3}_\d{3}$")
@@ -130,7 +130,7 @@ def validate_crop(bbox: tuple[float, float, float, float]) -> tuple[int, float]:
         raise ValueError("BBOX WGS84 inválida.")
     if e-w > MAX_EXPORT_AREA_DEGREES or n-s > MAX_EXPORT_AREA_DEGREES:
         raise ValueError(
-            "Recorte PS4 maior que 0,025°; divida a área antes de importar."
+            "Recorte PS4 maior que 0,05°; divida a área antes de importar."
         )
     lon, lat = (w+e)/2, (s+n)/2
     zone = int((lon+180)//6)+1
