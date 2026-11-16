@@ -5,6 +5,7 @@ de acurácia absoluta do limite PS4. O PDF/avaliação do RT permanecem exigidos
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -18,6 +19,8 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 from app.services.ps4_assets import store_uploaded_asset
+from app.core.config import get_settings
+from defusedxml import ElementTree as SafeXML
 
 COLLECTION = "CB4A-WPM-PCA-FUSED-1"
 L4_COLLECTION = "CB4A-WPM-L4-DN-1"
@@ -47,6 +50,71 @@ def _allowed_asset_url(value: str) -> str:
             "Use o download manual ou avalie a configuração de origem."
         )
     return value
+
+
+MAX_XML_BYTES = 2 * 1024 * 1024
+
+
+def fetch_official_xml(item: dict, user_id, piece_id) -> dict:
+    """Arquiva XML oficial com hash; não infere automaticamente acurácia."""
+    assets = item.get("assets") or {}
+    keys = sorted(k for k in assets if "xml" in k.lower())
+    if not keys:
+        return {"status": "NOT_LISTED"}
+    key = next((k for k in keys if k.upper().startswith("BAND0")), keys[0])
+    href = assets[key].get("href", "")
+    parsed = urlparse(href)
+    if (
+        parsed.scheme != "https"
+        or (parsed.hostname or "").lower() not in _ALLOWED_ASSET_HOSTS
+        or not parsed.path.lower().endswith(".xml")
+        or parsed.username or parsed.password or parsed.port not in (None,443)
+    ):
+        return {"status": "SOURCE_NOT_ALLOWED", "asset_key": key}
+    try:
+        with urlopen(
+            Request(href, headers={"Accept": "application/xml,text/xml",
+                                    "User-Agent": "Amazonika-GEO90/1.0"}),
+            timeout=20,
+        ) as response:
+            if (urlparse(response.geturl()).hostname or "").lower() not in _ALLOWED_ASSET_HOSTS:
+                raise ValueError("Redirecionamento XML não autorizado.")
+            data = response.read(MAX_XML_BYTES+1)
+        if not data or len(data) > MAX_XML_BYTES:
+            raise ValueError("XML oficial vazio ou excessivamente grande.")
+        root = SafeXML.fromstring(data)
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+        return {"status": "UNAVAILABLE", "asset_key": key,
+                "reason": type(exc).__name__}
+    digest = hashlib.sha256(data).hexdigest()
+    storage = get_settings().storage_dir / "ps4" / str(user_id) / str(piece_id)
+    storage.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = storage / f"inpe-metadata-{digest}.xml"
+    with tempfile.NamedTemporaryFile(dir=storage, delete=False) as temp:
+        temp_name = Path(temp.name)
+        try:
+            temp.write(data)
+            temp.flush()
+            os.fsync(temp.fileno())
+        finally:
+            pass
+    os.replace(temp_name, path)
+    # Apenas nomes dos campos potencialmente relevantes. Não exibir como RMS
+    # aprovado: metadados XML podem descrever ajustes ou grandezas diferentes.
+    candidate_names = sorted({
+        element.tag.rsplit("}", 1)[-1][:80]
+        for element in root.iter()
+        if any(term in element.tag.lower() for term in (
+            "rms", "accuracy", "precis", "ortho", "geometric", "error"
+        ))
+    })[:25]
+    return {
+        "status": "ARCHIVED_UNVERIFIED", "asset_key": key,
+        "sha256": digest, "bytes": len(data),
+        "source_href": href, "candidate_field_names": candidate_names,
+        "absolute_accuracy_verified": False,
+        "report_pdf_available": False,
+    }
 
 
 def fetch_inpe_item(item_id: str, collection: str = COLLECTION) -> dict:
@@ -195,6 +263,7 @@ def import_inpe_crop(
                 )
             with output.open("rb") as source:
                 saved = store_uploaded_asset(source, user_id, piece_id, "raster")
+            xml = fetch_official_xml(item, user_id, piece_id)
             return {
                 "asset": saved,
                 "provenance": {
@@ -207,6 +276,7 @@ def import_inpe_crop(
                     "target_epsg": epsg,
                     "pixel_size_m": resolution,
                     "source_type": descriptor["source_type"],
+                    "technical_xml": xml,
                     "origin_orthorectified": True,
                     "absolute_accuracy_verified": False,
                     "requires_rt_review": True,
