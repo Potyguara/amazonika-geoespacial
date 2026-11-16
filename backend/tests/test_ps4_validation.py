@@ -81,7 +81,14 @@ class PS4ValidationTests(unittest.TestCase):
             )],
         )
         assets = {
-            "raster": {"kind": "raster", "sha256": "a" * 64},
+            "raster": {
+                "kind": "raster", "sha256": "a" * 64,
+                "metadata": {"wgs84_extent": {
+                    "type": "Polygon", "coordinates": [[
+                        [-52, -1], [-50, -1], [-50, 1], [-52, 1], [-52, -1]
+                    ]]
+                }},
+            },
             "report": {"kind": "report", "sha256": "b" * 64},
         }
         with patch("app.services.ps4_assets.exists_matching", return_value=True):
