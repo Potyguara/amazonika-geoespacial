@@ -216,6 +216,17 @@ export function Ps4EvidencePanel({
   };
 
   const save = () => void operation(async () => {
+    // Guardar rascunhos de V sem simular evidências de precisão inexistentes.
+    // Só o PUT PS4 validado exige o PDF, o RMS e a conferência do RT.
+    if (!record.assets?.raster || !record.assets?.report) {
+      if (!onEnsurePieceSaved) {
+        throw new Error("Salve a peça técnica para guardar os vértices V provisórios.");
+      }
+      await onEnsurePieceSaved();
+      setNotice("Vértices provisórios salvos no rascunho da peça. " +
+        "Para validação PS4, anexe GeoTIFF, relatório PDF e comprove a precisão com revisão do RT.");
+      return;
+    }
     const submission = makeSubmission();
     const response = await fetch(
       `${getApiUrl()}/technical-pieces/${pieceId}/ps4`,
@@ -302,8 +313,9 @@ export function Ps4EvidencePanel({
     <section className="pecas-card" aria-label="Evidências oficiais PS4"
       style={{ display: "grid", gap: 12, marginTop: 16 }}>
       <h4>PS4 — Imagem orbital e comprovação documental</h4>
-      <p className="pecas-note">Somente GeoTIFF ortorretificado e relatório PDF correspondente.
-        A verificação de hash e metadados não substitui o exame da acurácia pelo RT.</p>
+      <p className="pecas-note">É possível desenhar e salvar vértices V provisórios antes de anexar
+        GeoTIFF e relatório PDF. Esses documentos, a precisão absoluta demonstrada e a revisão
+        do RT continuam obrigatórios para VALIDAR PS4. Hash e GSD não comprovam acurácia.</p>
       {inpeJobStatus && <p role="status" className="pecas-note">
         Recorte INPE: {inpeJobStatus.status} · {inpeJobStatus.message}
       </p>}
@@ -418,7 +430,8 @@ export function Ps4EvidencePanel({
         RMS informado na seção anterior: {rmsFromWorkspace ?? "não informado"} m.
       </p>
       <button type="button" className="pecas-primary" disabled={!pieceId || busy}
-        onClick={save}>Salvar e validar evidências PS4</button>
+        onClick={save}>{!record.assets?.raster || !record.assets?.report
+          ? "Salvar rascunho V (validação pendente)" : "Salvar e validar evidências PS4"}</button>
       <div role="status" className={status === "APPROVED_BY_RT" ? "geo96-next-step" : "pecas-note"}>
         <strong>Resultado: {status}</strong>
         <p>{record.validation?.message ?? "Aguardando importação e validação."}</p>
