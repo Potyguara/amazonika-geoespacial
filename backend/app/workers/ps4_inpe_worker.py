@@ -51,6 +51,9 @@ def process_job(job_path) -> None:
                        message="Solicitação substituída ou peça indisponível.")
             save_job(job)
             return
+        # Fecha a transação de leitura antes do processamento GDAL remoto.
+        # A transação com lock é iniciada somente quando o resultado estiver pronto.
+        db.rollback()
         job.update(status="PROCESSING", started_at=_now(),
                    message="Obtendo recorte do catálogo oficial INPE.")
         save_job(job)
