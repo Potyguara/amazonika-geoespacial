@@ -1197,7 +1197,11 @@ export function PecasTecnicasWorkspace({
           normal_height_m:confirmedNormal(final.name)},
       );
       const vertices: TopconBoundaryPoint[] = [
-        ...topconBoundary.slice(0,ps4StartIndex+1),
+        ...topconBoundary.slice(0,ps4StartIndex+1).map(p=>({
+          ...p,
+          derived_physical_altitude_m: confirmedNormal(p.name) ?? p.derived_physical_altitude_m ?? null,
+          derived_physical_model: confirmedNormal(p.name) !== null ? ("HN" as const) : p.derived_physical_model,
+        })),
         ...ps4Draft.map((point,pointIndex)=>{
           const utm = lonLatToSirgasUtm(point.longitude,point.latitude);
           if (utm.zone !== utmZone.zone || utm.hemisphere !== utmZone.hemisphere)
@@ -1222,7 +1226,11 @@ export function PecasTecnicasWorkspace({
               note:"Posicionamento orbital visual sem h medida. HN estimada somente por interpolação entre os dois M, não válida para SIGEF"},
           };
         }),
-        ...topconBoundary.slice(ps4StartIndex+1),
+        ...topconBoundary.slice(ps4StartIndex+1).map(p=>({
+          ...p,
+          derived_physical_altitude_m: confirmedNormal(p.name) ?? p.derived_physical_altitude_m ?? null,
+          derived_physical_model: confirmedNormal(p.name) !== null ? ("HN" as const) : p.derived_physical_model,
+        })),
       ];
       if(vertices.length !== ps4Closure.names.length ||
          vertices.some((p,i) => p.name !== ps4Closure.names[i]))
