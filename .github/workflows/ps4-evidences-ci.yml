@@ -44,6 +44,12 @@ jobs:
               print("STAC_PUBLIC_INSPECTION_UNAVAILABLE:", type(exc).__name__, str(exc)[:200])
               raise SystemExit(1)
           PY
+      - name: Live COG crop smoke — small remote subset (non-blocking)
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          PYTHONPATH: backend
+        run: python scripts/ps4_inpe_live_smoke.py
       - name: Compile PS4 modules
         run: |
           python -m py_compile backend/app/api/routes/technical_pieces.py
