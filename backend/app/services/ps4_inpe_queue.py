@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from tempfile import NamedTemporaryFile
 
 from app.core.config import get_settings
-from app.services.inpe_ps4_import import COLLECTIONS, fetch_inpe_item, validate_crop
+from app.services.inpe_ps4_import import COLLECTIONS, validate_crop
 
 TERMINAL = frozenset(("READY", "FAILED", "CANCELLED"))
 ACTIVE = frozenset(("QUEUED", "PROCESSING"))
@@ -93,8 +93,9 @@ def queued_jobs() -> list[Path]:
     paths = []
     for p in jobs_root().glob("*.json"):
         try:
-            if read_job(UUID(p.stem)).get("status") == "QUEUED":
-                paths.append(p)
+            job = read_job(UUID(p.stem))
+            if job.get("status") == "QUEUED":
+                paths.append((str(job.get("queued_at") or ""), p))
         except (OSError, ValueError, json.JSONDecodeError):
             continue
-    return sorted(paths, key=lambda p: p.name)
+    return [path for _, path in sorted(paths, key=lambda value: value[0])]
