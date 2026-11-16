@@ -100,6 +100,12 @@ def _write_perimeter(sheet, parcel: dict) -> None:
         if len(cells) < 12:
             raise ValueError("Modelo SIGEF exige 12 colunas por vértice.")
         name = _required_text(vertex.get("sigef_vertex_code"), "código do vértice")
+        if vertex.get("sigef_method") == "PS4":
+            calculation = vertex.get("derived_calculation") or {}
+            if calculation.get("accuracy_verified") is not True:
+                raise ValueError(
+                    f"{name}: PS4 sem acurácia horizontal conferida; ODS preenchida bloqueada."
+                )
         longitude = float(vertex["longitude"])
         latitude = float(vertex["latitude"])
         # Sigma horizontal única não substitui incertezas individuais por eixo.
