@@ -1806,7 +1806,12 @@ export function PecasTecnicasWorkspace({
                   tecnicamente apropriada; não será estimada como se fosse GNSS.</p>
               </>}
               {premiumStep===3 && <>
-                <h4>Vértices V por sensores orbitais</h4>
+                <h4>Construção de vértices V — escolha da fonte cartográfica</h4>
+                <p>PB1 identifica previamente as folhas de base oficial com precisão documentada.
+                  PS4 utiliza sensores orbitais e possui fluxo próprio de ortorretificação.
+                  A consulta de folhas PB1 ainda não altera o método dos vértices nem libera ODS.</p>
+                <Pb1SheetLookup geometry={pb1LookupGeometry} />
+                <h4>PS4 — Sensores orbitais</h4>
                 <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
                   e faça o fechamento M–V–M antes de consolidar a parcela preliminar.
                   Se o perímetro GNSS já estiver completo, dispense esta etapa.</p>
@@ -1826,7 +1831,6 @@ export function PecasTecnicasWorkspace({
                     setConstructionSkipped(false);
                     setConstructionMethod("PS4");setPa2Mode(true);
                   }}>Abrir mapa PS4 e imagens INPE</button>
-                <Pb1SheetLookup geometry={pb1LookupGeometry} />
                 {ps4Ready&&<div className="geo97-adopt-banner" role="status">
                   <strong>Poligonal fechada com {ps4Closure.names.length} vértices.</strong>
                   <p>A prévia e o PDF de cinco marcos são diferentes até aplicar
