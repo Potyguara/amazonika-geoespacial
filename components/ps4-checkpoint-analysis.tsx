@@ -9,11 +9,12 @@ type Check = { name: string; gnss_longitude: number; gnss_latitude: number; imag
 type Result = {status:string;count:number;rms_e_m:number|null;rms_n_m:number|null;rms_horizontal_m:number|null;warnings:string[];checkpoints:{name:string;delta_e_m:number;delta_n_m:number;radial_error_m:number}[]};
 
 export function Ps4CheckpointAnalysis({
-  pieceId, marks, rasterSha256, lastImageClick, capturing, onCapture,
+  pieceId, marks, rasterSha256, sceneId, lastImageClick, capturing, onCapture,
 }: {
   pieceId: string | null | undefined;
   marks: GNSSMark[];
   rasterSha256: string | null;
+  sceneId: string;
   lastImageClick: Point | null;
   capturing: boolean;
   onCapture: (active:boolean)=>void;
@@ -42,7 +43,7 @@ export function Ps4CheckpointAnalysis({
       if(stored.result)setResult(stored.result as Result);
     }).catch(()=>{});
     return ()=>controller.abort();
-  },[rasterSha256,pieceId]);
+  },[rasterSha256,pieceId,sceneId]);
   const selected=marks.find(m=>m.name===markName);
   const add = () => {
     if(!selected || selected.longitude==null || selected.latitude==null || !imagePoint || !confirmed)return;
