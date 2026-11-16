@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import shutil
 import tempfile
 from threading import BoundedSemaphore
 from urllib.parse import urlparse
@@ -246,6 +247,14 @@ def import_inpe_crop(
     if not descriptor["import_supported"]:
         raise ValueError(descriptor["reason"])
     epsg, resolution = validate_crop(bbox)
+    # Um recorte pode consumir arquivo temporário e cópia permanente.
+    # A segurança de disco antecede qualquer tráfego remoto GDAL.
+    data_root = get_settings().storage_dir
+    data_root.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(data_root).free < 2 * 1024 ** 3:
+        raise RuntimeError(
+            "Espaço livre inferior à reserva operacional de 2 GiB; recorte não iniciado."
+        )
     asset = item["assets"][descriptor["asset_key"]]
     href = _allowed_asset_url(asset["href"])
     if not _IMPORT_SEMAPHORE.acquire(blocking=False):
@@ -284,6 +293,11 @@ def import_inpe_crop(
                 raise RuntimeError(
                     "Falha no recorte COG do INPE; verifique disponibilidade, "
                     "URL do ativo e cobertura da cena."
+                )
+            from app.services.ps4_assets import MAX_RASTER_BYTES
+            if output.stat().st_size > MAX_RASTER_BYTES:
+                raise RuntimeError(
+                    "Recorte excedeu 256 MiB; reduza a extensão geográfica."
                 )
             with output.open("rb") as source:
                 saved = store_uploaded_asset(source, user_id, piece_id, "raster")
