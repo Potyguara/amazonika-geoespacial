@@ -20,6 +20,17 @@ class PlanimetricCheckTests(unittest.TestCase):
         self.assertGreater(r["rms_horizontal_m"], 0.5)
         self.assertLess(r["rms_horizontal_m"], 2)
         self.assertEqual(r["count"], 1)
+        self.assertEqual(r["screening_reference_count"], 20)
+        self.assertEqual(r["screening_missing_count"], 19)
+        self.assertAlmostEqual(r["max_radial_error_m"], r["checkpoints"][0]["radial_error_m"])
+
+    def test_vinte_controles_nao_homologam_automaticamente(self):
+        points = [checkpoint(f"M-{i}", -50.87 + i * 0.0001, 0.4 + i * 0.0001)
+                  for i in range(20)]
+        r = evaluate_checkpoints(points, METADATA)
+        self.assertEqual(r["status"], "REVIEW_REQUIRED")
+        self.assertEqual(r["screening_missing_count"], 0)
+        self.assertTrue(any("não mínimo normativo" in w for w in r["warnings"]))
 
     def test_ponto_usado_na_ortorretificacao_rejeitado(self):
         point = checkpoint("M-1", -50.87, 0.4)
