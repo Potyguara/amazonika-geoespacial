@@ -27,9 +27,13 @@ export function Ps4CheckpointAnalysis({
   const [error,setError] = useState("");
   const [confirmed,setConfirmed] = useState(false);
   const [removalReason,setRemovalReason] = useState<Record<string,string>>({});
+  const [persistedNames,setPersistedNames] = useState<string[]>([]);
+  const [pendingExclusions,setPendingExclusions] = useState<{name:string;reason:string}[]>([]);
+  const [exclusionLog,setExclusionLog] = useState<{name:string;reason:string;excluded_at:string}[]>([]);
   useEffect(()=>{ if(lastImageClick) setImagePoint(lastImageClick); },[lastImageClick]);
   useEffect(()=>{
     setResult(null);setChecks([]);setImagePoint(null);setConfirmed(false);
+    setPersistedNames([]);setPendingExclusions([]);setExclusionLog([]);
     if(!pieceId || !rasterSha256)return;
     const controller=new AbortController();
     fetch(`${getApiUrl()}/technical-pieces/${pieceId}/ps4`,{
@@ -39,9 +43,12 @@ export function Ps4CheckpointAnalysis({
       const stored=json?.checkpoint_analysis;
       if(stored?.raster_sha256!==rasterSha256)return;
       if(Array.isArray(stored.checkpoints)){
-        setChecks(stored.checkpoints.filter((c:Check)=>c.used_for_orthorectification===false));
+        const accepted=stored.checkpoints.filter((c:Check)=>c.used_for_orthorectification===false);
+        setChecks(accepted);
+        setPersistedNames(accepted.map((c:Check)=>c.name));
       }
       if(stored.result)setResult(stored.result as Result);
+      if(Array.isArray(stored.exclusion_log))setExclusionLog(stored.exclusion_log);
     }).catch(()=>{});
     return ()=>controller.abort();
   },[rasterSha256,pieceId,sceneId]);
@@ -55,21 +62,28 @@ export function Ps4CheckpointAnalysis({
   const removeCheck = (name:string) => {
     const reason=(removalReason[name]??"").trim();
     if(reason.length<8){setError(`Justifique a exclusão de ${name} (mínimo 8 caracteres). Não remova pontos só para reduzir o EMQ.`);return;}
+    if(persistedNames.includes(name)){
+      setPendingExclusions(old=>[...old.filter(p=>p.name!==name),{name,reason}]);
+    }
     setChecks(old=>old.filter(r=>r.name!==name));
     setResult(null);
     setError(`Ponto ${name} retirado da análise atual. Motivo informado: ${reason}. Registre esta justificativa no relatório técnico; a alteração só será persistida ao recalcular.`);
   };
   const analyze=async()=>{
-    if(!pieceId || !rasterSha256 || !checks.length)return;
+    if(!pieceId || !rasterSha256 || (!checks.length && !pendingExclusions.length))return;
     setBusy(true);setError("");
     try{
       const r=await fetch(`${getApiUrl()}/technical-pieces/${pieceId}/ps4/checkpoint-analysis`,{
         method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({checkpoints:checks}),cache:"no-store",
+        body:JSON.stringify({checkpoints:checks,exclusions:pendingExclusions}),cache:"no-store",
       });
       const payload=await r.json().catch(()=>null);
       if(!r.ok)throw new Error(typeof payload?.detail==="string"?payload.detail:"Não foi possível calcular os resíduos.");
       setResult(payload.result as Result);
+      setPersistedNames(checks.map(c=>c.name));
+      setExclusionLog(old=>[...old,...pendingExclusions.map(p=>({...p,excluded_at:new Date().toISOString()}))]);
+      setPendingExclusions([]);
+      setRemovalReason({});
     }catch(e){setError(e instanceof Error?e.message:"Falha na avaliação.");}
     finally{setBusy(false);}
   };
@@ -106,9 +120,18 @@ export function Ps4CheckpointAnalysis({
         <button type="button" className="pecas-secondary" onClick={()=>removeCheck(c.name)}>Excluir da análise</button></div>)}
     </div>}
     <button type="button" className="pecas-primary"
-      disabled={!checks.length || busy} onClick={()=>void analyze()}>
+      disabled={(!checks.length && !pendingExclusions.length) || busy} onClick={()=>void analyze()}>
       {busy?"Calculando resíduos...":"Calcular EMQ dos pontos de checagem"}</button>
     {error && <p className="ps4-alert-red" role="alert">{error}</p>}
+    {!!pendingExclusions.length && <p role="status">
+      {pendingExclusions.length} exclusão(ões) pendente(s) de registro: recalcule o EMQ para persistir a justificativa.
+    </p>}
+    {!!exclusionLog.length && <details>
+      <summary>Histórico de exclusões justificadas ({exclusionLog.length})</summary>
+      <ul>{exclusionLog.map((item,index)=><li key={index}>
+        <strong>{item.name}</strong>: {item.reason} · {item.excluded_at}
+      </li>)}</ul>
+    </details>}
     {result && <div role="status" className="ps4-checkpoint-result">
       <strong>EMQ amostral horizontal: {result.rms_horizontal_m?.toLocaleString("pt-BR",{maximumFractionDigits:4})??"—"} m</strong>
       <p>EMQ E: {result.rms_e_m?.toLocaleString("pt-BR")??"—"} m · EMQ N: {result.rms_n_m?.toLocaleString("pt-BR")??"—"} m · {result.count} ponto(s).</p>
