@@ -334,7 +334,9 @@ def _validated_snapshot(
     # Upload pode preceder o preenchimento; preserva o anexo do banco.
     if "submission" not in requested:
         if piece and isinstance(previous, dict) and "submission" not in previous:
-            snapshot["ps4"] = {"assets": previous.get("assets", {})}
+            snapshot["ps4"] = {"assets": previous.get("assets", {}),
+                **({"checkpoint_analysis": previous["checkpoint_analysis"]}
+                   if previous.get("checkpoint_analysis") else {})}
             return snapshot
         raise HTTPException(422, "Formulário PS4 não informado.")
     try:
@@ -357,6 +359,13 @@ def _validated_snapshot(
         "submission": submitted.model_dump(mode="json"),
         "assets": assets,
         "validation": validation,
+        **({"checkpoint_analysis": previous["checkpoint_analysis"]}
+           if previous.get("checkpoint_analysis") and
+              previous["checkpoint_analysis"].get("raster_sha256") ==
+              (assets.get("raster") or {}).get("sha256") and
+              (snapshot.get("topcon") or {}).get("ps4_draft") ==
+              ((piece.snapshot or {}).get("topcon") or {}).get("ps4_draft")
+           else {}),
         **({"source_provenance": preserved_source} if preserved_source else {}),
         **({"import_job_id": previous["import_job_id"]}
            if isinstance(previous, dict) and previous.get("import_job_id") else {}),
@@ -440,6 +449,7 @@ def get_ps4(
         "completed_at": current.get("completed_at"),
         "source_provenance": current.get("source_provenance"),
         "import_job_id": current.get("import_job_id"),
+        "checkpoint_analysis": current.get("checkpoint_analysis"),
         "validation": current.get("validation", {
             "status": "BLOCKED",
             "blockers": ["Validação PS4 não iniciada."],
@@ -536,6 +546,18 @@ def ps4_checkpoint_analysis(
         )
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    snapshot = dict(piece.snapshot or {})
+    ps4 = dict(snapshot.get("ps4") or {})
+    ps4["checkpoint_analysis"] = {
+        "raster_sha256": raster["sha256"],
+        "checkpoints": payload.model_dump(mode="json")["checkpoints"],
+        "result": result,
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    snapshot["ps4"] = ps4
+    piece.snapshot = snapshot
+    db.add(piece)
+    db.commit()
     return {"piece_id": str(piece.id), "raster_sha256": raster["sha256"],
             "result": result}
 
