@@ -31,6 +31,43 @@ class TestPs4PdfNormalAltitudes(unittest.TestCase):
         self.assertNotIn("-17,70", str(rows))
         self.assertNotIn("-20,88", str(rows))
 
+    def test_all_thirteen_vertices_from_homologation_pdf(self):
+        # Coordenadas e HN do PDF de teste fornecido pelo operador.
+        # Os valores HN dos V são PROVISÓRIOS e interpolados, não medidos.
+        names = ["CPBR-M-578"] + [
+            f"VIRTUAL-V-{index:04d}" for index in range(1, 9)
+        ] + ["CPBR-M-581", "CPBR-M-582", "CPBR-M-583", "CPBR-M-584"]
+        coords = [
+            (-50.8745633, .4086214),
+            (-50.8740642, .4076772), (-50.8733253, .4078514),
+            (-50.8728014, .4073633), (-50.8727561, .4063869),
+            (-50.8718300, .4058175), (-50.8713119, .4049569),
+            (-50.8710011, .4033917), (-50.8716178, .4015069),
+            (-50.8703600, .3979300), (-50.8753689, .4011942),
+            (-50.8857139, .4003225), (-50.8867964, .4042342),
+        ]
+        hn = [5.86, 5.59, 5.40, 5.22, 4.98, 4.71, 4.46,
+              4.07, 3.58, 2.64, 5.40, 1.43, 2.71]
+        h = [-17.70] + [None] * 8 + [-20.88, -18.12, -22.07, -20.80]
+        parcel = prepare_parcels([{
+            "name": "Recorte técnico preliminar",
+            "geometry": {"type": "Polygon",
+                         "coordinates": [list(map(list, coords + [coords[0]]))]},
+            "vertex_names": names,
+            "normal_altitudes_m": hn,
+            "altitudes_m": h,
+        }])
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:32622",
+                                           always_xy=True)
+        actual = _rows(parcel, transformer)
+        self.assertEqual(len(actual), 13)
+        self.assertEqual(
+            [row[5] for row in actual],
+            [f"{value:.2f}".replace(".", ",") + ("~" if 1 <= index <= 8 else "")
+             for index, value in enumerate(hn)],
+        )
+        self.assertTrue(all("-" not in row[5] for row in actual))
+
     def test_missing_normal_is_not_replaced_by_ellipsoidal_height(self):
         raw = [{
             "name": "Sem HN",
