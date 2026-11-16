@@ -58,6 +58,22 @@ class PS4SnapshotPersistenceTests(TestCase):
         self.assertNotIn("approval", result["ps4"])
         self.assertEqual(result["ps4"]["validation"]["status"], "BLOCKED")
 
+    def test_proveniencia_stac_persiste_em_salvamento_comum(self):
+        self.piece.snapshot["ps4"]["source_provenance"] = {
+            "provider": "INPE", "item_id": "CENA-ORIGINAL",
+            "technical_xml": {"status": "ARCHIVED_UNVERIFIED",
+                              "sha256": "c"*64},
+        }
+        self.piece.snapshot["ps4"].pop("approval")
+        changed = deepcopy(self.piece.snapshot)
+        changed.pop("ps4")
+        changed["memorial_edited"] = "Texto revisado"
+        result = _validated_snapshot(changed, self.piece, self.user)
+        self.assertEqual(
+            result["ps4"]["source_provenance"]["item_id"],
+            "CENA-ORIGINAL",
+        )
+
     def test_browser_nao_consegue_injetar_aprovacao(self):
         changed = deepcopy(self.old)
         changed["ps4"] = {
