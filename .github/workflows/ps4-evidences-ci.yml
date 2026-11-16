@@ -1,0 +1,41 @@
+name: GEO90 PS4 Evidence Validation
+
+on:
+  push:
+    branches:
+      - feat/geo90-ps4-evidencias-20261115
+  pull_request:
+    branches:
+      - feat/inpe-cbers4a-stac-geo90-20261115
+
+jobs:
+  ps4-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Compile PS4 modules
+        run: |
+          python -m py_compile backend/app/api/routes/technical_pieces.py
+          python -m py_compile backend/app/services/ps4_assets.py
+          python -m py_compile backend/app/services/ps4_validation.py
+      - name: Test PS4 evidence and integrity
+        env:
+          PYTHONPATH: backend
+        run: python -m unittest discover -s backend/tests -p 'test_ps4*.py' -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: TypeScript validation
+        run: ./node_modules/.bin/tsc --noEmit -p tsconfig.ci.json
