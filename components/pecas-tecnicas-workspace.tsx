@@ -178,11 +178,14 @@ export type TopconDraft = {
   ps4_ortho_report?: {scene_id:string;reference:string;rms_m:number|null;reviewed_by_rt:boolean};
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
+  pb1_draft?: Array<{name:string;latitude:number;longitude:number;source_elevation_m:number|null;created_at:string}>;
+  pb1_closure?: {start:string;confirmed:boolean;signature?:string};
+  pb1_source?: {sheet:string;product:string;accuracy_reference:string;vertical_datum:string};
   ps4_draft?: Array<{
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
   construction?: {
-    method: "PA1" | "PA2" | "PT8" | "PS4";
+    method: "PA1" | "PA2" | "PT8" | "PS4" | "PB1";
     pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
     witnesses: string[];
     distance: string;
@@ -377,8 +380,21 @@ export function PecasTecnicasWorkspace({
   const [topconReviewFeedback, setTopconReviewFeedback] = useState<{status:"info"|"error"|"success";message:string}|null>(null);
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionSkipped,setConstructionSkipped] = useState(false);
-  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4">("PS4");
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4" | "PB1">("PS4");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
+  const [pb1Draft,setPb1Draft] = useState<NonNullable<TopconDraft["pb1_draft"]>>([]);
+  const [pb1Start,setPb1Start] = useState("");
+  const [pb1ClosureConfirmed,setPb1ClosureConfirmed] = useState(false);
+  const [pb1ConfirmedSignature,setPb1ConfirmedSignature] = useState("");
+  const [pb1Candidate,setPb1Candidate] = useState<{longitude:number;latitude:number}|null>(null);
+  const [pb1Notice,setPb1Notice] = useState("");
+  const [pb1Busy,setPb1Busy] = useState(false);
+  const [pb1PieceId,setPb1PieceId] = useState<string|null>(null);
+  const [pb1Assets,setPb1Assets] = useState<Record<string,{
+    sha256:string;size_bytes:number;kind:string;metadata?:{width?:number;height?:number;bands?:Array<{type?:string}>;
+      wgs84_extent?:{type:string;coordinates:number[][][]}};
+  }>>({});
+  const [pb1Source,setPb1Source] = useState({sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
   const [ps4ApprovalConfirmed, setPs4ApprovalConfirmed] = useState(false);
@@ -420,6 +436,28 @@ export function PecasTecnicasWorkspace({
   });
   const ps4Ready = ps4ClosureConfirmed && ps4ConfirmedSignature === ps4Signature && ps4Closure.valid;
   const ps4PreviewGeometry = ps4Ready ? ps4Closure.geometry : null;
+  const pb1StartIndex=topconBoundary.findIndex(p=>p.name===pb1Start);
+  const pb1End=pb1StartIndex<0?"":topconBoundary[(pb1StartIndex+1)%topconBoundary.length]?.name??"";
+  const pb1Closure=buildPs4Closure(topconBoundary,pb1Draft,pb1Start,pb1End);
+  const pb1Signature=JSON.stringify({
+    start:pb1Start,boundary:topconBoundary.map(p=>[p.name,p.longitude,p.latitude]),
+    draft:pb1Draft.map(p=>[p.name,p.longitude,p.latitude,p.source_elevation_m]),
+  });
+  const pb1Ready=pb1Closure.valid && pb1ClosureConfirmed && pb1Signature===pb1ConfirmedSignature;
+  const pb1Raster=pb1Assets.pb1_color;
+  const pb1Dtm=pb1Assets.pb1_dtm;
+  useEffect(()=>{
+    if(!loadedPieceId)return;
+    setPb1PieceId(loadedPieceId);
+    let active=true;
+    fetch(`${getApiUrl()}/technical-pieces/${loadedPieceId}/pb1/assets`,
+      {credentials:"include",cache:"no-store"})
+      .then(r=>r.ok?r.json():null)
+      .then(body=>{if(active&&body?.assets)setPb1Assets(body.assets);})
+      .catch(()=>undefined);
+    return ()=>{active=false;};
+  },[loadedPieceId]);
+
   // A folha deve ser identificada antes da restituição quando a parcela já está desenhada.
   const pb1SelectedParcel = polygons.find(p =>
     selectedIds.includes(p.id) && (p.coordinates?.length ?? 0) >= 3
@@ -745,6 +783,11 @@ export function PecasTecnicasWorkspace({
     setTopconPreview(d.preview);
     setTopconBoundary(d.boundary);
     setPs4Draft(d.ps4_draft ?? []);
+    setPb1Draft(d.pb1_draft ?? []);
+    setPb1Start(d.pb1_closure?.start ?? "");
+    setPb1ClosureConfirmed(Boolean(d.pb1_closure?.confirmed));
+    setPb1ConfirmedSignature(d.pb1_closure?.signature ?? "");
+    setPb1Source(d.pb1_source ?? {sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
     setConstructionSkipped(Boolean(d.construction_skipped));
     setPs4SceneId(d.ps4_selected_scene || d.ps4_draft?.[0]?.scene_id ||
       "CBERS4A_WPM_PCA_RGB321_20261016_214_113");
@@ -774,7 +817,8 @@ export function PecasTecnicasWorkspace({
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     setPa2Mode(false);
-    setConstructionMethod(d.construction?.method === "PT8" ? "PT8" : "PS4");
+    setConstructionMethod(d.construction?.method === "PT8" ? "PT8" :
+      d.construction?.method === "PB1" ? "PB1" : "PS4");
     setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
     setPa2Witnesses(d.construction?.witnesses ?? []);
     setConstructionDistance(d.construction?.distance ?? "");
@@ -786,6 +830,8 @@ export function PecasTecnicasWorkspace({
   }, [loadedTopconRevision]);
   const draftForSave = (): TopconDraft => ({
     version: 1, preview: topconPreview, boundary: topconBoundary, ps4_draft: ps4Draft,
+    pb1_draft: pb1Draft, pb1_source: pb1Source,
+    pb1_closure: {start:pb1Start,confirmed:pb1Ready,signature:pb1Ready?pb1ConfirmedSignature:""},
     ps4_selected_scene: ps4SceneId,
     construction_skipped: constructionSkipped,
     ps4_ortho_report: ps4OrthoReport,
