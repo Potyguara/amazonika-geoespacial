@@ -372,6 +372,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [memorialText, setMemorialText] = useState("");
   const [editedMemorial, setEditedMemorial] = useState<string | null>(null);
   const [memorialTitle, setMemorialTitle] = useState("Área analisada");
+  const [legalMetadata,setLegalMetadata] = useState<Record<string,string>>({});
   const [plantHeading, setPlantHeading] = useState("PLANTA GEORREFERENCIADA");
   const [memorialHeading, setMemorialHeading] = useState("MEMORIAL DESCRITIVO");
   const [paperFormat, setPaperFormat] = useState<"A4" | "A3" | "A2" | "A1" | "A0">("A2");
@@ -788,6 +789,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       features,
       selected_ids: selectedPolygonIds,
       imported_sigef_metadata: importedMetadata,
+      legal_metadata: legalMetadata,
       data: {
         title: memorialTitle, plantHeading, memorialHeading,
         owner: memorialOwner, rg: ownerRg, cpf: ownerCpf,
@@ -2592,7 +2594,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           parcels,
-          property_metadata: importedMetadata,
+          property_metadata: {...(importedMetadata??{}),...legalMetadata},
           title: memorialTitle,
           plant_heading: plantHeading,
           memorial_heading: memorialHeading,
@@ -2629,7 +2631,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           parcels,
-          property_metadata: importedMetadata,
+          property_metadata: {...(importedMetadata??{}),...legalMetadata},
           title: memorialTitle,
           memorial_heading: memorialHeading,
           owner_name: memorialOwner || null,
@@ -2679,7 +2681,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         parcels,
-        property_metadata: importedMetadata,
+        property_metadata: {...(importedMetadata??{}),...legalMetadata},
         title: memorialTitle,
         plant_heading: plantHeading,
         memorial_heading: memorialHeading,
@@ -2761,6 +2763,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       );
       setSelectedPolygonIds(Array.isArray(snapshot.selected_ids) ? snapshot.selected_ids : []);
       setImportedMetadata((snapshot.imported_sigef_metadata ?? null) as Record<string, string> | null);
+      setLegalMetadata((snapshot.legal_metadata??{}) as Record<string,string>);
       setMemorialTitle(String(data.title ?? "Área analisada"));
       setPlantHeading(String(data.plantHeading ?? "PLANTA GEORREFERENCIADA"));
       setMemorialHeading(String(data.memorialHeading ?? "MEMORIAL DESCRITIVO"));
@@ -3156,6 +3159,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           layoutTemplate: plantLayoutTemplate, scale: scaleChoice, customScale,
         }}
         onDataChange={changePecasData}
+        onLegalMetadataChange={(updates)=> {
+          setLegalMetadata(old=>({...old,...updates}));
+          setMemorialText("");
+          setEditedMemorial(null);
+          setLastGeneratedPdfId(null);
+        }}
         polygons={polygons}
         importedMetadata={importedMetadata}
         selectedIds={selectedPolygonIds}
