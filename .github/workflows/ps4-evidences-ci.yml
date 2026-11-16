@@ -113,6 +113,8 @@ jobs:
           python -m py_compile backend/app/services/ps4_tiles.py
       - name: Validate read-only VPS preflight script
         run: bash -n scripts/ps4_vps_preflight.sh
+      - name: Validate isolated VPS homologation script
+        run: bash -n scripts/ps4_homologacao_isolada.sh
       - name: Test PS4 evidence and integrity
         env:
           PYTHONPATH: backend
