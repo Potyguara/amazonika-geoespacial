@@ -57,20 +57,22 @@ class Ps4InpeImportTests(TestCase):
             def geturl(self): return "https://data.inpe.br/imagery/metadata.xml"
             def read(self, limit=None): return xml
         uid, pid = uuid4(), uuid4()
-        with TemporaryDirectory() as directory, (
-            patch("app.services.inpe_ps4_import.urlopen", return_value=XmlResponse()),
-            patch("app.services.inpe_ps4_import.get_settings",
-                  return_value=SimpleNamespace(storage_dir=Path(directory))),
-        ):
-            result = fetch_official_xml(item, uid, pid)
-            self.assertEqual(result["status"], "ARCHIVED_UNVERIFIED")
-            self.assertFalse(result["absolute_accuracy_verified"])
-            self.assertIn("GeometricRMSE", result["candidate_field_names"])
-            path = verified_official_xml_path(uid, pid, result)
-            self.assertEqual(path.read_bytes(), xml)
-            path.write_bytes(b"tampered")
-            with self.assertRaisesRegex(ValueError, "Integridade"):
-                verified_official_xml_path(uid, pid, result)
+        with TemporaryDirectory() as directory:
+            with (
+                patch("app.services.inpe_ps4_import.urlopen",
+                      return_value=XmlResponse()),
+                patch("app.services.inpe_ps4_import.get_settings",
+                      return_value=SimpleNamespace(storage_dir=Path(directory))),
+            ):
+                result = fetch_official_xml(item, uid, pid)
+                self.assertEqual(result["status"], "ARCHIVED_UNVERIFIED")
+                self.assertFalse(result["absolute_accuracy_verified"])
+                self.assertIn("GeometricRMSE", result["candidate_field_names"])
+                path = verified_official_xml_path(uid, pid, result)
+                self.assertEqual(path.read_bytes(), xml)
+                path.write_bytes(b"tampered")
+                with self.assertRaisesRegex(ValueError, "Integridade"):
+                    verified_official_xml_path(uid, pid, result)
 
     def test_item_rgb_e_l4_sem_certificacao_automatica(self):
         for collection in (COLLECTION, L4_COLLECTION):
