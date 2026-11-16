@@ -511,6 +511,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         id,
         name: String(feature.get("workPolygonName") ?? id),
         vertices: names,
+        coordinates: (geometry.getCoordinates()[0]??[]).slice(0,-1)
+          .map(coord=>toLonLat(coord) as [number,number]),
         confrontants, altitudes,
         vertexDetails: (feature.get("sigef_vertex_details") as Array<Record<string, unknown>> | undefined) ?? [],
         areaHa: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
