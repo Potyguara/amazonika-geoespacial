@@ -113,6 +113,13 @@ export function InpeCbersSceneSearch({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [preparingScene, setPreparingScene] = useState("");
+  const [inspectionScene, setInspectionScene] = useState("");
+  const [sceneInspection, setSceneInspection] = useState<{
+    id: string; collection: string; asset_key: string; source_type: string;
+    metadata_assets: string[]; import_supported: boolean;
+    reason: string | null; orthorectified_origin_declared: boolean;
+    absolute_accuracy_verified: boolean; report_available: boolean; warning: string;
+  } | null>(null);
   const [prepareNotice, setPrepareNotice] = useState("");
   const bounds = useMemo(() => boundsFromPolygon(geometry), [geometryKey, geometry]);
   const canCrop = Boolean(bounds &&
@@ -213,6 +220,38 @@ export function InpeCbersSceneSearch({
                         !RENDERABLE_SCENES.has(scene.id)?"Raster ainda não habilitado":
                         "Usar esta cena para vetorizar"}
                     </button>}
+                    <button type="button" className="pecas-secondary"
+                      disabled={Boolean(inspectionScene)}
+                      onClick={() => {
+                        setInspectionScene(scene.id);
+                        setSceneInspection(null);
+                        setPrepareNotice("");
+                        void fetch(`${getApiUrl()}/inpe-cbers/inspect/${kind}/${encodeURIComponent(scene.id)}`, {
+                          credentials: "include", cache: "no-store",
+                        }).then(async response => {
+                          const data = await response.json().catch(() => ({}));
+                          if (!response.ok) throw new Error(
+                            typeof data.detail === "string" ? data.detail : "Falha na inspeção STAC"
+                          );
+                          setSceneInspection(data);
+                        }).catch(error => setPrepareNotice(
+                          error instanceof Error ? error.message : "Metadados indisponíveis."
+                        )).finally(() => setInspectionScene(""));
+                      }}>
+                      {inspectionScene === scene.id ? "Conferindo catálogo…" : "Inspecionar produto e documentos"}
+                    </button>
+                    {sceneInspection?.id === scene.id && <div className="pecas-note" role="status">
+                      <strong>Fonte:</strong> {sceneInspection.source_type} ·
+                      Ativo: {sceneInspection.asset_key}.
+                      <p>{sceneInspection.warning}</p>
+                      <p>Metadados XML: {sceneInspection.metadata_assets.length
+                        ? sceneInspection.metadata_assets.join(", ") : "não identificados"}.
+                        Relatório de acurácia: {sceneInspection.report_available
+                          ? "identificado" : "não identificado no catálogo"}.</p>
+                      {!sceneInspection.import_supported && <p className="pecas-warning">
+                        Importação automática ainda incompatível: {sceneInspection.reason}
+                      </p>}
+                    </div>}
                     {onPrepareScene && (
                       <button type="button" className="pecas-primary"
                         disabled={!canCrop || Boolean(preparingScene)}
