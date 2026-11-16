@@ -3023,6 +3023,25 @@ export function PecasTecnicasWorkspace({
 .ps4-flow-card--danger .ps4-step-state {background:#ffe9eb;color:#b4232d;}
 .ps4-step-caret {color:#718178;font-size:20px;transition:transform .15s ease;}
 
+
+.ps4-v-panel {min-width:0;border:1px solid #dbe6de;border-radius:12px;padding:12px;background:#fafffc;display:grid;gap:10px;}
+.ps4-v-panel-head {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.ps4-v-panel-head strong {font-size:13px;color:#173d2f;}
+.ps4-v-count {background:#e4f4e9;color:#17633e;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:800;}
+.ps4-v-actions {display:flex;gap:8px;flex-wrap:wrap;}
+.ps4-v-actions button {font-size:12px;padding:8px 12px;min-height:36px;}
+.ps4-v-table-wrap {width:100%;min-width:0;overflow-x:auto;border:1px solid #dce7e0;border-radius:10px;background:#fff;}
+.ps4-v-table {width:100%;border-collapse:collapse;table-layout:auto;font-size:12px;}
+.ps4-v-table th {background:#eff7f2;color:#345847;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.04em;padding:11px 12px;white-space:nowrap;}
+.ps4-v-table td {padding:11px 12px;color:#173a2c;border-top:1px solid #e7eee9;vertical-align:middle;white-space:nowrap;}
+.ps4-v-table tbody tr:nth-child(even) {background:#fbfdfb;}
+.ps4-v-table tbody tr:hover {background:#f1f8f3;}
+.ps4-v-code {font-weight:750;color:#16533b;font-variant-numeric:tabular-nums;}
+.ps4-v-coord {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-variant-numeric:tabular-nums;letter-spacing:-.025em;}
+.ps4-v-row-action {border:1px solid #f0c9cc;background:#fff6f6;color:#a02c35;border-radius:8px;padding:7px 10px;cursor:pointer;font-weight:650;font-size:11px;}
+.ps4-v-row-action:hover {background:#fde6e8;}
+.ps4-v-row-action:focus-visible {outline:3px solid #ad343d;outline-offset:2px;}
+.ps4-v-help {font-size:11px;color:#687b70;margin:0;line-height:1.5;}
 .ps4-flow-body {border-top:1px solid #edf1ee;padding:14px 15px 17px;display:grid;gap:8px;}
 .ps4-flow-body .geo97-cbers-panel {border-radius:9px;}
 .ps4-analysis-note {background:#fff2f2;color:#96343b;border-left:3px solid #c62734;border-radius:8px;padding:12px;font-size:12px;}
@@ -3305,8 +3324,8 @@ export function PecasTecnicasWorkspace({
                                 color: ps4Status.kind === "error" ? "#942d19" : "#12513b" }}>
                               {ps4Status.message}
                             </div>
-                            <strong>Vértices V provisórios: {ps4Draft.length}</strong>
-                            {ps4Draft.length > 0 && <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                            <div className="ps4-v-panel-head"><strong>Vértices V provisórios</strong><span className="ps4-v-count">{ps4Draft.length} vértice(s)</span></div>
+                            {ps4Draft.length > 0 && <div className="ps4-v-actions">
                               <button type="button" className="pecas-secondary"
                                 onClick={() => {
                                   const last = ps4Draft[ps4Draft.length - 1];
@@ -3347,12 +3366,16 @@ export function PecasTecnicasWorkspace({
                             </button>
                           </div>}
                           {ps4Notice && <p role="status" className="pecas-note">{ps4Notice}</p>}
-                          {ps4Draft.length > 0 && <div style={{ overflowX: "auto" }}>
-                            <table><thead><tr><th>Código</th><th>Latitude</th><th>Longitude</th><th>Ação</th></tr></thead>
+                          <div className="ps4-v-panel">
+                            <div className="ps4-v-panel-head"><strong>Vértices digitalizados</strong><span className="ps4-v-count">{ps4Draft.length} V</span></div>
+                            {ps4Draft.length > 0 ? <div className="ps4-v-table-wrap">
+                            <table className="ps4-v-table" aria-label="Vértices V provisórios"><thead><tr><th scope="col">Ordem</th><th scope="col">Código provisório</th><th scope="col">Latitude (°)</th><th scope="col">Longitude (°)</th><th scope="col">Ação</th></tr></thead>
                               <tbody>{ps4Draft.map((point, index) => <tr key={point.name}>
-                                <td>{point.name}</td><td>{point.latitude.toFixed(8)}</td>
-                                <td>{point.longitude.toFixed(8)}</td>
-                                <td><button type="button" className="pecas-secondary"
+                                <td>{String(index+1).padStart(2,"0")}</td>
+                                <td><span className="ps4-v-code">{point.name}</span></td>
+                                <td className="ps4-v-coord">{point.latitude.toFixed(8)}</td>
+                                <td className="ps4-v-coord">{point.longitude.toFixed(8)}</td>
+                                <td><button type="button" className="ps4-v-row-action" aria-label={"Remover vértice " + point.name}
                                   onClick={() => {
                                     setPs4Draft(old => old.filter((_, i) => i !== index));
                                     setPs4ClosureConfirmed(false);
@@ -3362,9 +3385,9 @@ export function PecasTecnicasWorkspace({
                                 </button></td>
                               </tr>)}</tbody>
                             </table>
-                          </div>}
-                          <p>Use “Salvar peça” para guardar o traçado no rascunho associado ao usuário autenticado.
-                            A atribuição definitiva de código SIGEF dependerá de validação e unicidade.</p>
+                          </div> : <p className="ps4-v-help">Nenhum vértice V criado. Marque uma feição no mapa para começar.</p>}
+                            <p className="ps4-v-help">Use “Salvar peça” para guardar o traçado. A atribuição definitiva do código SIGEF depende de validação e unicidade.</p>
+                          </div>
 
                             </div>
                           </details>
