@@ -380,6 +380,7 @@ export function PecasTecnicasWorkspace({
   const [ps4Armed,setPs4Armed] = useState(false);
   const [ps4ApprovalConfirmed, setPs4ApprovalConfirmed] = useState(false);
   const [ps4ReportAttached, setPs4ReportAttached] = useState(false);
+  const [ps4ImportRevision, setPs4ImportRevision] = useState(0);
   const [ps4RasterAsset, setPs4RasterAsset] = useState<{
     kind: "raster" | "report"; sha256: string; size_bytes: number;
     metadata?: { width?: number; height?: number; crs_wkt?: string;
@@ -3106,6 +3107,55 @@ export function PecasTecnicasWorkspace({
                             <InpeCbersSceneSearch geometry={displaySituationGeometry}
                               geometryKey={displaySituationKey}
                               selectedScene={ps4SceneId}
+                              onPrepareScene={async (scene, bounds) => {
+                                if (scene !== ps4SceneId && ps4Draft.length &&
+                                  !window.confirm("Importar outra cena removerá os vértices V anteriores. Confirma?")) {
+                                  throw new Error("Troca de cena cancelada.");
+                                }
+                                const draft = {
+                                  ...draftForSave(),
+                                  ps4_selected_scene: scene,
+                                  ps4_draft: [],
+                                  ps4_closure: {start:"",confirmed:false,signature:""},
+                                  ps4_ortho_report: {
+                                    scene_id:scene,reference:"",rms_m:null,reviewed_by_rt:false,
+                                  },
+                                };
+                                const id = await onSavePiece(editableMemorial.trim(), draft);
+                                const response = await fetch(
+                                  `${getApiUrl()}/technical-pieces/${id}/ps4/inpe/prepare`,
+                                  {
+                                    method:"POST",credentials:"include",
+                                    headers:{"Content-Type":"application/json"},
+                                    body:JSON.stringify({
+                                      item_id:scene,
+                                      bbox:[bounds.west,bounds.south,bounds.east,bounds.north],
+                                    }),
+                                  },
+                                );
+                                const result = await response.json().catch(() => null);
+                                if (!response.ok) {
+                                  const reason = result?.detail;
+                                  throw new Error(typeof reason === "string"
+                                    ? reason : "Recorte CBERS não foi gerado.");
+                                }
+                                setPs4Draft([]);
+                                setPs4ClosureConfirmed(false);
+                                setPs4ConfirmedSignature("");
+                                setPs4Quality(undefined);
+                                setOfficialOverlap(undefined);
+                                setPs4Candidate(null);
+                                setPs4ApprovalConfirmed(false);
+                                setPs4OrthoReport({
+                                  scene_id:scene,reference:"",rms_m:null,reviewed_by_rt:false,
+                                });
+                                setPs4SceneId(scene);
+                                setPs4Armed(true);
+                                setPs4ImportRevision(value=>value+1);
+                                setPs4Status({kind:"info",message:
+                                  "Recorte CBERS da cena "+scene+
+                                  " importado. Falta conferir o relatório e a acurácia absoluta pelo RT."});
+                              }}
                               onSelectScene={scene=>{
                                 if (scene!==ps4SceneId && ps4Draft.length>0 &&
                                   !window.confirm("Trocar de cena remove os pontos V deste rascunho para evitar misturar imagens. Deseja continuar?"))return;
@@ -3131,6 +3181,7 @@ export function PecasTecnicasWorkspace({
                           </details>
                           <Ps4EvidencePanel
                             pieceId={loadedPieceId}
+                            refreshRevision={ps4ImportRevision}
                             sceneId={ps4SceneId}
                             vertices={ps4Draft}
                             rmsFromWorkspace={ps4OrthoReport.rms_m}
