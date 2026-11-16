@@ -306,7 +306,9 @@ def _validated_snapshot(
         piece is not None and
         snapshot.get("features") == (piece.snapshot or {}).get("features") and
         (snapshot.get("topcon") or {}).get("ps4_draft") ==
-        ((piece.snapshot or {}).get("topcon") or {}).get("ps4_draft")
+        ((piece.snapshot or {}).get("topcon") or {}).get("ps4_draft") and
+        (snapshot.get("topcon") or {}).get("ps4_selected_scene") ==
+        ((piece.snapshot or {}).get("topcon") or {}).get("ps4_selected_scene")
     )
     if "ps4" not in snapshot and previous:
         # Salvamentos de texto/layout não podem revogar uma decisão PS4 válida.
