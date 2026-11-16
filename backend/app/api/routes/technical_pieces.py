@@ -12,6 +12,7 @@ from app.models.auth import User
 from app.models.technical_piece import TechnicalPiece
 from app.services.auth import get_current_user, require_permission
 from app.services.technical_import import parse_sigef_ods
+from app.services.ps4_validation import PS4Submission, evaluate_ps4
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -113,3 +114,39 @@ def delete_piece(
 ):
     db.delete(_owned(piece_id, db, user))
     db.commit()
+
+
+@router.put("/{piece_id}/ps4")
+def save_ps4(
+    piece_id: UUID, payload: PS4Submission,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Salva PS4 de forma transacional, sem sobrescrever o restante do snapshot."""
+    piece = _owned(piece_id, db, user)
+    validation = evaluate_ps4(payload)
+    snapshot = dict(piece.snapshot or {})
+    snapshot["ps4"] = {
+        "submission": payload.model_dump(mode="json"),
+        "validation": validation,
+    }
+    piece.snapshot = snapshot
+    # Nenhum resultado preliminar autoriza concluir a peça automaticamente.
+    if piece.status != "DRAFT":
+        piece.status = "DRAFT"
+    db.commit()
+    db.refresh(piece)
+    return {"piece_id": str(piece.id), "ps4": piece.snapshot["ps4"]}
+
+
+@router.get("/{piece_id}/ps4")
+def get_ps4(
+    piece_id: UUID,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    piece = _owned(piece_id, db, user)
+    return (piece.snapshot or {}).get("ps4", {
+        "submission": {"needs_additional_vertices": True, "vertices": []},
+        "validation": {"status": "BLOCKED", "blockers": [
+            "Validação PS4 não iniciada."
+        ], "requires_rt_review": True},
+    })
