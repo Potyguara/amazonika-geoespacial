@@ -24,6 +24,7 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
     """Retorna erros acionáveis e GeoJSON somente para perímetro consistente."""
     errors: list[str] = []
     warnings: list[str] = []
+    ods_errors: list[str] = []
     if len(points) < 3:
         errors.append("Selecione ao menos três vértices de divisa.")
     if len(points) > MAX_VERTICES:
@@ -62,19 +63,19 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
         if not name:
             errors.append(f"Linha {index}: nome do ponto Topcon ausente.")
         if not code:
-            errors.append(f"Linha {index} ({name}): informe código oficial do vértice.")
+            ods_errors.append(f"Linha {index} ({name}): código oficial do vértice ausente.")
         elif len(code) > 60:
             errors.append(f"Linha {index}: código do vértice muito longo.")
         else:
             codes.append(code)
         if not method:
-            errors.append(f"Linha {index} ({name}): confirme método de posicionamento.")
+            ods_errors.append(f"Linha {index} ({name}): método de posicionamento pendente.")
         if not boundary:
-            errors.append(f"Linha {index} ({name}): confirme tipo de limite.")
+            ods_errors.append(f"Linha {index} ({name}): tipo de limite pendente.")
         if not confrontant:
-            errors.append(f"Linha {index} ({name}): informe confrontante do segmento seguinte.")
+            ods_errors.append(f"Linha {index} ({name}): confrontante do segmento seguinte pendente.")
         if not _finite(height):
-            errors.append(f"Linha {index} ({name}): confirme altura elipsoidal; elevação Topcon não é substituta.")
+            ods_errors.append(f"Linha {index} ({name}): altura elipsoidal h pendente.")
         if not (_finite(sigma_lon) and _finite(sigma_lat)
                 and _finite(point.get("sigma_h_m"))
                 and sigma_lon > 0 and sigma_lat > 0 and point["sigma_h_m"] > 0):
@@ -95,7 +96,7 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
             "sigma_hz_m": sigma_hz if _finite(sigma_hz) else None,
         })
     if len(set(codes)) != len(codes):
-        errors.append("Existem códigos SIGEF repetidos no perímetro.")
+        ods_errors.append("Existem códigos SIGEF repetidos no perímetro.")
     if len(set(coords)) != len(coords):
         errors.append("Existem coordenadas repetidas no perímetro.")
     geometry = None
@@ -111,10 +112,10 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
             )
             area_ha = abs(signed_area) / 10000.0
             if signed_area >= 0:
-                errors.append("Ordene os vértices em sentido horário antes de exportar.")
+                ods_errors.append("Ordene os vértices em sentido horário antes de exportar.")
             northernmost = max(range(len(coords)), key=lambda i: (coords[i][1], -coords[i][0]))
             if northernmost != 0:
-                errors.append(
+                ods_errors.append(
                     f"O primeiro vértice deve ser o mais ao norte: posição {northernmost + 1}."
                 )
             geometry = {"type": "Polygon", "coordinates": [[list(p) for p in coords + [coords[0]]]]}
@@ -122,13 +123,16 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
         warnings.append("Nenhum ponto selecionado; a estação base deve permanecer fora do perímetro.")
     if any(str(p.get("point_role") or "") == "UNCLASSIFIED" for p in points if isinstance(p, dict)):
         warnings.append("Existem pontos originalmente não classificados; confirme seu vínculo à divisa.")
+    if ods_errors:
+        warnings.append("ODS ainda incompleta: " + "; ".join(ods_errors[:5]))
     if missing_precisions:
         warnings.append("ODS: precisões individuais por eixo pendentes para " +
                         ", ".join(missing_precisions[:20]) + ".")
     return {
         "ready_for_geometry": not errors,
-        "ready_for_ods": not errors and not missing_precisions,
+        "ready_for_ods": not errors and not ods_errors and not missing_precisions,
         "missing_sigmas": missing_precisions,
+        "ods_errors": ods_errors,
         "errors": errors, "warnings": warnings,
         "vertex_count": len(points), "vertices": safe_vertices,
         "geometry": geometry if not errors else None,
