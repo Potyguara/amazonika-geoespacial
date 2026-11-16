@@ -27,7 +27,11 @@ type Ps4Record = {
   validation?: { status: string; blockers: string[]; message?: string };
   approval?: { approved_at: string; rt_name: string; art: string };
   source_provenance?: { provider: string; item_id: string; source_type: string;
-    requires_rt_review: boolean; requires_orthorectification_report: boolean };
+    requires_rt_review: boolean; requires_orthorectification_report: boolean;
+    technical_xml?: {
+      status: string; asset_key?: string; sha256?: string; bytes?: number;
+      candidate_field_names?: string[];
+    } };
 };
 const reviewLabels = [
   ["report_scene_correspondence_checked", "O PDF identifica a mesma cena da ortoimagem"],
@@ -261,6 +265,33 @@ export function Ps4EvidencePanel({
         O recorte NÃO comprova RMS, precisão absoluta ou aptidão PS4.
         O relatório técnico e a conferência do RT continuam obrigatórios.
       </p>}
+      {record.source_provenance?.technical_xml?.status === "ARCHIVED_UNVERIFIED" && (
+        <div className="pecas-note">
+          <p>Metadados técnicos XML oficiais do INPE arquivados com SHA-256.
+          Documento de origem, não comprovante automático de precisão absoluta.</p>
+          {Boolean(record.source_provenance.technical_xml.candidate_field_names?.length) && (
+            <p>Campos para conferência do RT: {
+              record.source_provenance.technical_xml.candidate_field_names?.join(", ")
+            }.</p>
+          )}
+          <button type="button" className="pecas-secondary" disabled={!pieceId || busy}
+            onClick={() => void operation(async () => {
+              const response = await fetch(
+                `${getApiUrl()}/technical-pieces/${pieceId}/ps4/inpe/metadata.xml`,
+                { credentials: "include", cache: "no-store" },
+              );
+              if (!response.ok) throw new Error("XML oficial não disponível.");
+              const blob = await response.blob();
+              const url = URL.createObjectURL(blob);
+              const anchor = document.createElement("a");
+              anchor.href = url; anchor.download = "CBERS_INPE_metadados.xml";
+              document.body.append(anchor); anchor.click(); anchor.remove();
+              window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+            })}>
+            Baixar metadados XML oficiais
+          </button>
+        </div>
+      )}
       {!pieceId && <div className="pecas-warning" role="status">
         <p>Salve a peça técnica sem sair desta tela para habilitar os anexos.</p>
         <button type="button" className="pecas-primary"
