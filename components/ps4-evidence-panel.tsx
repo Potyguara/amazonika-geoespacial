@@ -6,7 +6,7 @@ import { getApiUrl } from "@/lib/api";
 type Vertex = { name: string; longitude: number; latitude: number };
 type UploadedAsset = {
   kind: "raster" | "report"; sha256: string; size_bytes: number;
-  metadata?: { width?: number; height?: number; crs_wkt?: string;
+  metadata?: { width?: number; height?: number; crs_wkt?: string; crs_authority?: string | null;
     wgs84_extent?: { type: string; coordinates: number[][][] } };
 };
 type Evidence = {
@@ -117,6 +117,9 @@ export function Ps4EvidencePanel({
       typeof body?.detail === "string" ? body.detail : "Upload PS4 rejeitado."
     );
     setRecord(body.ps4);
+    if (kind === "raster" && body.asset?.metadata?.crs_authority) {
+      setCrs(body.asset.metadata.crs_authority);
+    }
     setDirty(true);
     setChecks(emptyChecks());
     setNotice(kind === "raster"
