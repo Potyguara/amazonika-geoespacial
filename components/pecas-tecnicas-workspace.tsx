@@ -7,6 +7,7 @@ import { Pa2WitnessMap } from "@/components/pa2-witness-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { Ps4EvidencePanel } from "@/components/ps4-evidence-panel";
 import { Ps4RasterDiagnosticCard } from "@/components/ps4-raster-diagnostic-card";
+import { Ps4CheckpointAnalysis } from "@/components/ps4-checkpoint-analysis";
 import { getApiUrl } from "@/lib/api";
 import { buildPs4Closure } from "@/lib/ps4-closure";
 import { lonLatToSirgasUtm } from "@/lib/utm-sirgas-preview";
@@ -401,6 +402,8 @@ export function PecasTecnicasWorkspace({
     kind: "info", message: "Etapa 1/3: marque os vértices V no mapa; depois feche o trecho entre dois marcos."
   });
   const [ps4Candidate, setPs4Candidate] = useState<{ longitude: number; latitude: number } | null>(null);
+  const [ps4CheckCapture,setPs4CheckCapture] = useState(false);
+  const [ps4CheckPoint,setPs4CheckPoint] = useState<{longitude:number;latitude:number}|null>(null);
   const [ps4CandidateName, setPs4CandidateName] = useState("");
   const [ps4Notice, setPs4Notice] = useState("");
   const [ps4ConfirmFeature, setPs4ConfirmFeature] = useState(false);
@@ -3017,7 +3020,7 @@ export function PecasTecnicasWorkspace({
 .ps4-step-state {font-size:11px;color:#2c7652;background:#e5f5eb;border-radius:999px;padding:5px 9px;white-space:nowrap;}
 .ps4-flow-card--danger .ps4-step-state {background:#ffe9eb;color:#b4232d;}
 .ps4-step-caret {color:#718178;font-size:20px;transition:transform .15s ease;}
-.ps4-flow-card[open] .ps4-step-caret {transform:rotate(180deg);}
+
 .ps4-flow-body {border-top:1px solid #edf1ee;padding:14px 15px 17px;display:grid;gap:8px;}
 .ps4-flow-body .geo97-cbers-panel {border-radius:9px;}
 .ps4-analysis-note {background:#fff2f2;color:#96343b;border-left:3px solid #c62734;border-radius:8px;padding:12px;font-size:12px;}
@@ -3138,13 +3141,13 @@ export function PecasTecnicasWorkspace({
                             <p>A restituição na imagem não comprova precisão horizontal. A avaliação da imagem e a conferência do RT são independentes do fechamento geométrico. A ODS oficial permanece sujeita aos controles técnicos.</p>
                           </div>}
 
-                          <details className={"ps4-flow-card ps4-flow-card--normal"} open>
-                            <summary className="ps4-flow-summary">
+                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <div className="ps4-flow-summary">
                               <span className="ps4-step-no">1</span>
                               <span className="ps4-step-heading"><strong>Escolher cena orbital</strong><small>Selecionar ou reutilizar o recorte CBERS-4A</small></span>
                               <span className="ps4-step-state">{ps4RasterAsset ? "Recorte pronto" : "Selecionar cena"}</span>
-                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
-                            </summary>
+                              
+                            </div>
                             <div className="ps4-flow-body">
                               <details className="geo97-cbers-panel" open>
                             <summary>INPE · CBERS-4A WPM — cenas, thumbnails e enquadramento automático</summary>
@@ -3267,15 +3270,15 @@ export function PecasTecnicasWorkspace({
                           </details>
                           
                             </div>
-                          </details>
+                          </section>
 
-                          <details className={"ps4-flow-card ps4-flow-card--normal"} open>
-                            <summary className="ps4-flow-summary">
+                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <div className="ps4-flow-summary">
                               <span className="ps4-step-no">2</span>
                               <span className="ps4-step-heading"><strong>Marcar vértices V</strong><small>Digitalização sobre a feição natural da cena</small></span>
                               <span className="ps4-step-state">{ps4Draft.length + " V"}</span>
-                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
-                            </summary>
+                              
+                            </div>
                             <div className="ps4-flow-body">
                               <div style={{ border: "1px solid #b8cfc5", borderRadius: 10, padding: 12,
                             background: "#f6faf8", display: "grid", gap: 9 }}>
@@ -3360,15 +3363,15 @@ export function PecasTecnicasWorkspace({
                             A atribuição definitiva de código SIGEF dependerá de validação e unicidade.</p>
 
                             </div>
-                          </details>
+                          </section>
 
-                          <details className={"ps4-flow-card ps4-flow-card--normal"} open>
-                            <summary className="ps4-flow-summary">
+                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <div className="ps4-flow-summary">
                               <span className="ps4-step-no">3</span>
                               <span className="ps4-step-heading"><strong>Fechar poligonal M–V–M</strong><small>Substituição de um segmento entre marcos GNSS</small></span>
                               <span className="ps4-step-state">{ps4Ready ? "Consistente" : "Pendente"}</span>
-                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
-                            </summary>
+                              
+                            </div>
                             <div className="ps4-flow-body">
                               <div className="pecas-card" style={{ marginTop: 12 }} aria-label="Fechar prévia da poligonal">
                             <h4>Etapa 2 · Fechar prévia da poligonal</h4>
@@ -3420,19 +3423,27 @@ export function PecasTecnicasWorkspace({
                           </div>
                           
                             </div>
-                          </details>
+                          </section>
 
-                          <details className={"ps4-flow-card ps4-flow-card--danger"} >
-                            <summary className="ps4-flow-summary">
+                          <section className={"ps4-flow-card ps4-flow-card--danger"}>
+                            <div className="ps4-flow-summary">
                               <span className="ps4-step-no">4</span>
                               <span className="ps4-step-heading"><strong>Avaliação de acurácia</strong><small>Separada da restituição; não impede salvar rascunho</small></span>
                               <span className="ps4-step-state">{ps4ApprovalConfirmed ? "Conferida pelo RT" : "Pendente"}</span>
-                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
-                            </summary>
+                              
+                            </div>
                             <div className="ps4-flow-body">
                               <Ps4RasterDiagnosticCard pieceId={loadedPieceId}
                               rasterSha256={ps4RasterAsset?.sha256 ?? null}
                               vertices={ps4Draft} sceneId={ps4SceneId} />
+                            <Ps4CheckpointAnalysis pieceId={loadedPieceId}
+                              rasterSha256={ps4RasterAsset?.sha256 ?? null}
+                              marks={topconBoundary.filter(p=>p.name.includes("-M-") || p.name.startsWith("M")).map(p=>({
+                                name: p.name, longitude: p.longitude, latitude: p.latitude,
+                              }))}
+                              lastImageClick={ps4CheckPoint}
+                              capturing={ps4CheckCapture}
+                              onCapture={enabled=>{setPs4CheckCapture(enabled);setPs4CheckPoint(null);}} />
                             <div className="ps4-analysis-note" role="status">
                               <strong>Processamento próprio ativo · análise visual e geométrica</strong>
                               <p>O sistema calcula indicadores de contraste, textura e cobertura sobre o GeoTIFF real. Esses indicadores ajudam a avaliar o material, mas não fornecem acurácia absoluta. RMS/EMQ posicional e sigmas permanecem pendentes.</p>
@@ -3561,15 +3572,15 @@ export function PecasTecnicasWorkspace({
                             {ps4Armed?" vetorização habilitada":" escolha a cena antes de clicar"}.</p>
                           </details>
                             </div>
-                          </details>
+                          </section>
 
-                          <details className={"ps4-flow-card ps4-flow-card--normal"} >
-                            <summary className="ps4-flow-summary">
+                          <section className={"ps4-flow-card ps4-flow-card--normal"}>
+                            <div className="ps4-flow-summary">
                               <span className="ps4-step-no">5</span>
                               <span className="ps4-step-heading"><strong>Salvar e revisar</strong><small>Persistir os vértices provisórios e retornar à peça</small></span>
                               <span className="ps4-step-state">{ps4Ready ? "Pronto para salvar" : "Rascunho"}</span>
-                              <span className="ps4-step-caret" aria-hidden="true">⌄</span>
-                            </summary>
+                              
+                            </div>
                             <div className="ps4-flow-body">
                               <p>O arquivo da peça guarda os V provisórios sem confundi-los com posicionamento certificável. O processamento da cena e a conferência RT serão executados separadamente.</p>
                               <button type="button" className="pecas-primary" disabled={actionBusy}
@@ -3578,7 +3589,7 @@ export function PecasTecnicasWorkspace({
                                   setSavedPieceNotice("Vértices V provisórios salvos. Acurácia PS4 ainda pendente.");
                                 })}>{actionBusy ? "Salvando..." : "Salvar rascunho dos vértices V"}</button>
                             </div>
-                          </details>
+                          </section>
                         </section>}
                         {pa2Mode && constructionMethod !== "PS4" && <>
                           {constructionMethod === "PA2" && <label className="pecas-field">
@@ -3729,6 +3740,11 @@ export function PecasTecnicasWorkspace({
                     ps4Candidate={ps4Candidate}
                     ps4ClosureGeometry={ps4PreviewGeometry}
                     onPs4Click={point => {
+                       if (ps4CheckCapture) {
+                         setPs4CheckPoint(point);setPs4CheckCapture(false);
+                         setPs4Status({kind:"info",message:"Ponto de imagem capturado para confronto GNSS. Confirme a feição na etapa 4."});
+                         return;
+                       }
                       if(!ps4Armed){
                         setPs4Status({kind:"error",message:"Selecione uma cena INPE e clique em iniciar vetorização antes de marcar V."});
                         return;
