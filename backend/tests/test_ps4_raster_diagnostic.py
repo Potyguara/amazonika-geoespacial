@@ -1,5 +1,10 @@
 """O diagnóstico da imagem nunca deve converter resolução espacial em precisão."""
 import unittest
+import shutil
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from PIL import Image, ImageDraw
+from app.services.ps4_raster_diagnostic import analyze_raster_visual
 
 from app.services.ps4_raster_diagnostic import diagnose_ps4_raster
 
@@ -36,6 +41,24 @@ class RasterDiagnosticTests(unittest.TestCase):
         self.assertEqual(result["status"], "COVERAGE_INCOMPLETE")
         self.assertEqual(result["vertices_outside"], ["V2"])
         self.assertEqual(result["vertices_inside"], 1)
+
+    @unittest.skipUnless(shutil.which("gdal_translate") and shutil.which("gdalinfo"),
+                         "GDAL CLI indisponível")
+    def test_analise_real_da_banda_sem_inventar_precisao(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic-raster.tif"
+            image = Image.new("L", (256, 128), 24)
+            brush = ImageDraw.Draw(image)
+            brush.rectangle((128, 0, 255, 127), fill=220)
+            image.save(path)
+            analysis = analyze_raster_visual(path)
+        self.assertEqual(analysis["status"], "ANALYZED")
+        self.assertEqual(analysis["quality_basis"],
+                         "DIAGNOSTICO_RADIOMETRICO_EXPLORATORIO")
+        self.assertIsNone(analysis["positional_accuracy_m"])
+        self.assertIsNone(analysis["sigma_e_m"])
+        self.assertIsNone(analysis["sigma_n_m"])
+        self.assertGreater(analysis["grayscale_stddev"], 0)
 
     def test_sem_crs_nao_e_aprovado(self):
         with self.assertRaises(ValueError):
