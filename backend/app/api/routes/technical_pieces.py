@@ -87,6 +87,14 @@ def _validated_snapshot(
     if "ps4" not in snapshot:
         return snapshot
     requested = snapshot["ps4"]
+    if not isinstance(requested, dict):
+        raise HTTPException(422, "Estrutura PS4 inválida.")
+    # Upload pode preceder o preenchimento; preserva o anexo do banco.
+    if "submission" not in requested:
+        if piece and isinstance(previous, dict) and "submission" not in previous:
+            snapshot["ps4"] = {"assets": previous.get("assets", {})}
+            return snapshot
+        raise HTTPException(422, "Formulário PS4 não informado.")
     try:
         submitted = PS4Submission.model_validate(requested["submission"])
     except (ValueError, KeyError, TypeError) as exc:
@@ -171,12 +179,18 @@ def get_ps4(
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     piece = _owned(piece_id, db, user)
-    return (piece.snapshot or {}).get("ps4", {
-        "submission": {"needs_additional_vertices": True, "vertices": []},
-        "validation": {"status": "BLOCKED", "blockers": [
-            "Validação PS4 não iniciada."
-        ], "requires_rt_review": True},
-    })
+    current = (piece.snapshot or {}).get("ps4") or {}
+    return {
+        "submission": current.get("submission", {
+            "needs_additional_vertices": True, "vertices": [],
+        }),
+        "assets": current.get("assets", {}),
+        "validation": current.get("validation", {
+            "status": "BLOCKED",
+            "blockers": ["Validação PS4 não iniciada."],
+            "requires_rt_review": True,
+        }),
+    }
 
 
 @router.post("/{piece_id}/ps4/files/{kind}")
