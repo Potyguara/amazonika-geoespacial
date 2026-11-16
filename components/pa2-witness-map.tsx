@@ -7,6 +7,7 @@ import Feature from "ol/Feature";
 import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
 import GeoJSON from "ol/format/GeoJSON";
+import type Geometry from "ol/geom/Geometry";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
@@ -39,13 +40,17 @@ type Props = {
   polygonGeometry?: Record<string, unknown> | null;
   polygonKey?: string;
   ps4SceneId?: string;
+  ps4Raster?: {
+    pieceId: string; sha256: string;
+    footprint?: { type: string; coordinates: number[][][] };
+  } | null;
 };
 
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
   polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate,
-  ps4ClosureGeometry, onPs4Click,
+  ps4ClosureGeometry, onPs4Click, ps4Raster = null,
   ps4SceneId = "CBERS4A_WPM_PCA_RGB321_20261016_214_113" }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -59,10 +64,14 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   methodRef.current = method;
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const cbersRef = useRef<TileLayer<XYZ> | null>(null);
+  const rasterRef = useRef<TileLayer<XYZ> | null>(null);
+  const rasterReadyRef = useRef(false);
+  const footprintRef = useRef<Geometry | null>(null);
   const [cbersEnabled, setCbersEnabled] = useState(false);
   const [cbersOpacity, setCbersOpacity] = useState(0.8);
   const cbersActiveRef = useRef(false);
   const [ps4MapWarning, setPs4MapWarning] = useState("");
+  const [rasterMapStatus, setRasterMapStatus] = useState("Ortoimagem não carregada.");
   const [cbersError, setCbersError] = useState("");
   const [basemap, setBasemap] = useState<"osm" | "esri" | "google" | "mapbox">("esri");
   const [googleEnabled, setGoogleEnabled] = useState(false);
@@ -91,11 +100,21 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       }),
     });
     cbersRef.current = cbersLayer;
+    const rasterLayer = new TileLayer<XYZ>({
+      visible: false, opacity: 1, zIndex: 3,
+      source: new XYZ({
+        url: "/__ps4_unconfigured__/{z}/{x}/{y}.png",
+        crossOrigin: "use-credentials",
+        minZoom: 0, maxZoom: 19,
+      }),
+    });
+    rasterRef.current = rasterLayer;
     const map = new Map({
       target: container.current,
       layers: [
         base,
         cbersLayer,
+        rasterLayer,
         new VectorLayer({
           source: polygonSourceRef.current,
           style: new Style({
@@ -156,11 +175,10 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
       if (methodRef.current === "PS4" && ps4ClickRef.current) {
         const [longitude, latitude] = toLonLat(event.coordinate);
-        if (!cbersActiveRef.current) {
-          setPs4MapWarning("Ative a camada CBERS-4A antes de restituir vértices PS4.");
-        } else if (longitude < -51.251767 || longitude > -50.256565 ||
-                   latitude < -0.504223 || latitude > 0.471441) {
-          setPs4MapWarning("Fora da cobertura da cena CBERS-4A habilitada. Nenhum vértice criado.");
+        if (!rasterReadyRef.current || !footprintRef.current) {
+          setPs4MapWarning("Importe e carregue o GeoTIFF da peça antes de marcar V; imagens externas não são evidência PS4.");
+        } else if (!footprintRef.current.intersectsCoordinate(event.coordinate)) {
+          setPs4MapWarning("Fora da cobertura da ortoimagem anexada. Nenhum vértice criado.");
         } else if (Number.isFinite(longitude) && Number.isFinite(latitude)) {
           setPs4MapWarning("");
           ps4ClickRef.current({ longitude, latitude });
@@ -185,6 +203,9 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       mapRef.current = null;
       baseRef.current = null;
       cbersRef.current = null;
+      rasterRef.current = null;
+      rasterReadyRef.current = false;
+      footprintRef.current = null;
       source.clear();
       polygonSourceRef.current.clear();
       ps4SourceRef.current.clear();
@@ -378,9 +399,61 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   }, [JSON.stringify(ps4Points), ps4Candidate?.latitude, ps4Candidate?.longitude]);
 
   useEffect(() => {
-    if (method === "PS4") setCbersEnabled(true);
+    rasterReadyRef.current = false;
+    footprintRef.current = null;
+    const layer = rasterRef.current;
+    layer?.setVisible(false);
+    if (method !== "PS4" || !ps4Raster?.pieceId || !ps4Raster?.sha256) {
+      setRasterMapStatus("Ortoimagem privada não selecionada; digitalização PS4 bloqueada.");
+      return;
+    }
+    const footprint = ps4Raster.footprint;
+    if (!footprint) {
+      setRasterMapStatus("GeoTIFF sem extensão WGS84; não é possível digitalizar.");
+      return;
+    }
+    try {
+      footprintRef.current = new GeoJSON().readGeometry(footprint, {
+        dataProjection: "EPSG:4326", featureProjection: "EPSG:3857",
+      });
+    } catch {
+      setRasterMapStatus("Extensão geográfica do GeoTIFF inválida.");
+      return;
+    }
+    if (!layer) return;
+    const source = new XYZ({
+      url: getApiUrl() + "/technical-pieces/" + ps4Raster.pieceId +
+        "/ps4/raster/tiles/" + ps4Raster.sha256 + "/{z}/{x}/{y}.png",
+      crossOrigin: "use-credentials",
+      minZoom: 0, maxZoom: 19,
+      attributions: "Ortoimagem GeoTIFF anexada à peça — SHA256 " + ps4Raster.sha256.slice(0, 12),
+    });
+    const loaded = () => {
+      rasterReadyRef.current = true;
+      setRasterMapStatus("Ortoimagem da peça renderizada. Digitalize apenas feições identificáveis.");
+    };
+    const failed = () => {
+      rasterReadyRef.current = false;
+      setRasterMapStatus("Falha ao carregar o tile GeoTIFF; marcação PS4 suspensa.");
+    };
+    source.on("tileloadend", loaded);
+    source.on("tileloaderror", failed);
+    layer.setSource(source);
+    layer.setVisible(true);
+    setRasterMapStatus("Carregando raster georreferenciado no mapa...");
+    return () => {
+      source.un("tileloadend", loaded);
+      source.un("tileloaderror", failed);
+      rasterReadyRef.current = false;
+      footprintRef.current = null;
+      layer.setVisible(false);
+    };
+  }, [method, ps4Raster?.pieceId, ps4Raster?.sha256]);
+
+  useEffect(() => {
+    if (method === "PS4") setCbersEnabled(!ps4Raster);
     else setPs4MapWarning("");
-  }, [method]);
+  }, [method, ps4Raster?.sha256]);
 
   useEffect(() => {
     if (!/^CBERS4A_WPM_PCA_RGB321_2026(?:1016|0815|0715)_214_113$/.test(ps4SceneId)) {
@@ -397,11 +470,11 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
 
   useEffect(() => {
     cbersActiveRef.current = cbersEnabled;
-    cbersRef.current?.setVisible(cbersEnabled);
+    cbersRef.current?.setVisible(cbersEnabled && !ps4Raster);
     cbersRef.current?.setOpacity(cbersOpacity);
     if (cbersEnabled) setCbersError("Cena selecionada " + ps4SceneId + " · PS4 experimental sem acurácia demonstrada.");
     else setCbersError("");
-  }, [cbersEnabled, cbersOpacity, ps4SceneId]);
+  }, [cbersEnabled, cbersOpacity, ps4SceneId, ps4Raster?.sha256]);
 
   const changeZoom = (delta: number) => {
     const map = mapRef.current;
@@ -418,7 +491,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         <option value="mapbox" disabled={!mapboxEnabled}>Mapbox Satélite</option>
       </select></label>
       <label style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        <input type="checkbox" checked={cbersEnabled} onChange={e => setCbersEnabled(e.target.checked)} />
+        <input type="checkbox" checked={cbersEnabled} disabled={method === "PS4" && Boolean(ps4Raster)} onChange={e => setCbersEnabled(e.target.checked)} />
         CBERS-4A INPE (experimental)
       </label>
       {cbersEnabled && <label>Transparência CBERS-4A:
@@ -443,11 +516,12 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       border: "1px solid #9ca3af", overflow: "hidden" }} aria-label={method === "PS4" ? "Mapa de restituição experimental de vértices PS4" : "Mapa de construção de vértices"} />
     {baseError && <p role="status">{baseError}</p>}
     {cbersError && <p role="status" style={{ fontSize: 12 }}>{cbersError}</p>}
+    {method === "PS4" && <p role="status" style={{ fontSize: 12, fontWeight: 700 }}>{rasterMapStatus}</p>}
     {ps4MapWarning && <p role="alert" style={{ fontSize: 12, color: "#9f1239" }}>{ps4MapWarning}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
     <p style={{ fontSize: 12, marginTop: 8 }}>
       {method === "PS4"
-        ? "PS4 experimental: clique sucessivamente sobre a feição natural visível na cena CBERS-4A. Pontos são rascunhos e não possuem acurácia comprovada."
+        ? "PS4: clique somente sobre a ortoimagem GeoTIFF anexada e coberta pelo relatório; os pontos permanecem preliminares até validação da precisão e do RT."
         : "Clique nos marcos para definir o alinhamento. Um clique no terreno indica posição aproximada, lado ou sentido; não é uma medição topográfica. Use o zoom para escolher visualmente o local."}
     </p>  </div>;
 }
