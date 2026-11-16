@@ -3107,7 +3107,7 @@ export function PecasTecnicasWorkspace({
                             <InpeCbersSceneSearch geometry={displaySituationGeometry}
                               geometryKey={displaySituationKey}
                               selectedScene={ps4SceneId}
-                              onPrepareScene={async (scene, bounds) => {
+                              onPrepareScene={async (scene, collection, bounds) => {
                                 if (scene !== ps4SceneId && ps4Draft.length &&
                                   !window.confirm("Importar outra cena removerá os vértices V anteriores. Confirma?")) {
                                   throw new Error("Troca de cena cancelada.");
@@ -3129,6 +3129,7 @@ export function PecasTecnicasWorkspace({
                                     headers:{"Content-Type":"application/json"},
                                     body:JSON.stringify({
                                       item_id:scene,
+                                      collection,
                                       bbox:[bounds.west,bounds.south,bounds.east,bounds.north],
                                     }),
                                   },
