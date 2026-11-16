@@ -131,6 +131,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
           }),
         }),
         new VectorLayer({
+          declutter: true,
           source: ps4SourceRef.current,
           style: (feature) => new Style({
             stroke: new Stroke({ color: "#e11d48", width: 3 }),
@@ -147,6 +148,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
           }),
         }),
         new VectorLayer({
+          declutter: true,
           source,
           style: (feature) => {
             const isLine = feature.getGeometry() instanceof LineString;
@@ -395,7 +397,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       const feature = new Feature({
         geometry: new Point(fromLonLat([point.longitude, point.latitude])),
       });
-      feature.set("label", point.name);
+      feature.set("label", point.name.replace(/^VIRTUAL-V-/i, "V-"));
       source.addFeature(feature);
     }
     if (ps4Candidate && Number.isFinite(ps4Candidate.longitude) && Number.isFinite(ps4Candidate.latitude)) {
