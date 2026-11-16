@@ -20,6 +20,30 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq gdal-bin
       - name: Install dependencies
         run: python -m pip install -r backend/requirements.txt
+      - name: Verify public INPE STAC metadata connectivity (non-blocking)
+        continue-on-error: true
+        env:
+          PYTHONPATH: backend
+        run: |
+          python - <<'PY'
+          from urllib.parse import urlparse
+          from app.services.inpe_ps4_import import fetch_inpe_item, examine_inpe_item
+          item_id = "CBERS4A_WPM_PCA_RGB321_20260410_196_132"
+          try:
+              item = fetch_inpe_item(item_id)
+              info = examine_inpe_item(item)
+              href = item["assets"][info["asset_key"]]["href"]
+              print("STAC_ITEM:", info["id"])
+              print("ASSET_HOST:", urlparse(href).hostname)
+              print("ASSET_PATH_EXTENSION:", urlparse(href).path.rsplit(".",1)[-1])
+              print("AUTO_IMPORT_ALLOWED:", info["import_supported"])
+              print("SUPPORT_REASON:", info["reason"])
+              print("METADATA_ASSETS:", info["metadata_assets"])
+              print("RMS_DOCUMENTED:", info["report_available"])
+          except Exception as exc:
+              print("STAC_PUBLIC_INSPECTION_UNAVAILABLE:", type(exc).__name__, str(exc)[:200])
+              raise SystemExit(1)
+          PY
       - name: Compile PS4 modules
         run: |
           python -m py_compile backend/app/api/routes/technical_pieces.py
