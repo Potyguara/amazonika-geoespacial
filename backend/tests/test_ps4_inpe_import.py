@@ -6,11 +6,14 @@ from unittest import TestCase
 from unittest.mock import patch, MagicMock
 from uuid import uuid4
 import json
+import os
+import time
 
 from app.services.inpe_ps4_import import (
     COLLECTION, L4_COLLECTION, _allowed_asset_url,
     fetch_inpe_item, examine_inpe_item, validate_crop,
     fetch_official_xml, verified_official_xml_path, import_inpe_crop,
+    cleanup_stale_crop_temporaries,
 )
 
 
@@ -83,6 +86,24 @@ class Ps4InpeImportTests(TestCase):
                 self.assertIsNone(info["orthorectification_rms_m"])
                 self.assertFalse(info["report_available"])
                 self.assertEqual(info["metadata_assets"], ["BAND0.xml"])
+
+    def test_limpa_somente_temporarios_gdal_antigos(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            old = root / ".amazonika-inpe-old"
+            recent = root / ".amazonika-inpe-recent"
+            evidence = root / "ps4"
+            for path in (old, recent, evidence):
+                path.mkdir()
+                (path / "raster.tif").write_bytes(b"sample")
+            ancient = time.time() - 10_000
+            os.utime(old, (ancient, ancient))
+            with patch("app.services.inpe_ps4_import.get_settings",
+                       return_value=SimpleNamespace(storage_dir=root)):
+                self.assertEqual(cleanup_stale_crop_temporaries(), 1)
+            self.assertFalse(old.exists())
+            self.assertTrue(recent.exists())
+            self.assertTrue(evidence.exists())
 
     def test_recorte_bloqueado_com_espaco_insuficiente(self):
         item = scene()
