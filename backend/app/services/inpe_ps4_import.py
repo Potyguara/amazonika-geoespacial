@@ -5,7 +5,6 @@ de acurácia absoluta do limite PS4. O PDF/avaliação do RT permanecem exigidos
 """
 from __future__ import annotations
 
-import ipaddress
 import json
 import math
 import os
@@ -21,12 +20,15 @@ from urllib.error import HTTPError, URLError
 from app.services.ps4_assets import store_uploaded_asset
 
 COLLECTION = "CB4A-WPM-PCA-FUSED-1"
+L4_COLLECTION = "CB4A-WPM-L4-DN-1"
+COLLECTIONS = frozenset((COLLECTION, L4_COLLECTION))
 STAC_BASE = "https://data.inpe.br/bdc/stac/v1"
 MAX_ITEM_BYTES = 1_000_000
 MAX_EXPORT_AREA_DEGREES = 0.025
 MAX_OUTPUT_PIXELS = 3000 * 3000
 _IMPORT_SEMAPHORE = BoundedSemaphore(1)
 _ITEM_ID = re.compile(r"^CBERS4A_WPM_PCA_RGB321_\d{8}_\d{3}_\d{3}$")
+_L4_ITEM_ID = re.compile(r"^CBERS_4A_WPM_\d{8}_\d{3}_\d{3}_L4$")
 _ALLOWED_ASSET_HOSTS = frozenset({
     "data.inpe.br", "bdc.inpe.br", "www.dpi.inpe.br",
 })
@@ -47,11 +49,14 @@ def _allowed_asset_url(value: str) -> str:
     return value
 
 
-def fetch_inpe_item(item_id: str) -> dict:
+def fetch_inpe_item(item_id: str, collection: str = COLLECTION) -> dict:
     """Consulta item fixo na API oficial, sem aceitar URL fornecida pelo navegador."""
-    if not _ITEM_ID.fullmatch(item_id):
-        raise ValueError("Identificador CBERS-4A fusionado inválido.")
-    url = f"{STAC_BASE}/collections/{COLLECTION}/items/{item_id}"
+    if collection not in COLLECTIONS:
+        raise ValueError("Coleção CBERS-4A não permitida.")
+    expected = _L4_ITEM_ID if collection == L4_COLLECTION else _ITEM_ID
+    if not expected.fullmatch(item_id):
+        raise ValueError("Identificador CBERS-4A incompatível com a coleção.")
+    url = f"{STAC_BASE}/collections/{collection}/items/{item_id}"
     request = Request(url, headers={
         "Accept": "application/json", "User-Agent": "Amazonika-GEO90/1.0",
     })
@@ -68,7 +73,7 @@ def fetch_inpe_item(item_id: str) -> dict:
         item = json.loads(payload)
     except (ValueError, UnicodeDecodeError) as exc:
         raise ValueError("Item STAC inválido.") from exc
-    if item.get("id") != item_id or item.get("collection") != COLLECTION:
+    if item.get("id") != item_id or item.get("collection") != collection:
         raise ValueError("Item STAC não corresponde à coleção solicitada.")
     return item
 
@@ -76,12 +81,16 @@ def fetch_inpe_item(item_id: str) -> dict:
 def examine_inpe_item(item: dict) -> dict:
     """Somente metadados e disponibilidade, nunca certificação PS4."""
     assets = item.get("assets") or {}
+    collection = item.get("collection")
+    if collection not in COLLECTIONS:
+        raise ValueError("Coleção STAC não aceita para PS4.")
+    preferred = ("BAND0", "BAND1") if collection == L4_COLLECTION else ("tci", "rgb")
     target = next(
-        (assets.get(key) for key in ("tci", "rgb") if isinstance(assets.get(key), dict)),
+        (assets.get(key) for key in preferred if isinstance(assets.get(key), dict)),
         None,
     )
     if not target:
-        raise ValueError("Cena INPE não possui GeoTIFF RGB fusionado.")
+        raise ValueError("Cena INPE sem GeoTIFF nas bandas suportadas.")
     href = target.get("href", "")
     try:
         _allowed_asset_url(href)
@@ -91,21 +100,25 @@ def examine_inpe_item(item: dict) -> dict:
         supported = False
         reason = str(exc)
     props = item.get("properties") or {}
+    is_l4 = collection == L4_COLLECTION
+    key = next(k for k in preferred if assets.get(k) is target)
     return {
         "id": item["id"], "collection": item.get("collection"),
         "datetime": props.get("datetime"),
         "gsd_m": props.get("gsd"),
-        "source_type": "INPE_STAC_L4_DERIVED_RGB_COG",
-        "processing": "PCA_FUSION_FROM_CBERS4A_WPM_L4_DN",
-        "asset_key": "tci" if assets.get("tci") is target else "rgb",
+        "source_type": "INPE_STAC_L4_ORTHORECTIFIED" if is_l4 else "INPE_STAC_L4_DERIVED_RGB_COG",
+        "processing": "LEVEL_4_ORTHORECTIFIED" if is_l4 else "PCA_FUSION_FROM_CBERS4A_WPM_L4_DN",
+        "asset_key": key,
+        "metadata_assets": sorted(k for k in assets if "xml" in k.lower()),
         "import_supported": supported,
         "reason": reason,
         "orthorectified_origin_declared": True,
         "absolute_accuracy_verified": False,
         "orthorectification_rms_m": None,
         "report_available": False,
-        "warning": "Produto RGB derivado de L4 ortorretificado; "
-                   "não foram demonstrados RMS nem precisão absoluta para PS4.",
+        "warning": ("Produto L4 declarado ortorretificado" if is_l4
+                    else "Produto RGB fusionado derivado de L4 ortorretificado") +
+                   "; não foram demonstrados RMS nem precisão absoluta para PS4.",
     }
 
 
@@ -186,7 +199,7 @@ def import_inpe_crop(
                 "asset": saved,
                 "provenance": {
                     "provider": "INPE / Brazil Data Cube",
-                    "collection": COLLECTION,
+                    "collection": item["collection"],
                     "item_id": item["id"],
                     "asset_key": descriptor["asset_key"],
                     "source_href": href,
