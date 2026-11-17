@@ -224,8 +224,12 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         const alpha = pixel
           ? ("getUint8" in pixel ? pixel.getUint8(3) : pixel[3])
           : 0;
-        if (!imageLayer?.getVisible() || !pixel || typeof alpha !== "number" || alpha <= 0) {
-          setPs4MapWarning("Aguarde carregar um pixel válido da imagem visível antes de marcar V provisório.");
+        if (methodRef.current === "PB1" && !imageLayer?.getVisible()) {
+          setPs4MapWarning("ORIXP Color está desligado. Ative a camada para marcar o próximo V; o MDT sozinho não serve de imagem de restituição.");
+        } else if (!pixel || typeof alpha !== "number" || alpha <= 0) {
+          setPs4MapWarning(methodRef.current === "PB1"
+            ? "Sem pixel RGB válido nesta posição. Confira a cobertura do ORIXP, o carregamento do tile e o zoom."
+            : "Aguarde carregar um pixel válido da imagem visível antes de marcar V provisório.");
         } else if (privateRasterVisible && (!rasterReadyRef.current || !footprintRef.current)) {
           setPs4MapWarning("Importe e carregue o GeoTIFF da peça antes de marcar V; imagens externas não são evidência PS4.");
         } else if (privateRasterVisible && !footprintRef.current!.intersectsCoordinate(event.coordinate)) {
@@ -615,7 +619,20 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       display:"grid",gap:10,padding:12,margin:"8px 0",border:"1px solid #cbd5d1",
       borderRadius:10,background:"#f5faf7"
     }}>
-      <strong style={{fontSize:13}}>Camadas PB1 · visualização simultânea</strong>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <strong style={{fontSize:13}}>Camadas PB1 · visualização simultânea</strong>
+        {pb1Raster && <button type="button" onClick={()=>{
+          setPb1ColorVisible(true);
+          setPs4MapWarning("");
+        }} style={{padding:"7px 10px",borderRadius:7,background:"#095b47",color:"white",fontWeight:700}}>
+          {pb1ColorVisible ? "Marcar próximo V no ORIXP" : "Reativar ORIXP e marcar próximo V"}
+        </button>}
+      </div>
+      {!pb1ColorVisible && pb1Raster && <p role="alert" style={{
+        margin:0,padding:"9px 10px",border:"1px solid #e8b59f",
+        borderRadius:8,background:"#fff4ee",color:"#873d20",fontWeight:700,fontSize:12
+      }}>A camada ORIXP está desativada. Você pode visualizar o MDT,
+      mas a criação de novos vértices está bloqueada até reativar o ORIXP.</p>}
       <div style={{display:"flex",flexWrap:"wrap",gap:"10px 18px"}}>
         <label><input type="checkbox" checked={pb1ColorVisible} onChange={e=>setPb1ColorVisible(e.target.checked)}
           disabled={!pb1Raster}/> ORIXP Color</label>
