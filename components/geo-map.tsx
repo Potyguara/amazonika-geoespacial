@@ -745,6 +745,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       feature.set("normalAltitudeEstimates", vertices.map(p =>
         p.derived_physical_model==="HN" && Number.isFinite(p.derived_physical_altitude_m)
           ? p.derived_physical_altitude_m : null), true);
+      feature.set("mdtAltitudes",vertices.map(p=>p.sigef_method==="PB1" && typeof p.derived_calculation?.source_elevation_m==="number" ? p.derived_calculation.source_elevation_m : null),true);
       feature.set("technical_piece_status",
         vertices.some(p => (p.sigef_method === "PS4" || p.sigef_method === "PB1")
           && p.derived_calculation?.accuracy_verified !== true)
@@ -802,6 +803,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       confrontants: feature.get("confrontants") as string[],
       is_preliminary: feature.get("technical_piece_status") === "PRELIMINAR_NAO_CERTIFICADA",
       normal_altitudes_m: feature.get("normalAltitudeEstimates") as Array<number|null> | undefined,
+      mdt_altitudes_m: feature.get("mdtAltitudes") as Array<number|null> | undefined,
       altitudes_m: ((feature.get("altitudes") as string[] | undefined) ?? []).map((value) =>
         value?.trim() ? Number(value.replace(",", ".")) : null
       ),
