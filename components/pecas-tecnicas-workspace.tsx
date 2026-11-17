@@ -182,6 +182,7 @@ export type TopconDraft = {
   area_nature?:string;
   sncr?:string;
   stage: number;
+  premium_step?:number;
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
   ps4_selected_scene?: string;
   construction_skipped?: boolean;
@@ -234,16 +235,6 @@ const SIGEF_BOUNDARY_TYPES = [
   ["LN6", "Limite natural não tipificado"],
 ] as const;
 
-// Rótulos operacionais — a ODS recebe somente o código oficial do INCRA.
-// São descrições do elemento físico, NÃO novos códigos SIGEF.
-const BOUNDARY_DETAILS: Record<string, readonly string[]> = {
-  LA3:["Estrada","Rodovia","Estrada vicinal","Ramal","Travessão","Rua","Avenida"],
-  LA5:["Canal"],
-  LA4:["Vala"],
-  LA7:["Ferrovia","Linha de transmissão","Aceiro","Outro elemento artificial"],
-  LN1:["Rio","Igarapé","Córrego","Lago","Ressaca","Corpo d'água"],
-  LN6:["Nascente","Outro elemento natural"],
-};
 
 function groupTopconParcels(points: TopconBoundaryPoint[], fallback: string) {
   const groups = new globalThis.Map<string, { number: string; name: string; vertices: TopconBoundaryPoint[] }>();
@@ -531,6 +522,11 @@ export function PecasTecnicasWorkspace({
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
   const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;latitude:number;longitude:number;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null}>;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
+  useEffect(()=>{
+    let active=true;setPb1Partial(null);
+    if(loadedPieceId)fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/pb1/process-partial",{credentials:"include",cache:"no-store"}).then(r=>r.ok?r.json():null).then(body=>{if(active&&body?.preview)setPb1Partial(body.preview);}).catch(()=>{});
+    return ()=>{active=false;};
+  },[loadedPieceId]);
   const processPb1Partial=async()=>{
     setPb1Busy(true);setPb1Notice("");
     try{
@@ -879,6 +875,17 @@ export function PecasTecnicasWorkspace({
     }
   };
   const [sigefMunicipalities, setSigefMunicipalities] = useState("");
+  const [municipalityUF,setMunicipalityUF]=useState("AP");
+  const [municipalityOptions,setMunicipalityOptions]=useState<string[]>([]);
+  const [municipalityError,setMunicipalityError]=useState("");
+  useEffect(()=>{
+    let active=true;setMunicipalityOptions([]);setMunicipalityError("");
+    fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados/"+municipalityUF+"/municipios?orderBy=nome")
+      .then(r=>{if(!r.ok)throw Error("Consulta indisponível");return r.json();})
+      .then((rows:Array<{nome:string}>)=>{if(active)setMunicipalityOptions(rows.map(r=>r.nome+"-"+municipalityUF));})
+      .catch(()=>{if(active)setMunicipalityError("Não foi possível consultar a lista IBGE. Tente outra UF ou informe manualmente.");});
+    return ()=>{active=false;};
+  },[municipalityUF]);
   const [sigefSituation, setSigefSituation] = useState("Área não Titulada");
   const [sigefCns, setSigefCns] = useState("");
   const [sigefRegistration, setSigefRegistration] = useState("");
@@ -955,7 +962,7 @@ export function PecasTecnicasWorkspace({
     if (!loadedTopconDraft || loadedTopconDraft.version !== 1) return;
     const d = loadedTopconDraft;
     setTopconPreview(d.preview);
-    setTopconBoundary(d.boundary);
+    setTopconBoundary(d.boundary.map(p=>({...p,sigma_lon_m:p.sigma_lon_m??p.sigma_e_m??null,sigma_lat_m:p.sigma_lat_m??p.sigma_n_m??null,sigma_h_m:p.sigma_h_m??p.sigma_u_m??null})));
     setPs4Draft(d.ps4_draft ?? []);
     setPb1Draft(d.pb1_draft ?? []);
     setPb1Start(d.pb1_closure?.start ?? "");
@@ -988,7 +995,7 @@ export function PecasTecnicasWorkspace({
     setSigefRegistration(d.registration);
     setAreaNature(d.area_nature??"");setSncr(d.sncr??"");
     setStage(d.stage >= 0 && d.stage <= 4 ? d.stage : 0);
-    setPremiumStep(d.stage>0?[0,5,7,8,9][d.stage]:d.ps4_closure?.confirmed?3:0);
+    setPremiumStep(d.premium_step??(d.stage>0?[0,5,7,8,9][d.stage]:(d.pb1_closure?.confirmed||d.ps4_closure?.confirmed)?3:0));
     setTopconReview(null);
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
@@ -1022,7 +1029,7 @@ export function PecasTecnicasWorkspace({
     vertical_calculated: verticalCalculated,
     municipalities: sigefMunicipalities, situation: sigefSituation,
     cns: sigefCns, registration: sigefRegistration,
-    area_nature:areaNature, sncr, stage,
+    area_nature:areaNature, sncr, stage, premium_step:premiumStep,
     construction: {
       method: constructionMethod, pa2_variant: pa2Variant,
       witnesses: pa2Witnesses, distance: constructionDistance,
@@ -1881,7 +1888,7 @@ export function PecasTecnicasWorkspace({
   }, [memorialText, memorialDirty, memorialSaved]);
 
   const [floatingFeedback,setFloatingFeedback]=useState<{message:string;error:boolean}|null>(null);
-  useEffect(()=>{const message=actionError||pdfError||topconError||sigmaImportFeedback||pb1Notice||savedPieceNotice; if(message)setFloatingFeedback({message,error:Boolean(actionError||pdfError||topconError)});},[actionError,pdfError,topconError,sigmaImportFeedback,pb1Notice,savedPieceNotice]);
+  useEffect(()=>{const message=actionError||pdfError||topconError||verticalError||pa2Error||reviewedOdsError||workingOdsError||blankOdsError||actionFeedback||pb1Notice||sigmaImportFeedback||savedPieceNotice; if(message)setFloatingFeedback({message,error:Boolean(actionError||pdfError||topconError)});},[actionError,pdfError,topconError,verticalError,pa2Error,reviewedOdsError,workingOdsError,blankOdsError,actionFeedback,pb1Notice,sigmaImportFeedback,savedPieceNotice]);
   if (!open) return null;
 
   const field = (label: string, key: keyof PecasData, placeholder = "") => (
@@ -3060,10 +3067,16 @@ export function PecasTecnicasWorkspace({
                             <p>Preencha os dados do titular e imóvel nos campos gerais acima.
                               Informe aqui os municípios e a situação jurídica para testar todas as parcelas.
                               Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
-                            <label className="pecas-field"><span>Municípios (separados por ponto e vírgula)</span>
-                              <input value={sigefMunicipalities} placeholder="Macapá-AP; Santana-AP"
-                                onChange={(e) => { setSigefMunicipalities(e.target.value); setSigefParcelReview(null); }} />
-                            </label>
+                            <label className="pecas-field"><span>UF</span><select value={municipalityUF} onChange={e=>setMunicipalityUF(e.target.value)}>{["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map(uf=><option key={uf}>{uf}</option>)}</select></label>
+                            <label className="pecas-field"><span>Adicionar município (Nome-UF)</span><select value="" onChange={e=>{
+                              const list=Array.from(new Set([...sigefMunicipalities.split(/[;,]/).map(v=>v.trim()).filter(Boolean),e.target.value].filter(Boolean)));
+                              setSigefMunicipalities(list.join("; "));setSigefParcelReview(null);onLegalMetadataChange({municipality:list.join("; ")});setPdfBlob(null);setPdfUrl(null);
+                            }}><option value="">Selecione o município</option>{municipalityOptions.map(v=><option key={v}>{v}</option>)}</select></label>
+                            {sigefMunicipalities.split(/[;,]/).map(v=>v.trim()).filter(Boolean).map(v=><div key={v} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:8,borderBottom:"1px solid #dce7e0"}}>{v}<button type="button" className="pecas-secondary" onClick={()=>{
+                              const next=sigefMunicipalities.split(/[;,]/).map(x=>x.trim()).filter(x=>x&&x!==v).join("; ");
+                              setSigefMunicipalities(next);setSigefParcelReview(null);onLegalMetadataChange({municipality:next});setPdfBlob(null);setPdfUrl(null);
+                            }}>Remover</button></div>)}
+                            {municipalityError&&<label className="pecas-field"><span>{municipalityError}</span><input value={sigefMunicipalities} onChange={e=>{setSigefMunicipalities(e.target.value);setSigefParcelReview(null);onLegalMetadataChange({municipality:e.target.value});setPdfBlob(null);setPdfUrl(null);}} placeholder="Porto Grande-AP; Macapá-AP"/></label>}
                             <label className="pecas-field"><span>Situação jurídica</span>
                               <select value={sigefSituation}
                                 onChange={(e) => {
