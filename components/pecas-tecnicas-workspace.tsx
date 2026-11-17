@@ -1456,6 +1456,19 @@ export function PecasTecnicasWorkspace({
       setTopconLoading(false);
     }
   };
+  const downloadPb1Report=async()=>{
+    setActionBusy(true);setActionError("");
+    try{
+      const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+      const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/report.pdf",{credentials:"include",cache:"no-store"});
+      if(!res.ok){const body=await res.json();throw new Error(typeof body.detail==="string"?body.detail:"Relatório PB1 indisponível.");}
+      const blob=await res.blob();const url=URL.createObjectURL(blob);
+      const link=document.createElement("a");link.href=url;link.download="RELATORIO_TECNICO_PB1.pdf";link.click();
+      window.setTimeout(()=>URL.revokeObjectURL(url),30000);
+      setSavedPieceNotice("Relatório técnico preliminar PB1 gerado.");
+    }catch(e){setActionError(e instanceof Error?e.message:"Falha no relatório PB1.");}
+    finally{setActionBusy(false);}
+  };
   const adoptPb1WorkingParcel=()=>{
     setTopconError("");setWorkflowNotice("");
     try{
@@ -2062,6 +2075,7 @@ export function PecasTecnicasWorkspace({
                 {(constructionRequested||hasAdditionalVertices)&&<button type="button" className="pecas-primary"
                   disabled={!topconPreview||topconBoundary.length<2||actionBusy}
                   onClick={openAdditionalVertices}>Abrir espaço de trabalho de vértices</button>}
+                {pb1Draft.length>0&&<button type="button" className="pecas-secondary" disabled={actionBusy} onClick={()=>void downloadPb1Report()}>Baixar relatório técnico PB1 (PDF)</button>}
                 {pb1Ready&&<div className="geo97-adopt-banner" role="status">
                   <strong>PB1: traçado fechado com {pb1Draft.length} vértices V preliminares.</strong>
                   <p>É possível aplicar à planta preliminar; exatidão da base e altitude elipsoidal ainda pendentes.</p>
