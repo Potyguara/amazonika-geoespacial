@@ -48,7 +48,9 @@ def convert_pb1_height(point: PB1VerticalPoint) -> dict:
     factor = point.conversion_factor_m or 0.0
     h = point.source_value_m + factor
     sigma_h = None
-    if point.source_sigma_m is not None and point.factor_sigma_m is not None:
+    if point.source_vertical_kind == "ELLIPSOIDAL":
+        sigma_h = point.source_sigma_m
+    elif point.source_sigma_m is not None and point.factor_sigma_m is not None:
         # Propagação somente sob hipótese de componentes independentes:
         sigma_h = (point.source_sigma_m ** 2 + point.factor_sigma_m ** 2) ** 0.5
     return {
