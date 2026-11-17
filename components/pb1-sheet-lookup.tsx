@@ -1,15 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 
-type Sheet = { inom: string; mi: string; bloco: string; area_overlap: boolean; boundary_touch_only: boolean };
+export type Sheet = { inom: string; mi: string; bloco: string; area_overlap: boolean; boundary_touch_only: boolean };
 type Lookup = { matched_sheets: Sheet[]; sheet_count: number; accuracy_status: string; notice: string };
 
-export function Pb1SheetLookup({ geometry }: { geometry: Record<string, unknown> | null }) {
+export function Pb1SheetLookup({ geometry, onSheetsFound, autoLookup = false }: {
+  geometry: Record<string, unknown> | null;
+  onSheetsFound?: (sheets: Sheet[]) => void;
+  autoLookup?: boolean;
+}) {
   const [result, setResult] = useState<Lookup | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const queriedGeometryRef = useRef<string>("");
+  const geometryKey = geometry ? JSON.stringify(geometry) : "";
   const lookup = async () => {
     if (!geometry) return;
     setBusy(true);setError("");setResult(null);
@@ -23,9 +29,17 @@ export function Pb1SheetLookup({ geometry }: { geometry: Record<string, unknown>
       if (!response.ok) throw new Error(typeof payload?.detail === "string"
         ? payload.detail : "Falha na identificação das folhas.");
       setResult(payload as Lookup);
+      onSheetsFound?.((payload as Lookup).matched_sheets);
     } catch (e) {setError(e instanceof Error?e.message:"Falha na articulação.");}
     finally {setBusy(false);}
   };
+  // Uma consulta por geometria no editor. A peça nunca herda a folha
+  // simplesmente pelo nome dos arquivos carregados.
+  useEffect(() => {
+    if(!autoLookup || !geometryKey || queriedGeometryRef.current === geometryKey)return;
+    queriedGeometryRef.current=geometryKey;
+    void lookup();
+  }, [autoLookup, geometryKey]);
   return <section className="pecas-card" aria-label="Articulação de folhas oficiais PB1">
     <h4>PB1 · Base cartográfica oficial — folhas do Amapá</h4>
     <p>Localize automaticamente a articulação 1:25.000 (INOM, MI e bloco)

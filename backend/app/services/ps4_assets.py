@@ -53,6 +53,19 @@ def _raster_info(path: Path) -> dict:
             raise ValueError("Dimensões inválidas da imagem orbital.")
         raster_crs = CRS.from_wkt(info["coordinateSystem"]["wkt"])
         epsg = raster_crs.to_epsg()
+        # Rótulos de proveniência embutidos no TIFF são informativos, não
+        # comprovação jurídica de origem/PEC. Nunca deduzir classe pela escala.
+        labels = info.get("metadata") or {}
+        intrinsic = labels.get("") if isinstance(labels.get(""), dict) else {}
+        tags = {}
+        for key in ("TIFFTAG_IMAGEDESCRIPTION", "TIFFTAG_DOCUMENTNAME",
+                    "TIFFTAG_COPYRIGHT", "TIFFTAG_ARTIST"):
+            value = intrinsic.get(key)
+            if isinstance(value, str) and value.strip():
+                tags[key] = value.strip()[:500]
+        vertical = raster_crs if raster_crs.is_vertical else next(
+            (part for part in raster_crs.sub_crs_list if part.is_vertical), None
+        )
         return {
             "width": width, "height": height,
             "crs_wkt": info["coordinateSystem"]["wkt"],
@@ -60,6 +73,8 @@ def _raster_info(path: Path) -> dict:
             "geo_transform": info["geoTransform"],
             "wgs84_extent": info.get("wgs84Extent"),
             "driver": "GTiff",
+            "embedded_source_tags": tags,
+            "vertical_crs_name": vertical.name if vertical else None,
             "bands": [{"band": i + 1, "type": band.get("type"),
                        "no_data_value": band.get("noDataValue")}
                       for i, band in enumerate(info.get("bands", []))],
