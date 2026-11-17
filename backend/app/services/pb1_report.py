@@ -4,6 +4,9 @@ from datetime import datetime, timezone
 from xml.sax.saxutils import escape
 import subprocess
 import tempfile
+from PIL import Image as PILImage, ImageDraw
+from pyproj import Transformer
+import json
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, LongTable, TableStyle, Image
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -66,14 +69,26 @@ def build_pb1_report(title, piece_id, snapshot, paths):
         rows.append([v["name"],f'{v["latitude"]:.8f}',f'{v["longitude"]:.8f}',num(r.get("source_value_m",v.get("source_elevation_m"))),num(r.get("h_ellipsoidal_m")),num(r.get("sigma_h_m"))])
         sigmas.append([v["name"],val(r.get("source_vertical_kind")),num(r.get("conversion_factor_m")),num(r.get("sigma_e_m")),num(r.get("sigma_n_m"))])
     table(rows,[98,82,82,76,76,69]);table(sigmas,[100,155,76,76,76])
-    p("5. Segmentos entre V consecutivos","Heading2")
+    p("5. Trecho M–V–M","Heading2")
+    closure=top.get("pb1_closure") or {}
+    boundary=[v for v in (top.get("boundary") or []) if not v.get("derived_calculation")]
+    start=next((i for i,v in enumerate(boundary) if closure.get("start") in (v.get("name"),v.get("sigef_vertex_code"))),None)
+    chain=list(vertices)
+    if closure.get("confirmed") and start is not None and len(boundary)>=2:
+        ends=[boundary[start],boundary[(start+1)%len(boundary)]]
+        if all(isinstance(v.get("longitude"),(int,float)) and isinstance(v.get("latitude"),(int,float)) for v in ends):
+            chain=[ends[0],*vertices,ends[1]]
+    def name(v): return v.get("sigef_vertex_code") or v["name"]
     geod=Geod(ellps="GRS80"); rows=[["Inicial","Final","Azimute (graus)","Distância (m)"]]
-    for a,b in zip(vertices,vertices[1:]):
+    total=0
+    for a,b in zip(chain,chain[1:]):
         az,_,d=geod.inv(a["longitude"],a["latitude"],b["longitude"],b["latitude"])
-        rows.append([a["name"],b["name"],num(az%360),num(d)])
+        total+=d
+        rows.append([name(a),name(b),num(az%360),num(d)])
     table(rows,[130,130,110,113])
-    p("Marco inicial declarado: "+val((top.get("pb1_closure") or {}).get("start")))
-    p("Este quadro documenta somente a cadeia de V; não representa o perímetro integral da parcela.")
+    p("Comprimento geodésico do trecho apresentado: "+num(total)+" m.")
+    p("Fechamento declarado: "+("confirmado" if closure.get("confirmed") else "pendente"))
+    p("Trecho apresentado: "+("M–V–M" if len(chain)>len(vertices) else "somente V, marcos inicial/final não determinados")+". Não representa o perímetro integral.")
     p("6. Evidências raster","Heading2")
     images=[]
     with tempfile.TemporaryDirectory() as tmp:
@@ -87,6 +102,33 @@ def build_pb1_report(title, piece_id, snapshot, paths):
                 im=Image(BytesIO(out.read_bytes()));im._restrictSize(470,320)
                 p(kind+" — recorte original, contraste apenas ilustrativo")
                 story.append(im);story.append(Spacer(1,8))
+                # GDAL output geotransform gives the actual thumbnail pixel locations.
+                try:
+                    info=json.loads(subprocess.run(["gdalinfo","-json",str(out)],capture_output=True,check=True,timeout=15).stdout)
+                    gt=info["geoTransform"]
+                    crs=info["coordinateSystem"]["wkt"]
+                    tr=Transformer.from_crs("EPSG:4326",crs,always_xy=True)
+                    det=gt[1]*gt[5]-gt[2]*gt[4]
+                    if not det: raise ValueError("Transformação singular")
+                    canvas=PILImage.open(out).convert("RGB");draw=ImageDraw.Draw(canvas)
+                    coords=[]
+                    for v in chain:
+                        x,y=tr.transform(v["longitude"],v["latitude"])
+                        px=((x-gt[0])*gt[5]-(y-gt[3])*gt[2])/det
+                        py=((y-gt[3])*gt[1]-(x-gt[0])*gt[4])/det
+                        coords.append((px,py))
+                    if len(coords)>1: draw.line(coords,fill="#ff375e",width=3)
+                    for v,(x,y) in zip(chain,coords):
+                        if 0<=x<canvas.width and 0<=y<canvas.height:
+                            draw.ellipse((x-4,y-4,x+4,y+4),fill="#ffffff",outline="#ad1740",width=2)
+                            draw.text((x+6,y-8),name(v),fill="#ffffff",stroke_width=2,stroke_fill="#20382f")
+                    overlay=BytesIO();canvas.save(overlay,format="PNG");overlay.seek(0)
+                    im2=Image(overlay);im2._restrictSize(470,320)
+                    p("Trecho digitalizado sobre o recorte — visualização de apoio, sem escala de impressão")
+                    story.append(im2);story.append(Spacer(1,8))
+                except (OSError,subprocess.SubprocessError,ValueError,KeyError,ZeroDivisionError):
+                    p("Sobreposição indisponível: georreferência da miniatura não recuperada.")
+
             except (OSError,subprocess.SubprocessError,ValueError):
                 p(kind+": miniatura indisponível.")
         p("7. Revisão e responsabilidade técnica","Heading2")
