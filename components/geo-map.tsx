@@ -743,11 +743,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         p.derived_physical_model==="HN" && Number.isFinite(p.derived_physical_altitude_m)
           ? p.derived_physical_altitude_m : null), true);
       feature.set("technical_piece_status",
-        vertices.some(p => p.sigef_method === "PS4" && p.derived_calculation?.accuracy_verified !== true)
+        vertices.some(p => (p.sigef_method === "PS4" || p.sigef_method === "PB1")
+          && p.derived_calculation?.accuracy_verified !== true)
         ? "PRELIMINAR_NAO_CERTIFICADA" : "EM_REVISAO", true);
       feature.set("sigef_vertex_details", vertices.map((p) => ({
         name: p.name, sigef_vertex_code: p.sigef_vertex_code,
         sigef_method: p.sigef_method, boundary_type: p.boundary_type,
+        boundary_detail: p.boundary_detail ?? "",
         sigma_lon_m: p.sigma_lon_m, sigma_lat_m: p.sigma_lat_m,
         sigma_h_m: p.sigma_h_m, height_reference_confirmed: p.height_reference_confirmed,
         parcel_number: p.parcel_number,
