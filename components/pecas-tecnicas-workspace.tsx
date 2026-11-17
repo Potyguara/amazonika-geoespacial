@@ -403,7 +403,9 @@ export function PecasTecnicasWorkspace({
   const [pb1PieceId,setPb1PieceId] = useState<string|null>(null);
   const [pb1Assets,setPb1Assets] = useState<Record<string,{
     sha256:string;size_bytes:number;kind:string;metadata?:{width?:number;height?:number;bands?:Array<{type?:string}>;
-      wgs84_extent?:{type:string;coordinates:number[][][]}};
+      wgs84_extent?:{type:string;coordinates:number[][][]};
+      crs_authority?:string|null; vertical_crs_name?:string|null;
+      embedded_source_tags?:Record<string,string>};
   }>>({});
   const [pb1Source,setPb1Source] = useState({sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
@@ -3381,19 +3383,45 @@ export function PecasTecnicasWorkspace({
                                 <small>Origem cartográfica e precisão documentada</small></span>
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
-                              <Pb1SheetLookup geometry={pb1LookupGeometry}/>
+                              <Pb1SheetLookup geometry={pb1LookupGeometry}
+                                onSheetsFound={sheets=>{
+                                  const intersecting=sheets.filter(row=>row.area_overlap);
+                                  const list=(intersecting.length?intersecting:sheets)
+                                    .map(row=>row.inom+(row.mi?" · MI "+row.mi:"")).join("; ");
+                                  if(list)setPb1Source(old=>({...old,sheet:list}));
+                                }}/>
                               <label className="pecas-field"><span>Folhas INOM / MI cobertas pelo mosaico (uma ou mais)</span>
                                 <input value={pb1Source.sheet} placeholder="Ex.: 0244-1-NE; 0244-1-NO"
                                   onChange={e=>setPb1Source(o=>({...o,sheet:e.target.value}))}/></label>
+                              <p className="pecas-note">As folhas são preenchidas pelo botão “Identificar folhas da parcela”.
+                                O código INOM/MI não depende do nome dos dois TIFFs.</p>
                               <label className="pecas-field"><span>Fonte e edição do produto oficial (independe do nome do arquivo)</span>
                                 <input value={pb1Source.product} placeholder="Ex.: Exército/GEA · base cartográfica 1:25.000 · ORIXP 2,5 m"
                                   onChange={e=>setPb1Source(o=>({...o,product:e.target.value}))}/></label>
                               <label className="pecas-field"><span>Documento da exatidão planimétrica / PEC</span>
                                 <input value={pb1Source.accuracy_reference} placeholder="Informe documento e classe efetivamente comprovados"
                                   onChange={e=>setPb1Source(o=>({...o,accuracy_reference:e.target.value}))}/></label>
-                              <label className="pecas-field"><span>Datum vertical do MDT (conforme metadados)</span>
+                              <div className="pecas-note">
+                                <strong>Referencial horizontal identificado:</strong> {pb1Dtm?.metadata?.crs_authority
+                                  ||pb1Raster?.metadata?.crs_authority||"Não identificado"}.
+                                <strong> Referencial vertical:</strong> {pb1Dtm?.metadata?.vertical_crs_name
+                                  ||"não declarado no GeoTIFF — confirmar com a documentação oficial"}.
+                                SIRGAS 2000 / UTM define coordenadas horizontais e não comprova
+                                por si só se as elevações são normais, ortométricas ou elipsoidais.
+                              </div>
+                              <label className="pecas-field"><span>Datum vertical da elevação (não confundir com UTM)</span>
                                 <input value={pb1Source.vertical_datum} placeholder="Não presumir HN, H ou h sem metadados"
                                   onChange={e=>setPb1Source(o=>({...o,vertical_datum:e.target.value}))}/></label>
+                              {pb1Raster?.metadata?.embedded_source_tags &&
+                                Object.keys(pb1Raster.metadata.embedded_source_tags).length>0 &&
+                                <p className="pecas-note"><strong>Metadados de origem extraídos do RGB:</strong>{" "}
+                                  {Object.values(pb1Raster.metadata.embedded_source_tags).join(" · ")}
+                                  <button type="button" className="pecas-secondary" style={{marginLeft:8}}
+                                    onClick={()=>setPb1Source(old=>({...old,product:
+                                      Object.values(pb1Raster.metadata!.embedded_source_tags!).join(" · ")}))}>
+                                    Usar descrição do TIFF
+                                  </button>
+                                </p>}
                               <p className="pecas-note">O nome do TIFF pode ser livre, inclusive o da folha predominante.
                                 Informe todas as folhas abrangidas pela área e mantenha os créditos e metadados
                                 da base original. Envie o mosaico já montado e recortado no SIG em GeoTIFF
