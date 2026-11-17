@@ -46,6 +46,10 @@ type Props = {
     pieceId: string; sha256: string;
     footprint?: { type: string; coordinates: number[][][] };
   } | null;
+  pb1Dtm?: {
+    pieceId: string; sha256: string;
+    footprint?: { type: string; coordinates: number[][][] };
+  } | null;
   ps4Raster?: {
     pieceId: string; sha256: string;
     footprint?: { type: string; coordinates: number[][][] };
@@ -57,7 +61,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   method = "PA2", supportLineMode = false, onPositionHint, hint,
   polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate,
   ps4ClosureGeometry, onPs4Click, ps4CheckCapture = false, ps4Raster = null, ps4ReportAttached = false,
-  ps4SceneId = "CBERS4A_WPM_PCA_RGB321_20261016_214_113", pb1Raster = null }: Props) {
+  ps4SceneId = "CBERS4A_WPM_PCA_RGB321_20261016_214_113", pb1Raster = null, pb1Dtm = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef(new VectorSource());
@@ -73,6 +77,17 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   const baseRef = useRef<TileLayer<OSM | XYZ> | null>(null);
   const cbersRef = useRef<TileLayer<XYZ> | null>(null);
   const rasterRef = useRef<TileLayer<XYZ> | null>(null);
+  const dtmRef = useRef<TileLayer<XYZ> | null>(null);
+  const polygonLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const pointLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const vLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
+  const [pb1ColorVisible,setPb1ColorVisible] = useState(true);
+  const [pb1DtmVisible,setPb1DtmVisible] = useState(false);
+  const [pb1ColorOpacity,setPb1ColorOpacity] = useState(1);
+  const [pb1DtmOpacity,setPb1DtmOpacity] = useState(0.6);
+  const [pb1PerimeterVisible,setPb1PerimeterVisible] = useState(true);
+  const [pb1GnssVisible,setPb1GnssVisible] = useState(true);
+  const [pb1VerticesVisible,setPb1VerticesVisible] = useState(true);
   const rasterReadyRef = useRef(false);
   const footprintRef = useRef<Geometry | null>(null);
   const [cbersEnabled, setCbersEnabled] = useState(false);
@@ -117,12 +132,19 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       }),
     });
     rasterRef.current = rasterLayer;
+    const dtmLayer = new TileLayer<XYZ>({
+      visible:false, opacity:0.6, zIndex:2,
+      source:new XYZ({url:"/__pb1_dtm_unconfigured__/{z}/{x}/{y}.png",
+        crossOrigin:"use-credentials",minZoom:0,maxZoom:19}),
+    });
+    dtmRef.current = dtmLayer;
     const map = new Map({
       target: container.current,
       layers: [
         base,
         cbersLayer,
         rasterLayer,
+        dtmLayer,
         new VectorLayer({
           source: polygonSourceRef.current,
           style: new Style({
@@ -184,15 +206,20 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       view: new View({ center: fromLonLat([-51, 0]), zoom: 8, maxZoom: 20 }),
       controls: [],
     });
+    polygonLayerRef.current = map.getLayers().item(4) as VectorLayer<VectorSource>;
+    vLayerRef.current = map.getLayers().item(6) as VectorLayer<VectorSource>;
+    pointLayerRef.current = map.getLayers().item(7) as VectorLayer<VectorSource>;
     mapRef.current = map;
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
       if ((methodRef.current === "PS4" || methodRef.current === "PB1") && ps4ClickRef.current) {
         const [longitude, latitude] = toLonLat(event.coordinate);
         // Vetorização provisória pode usar o recorte próprio ou a cena INPE.
         // O PDF do RT continua obrigatório para aprovação, não para desenhar.
+        // Para PB1, o pixel precisa vir exclusivamente do ORIXP RGB,
+        // mesmo que a camada cinza seja exibida por cima.
         const privateRasterVisible = Boolean(rasterRef.current?.getVisible());
-        const imageLayer = privateRasterVisible ? rasterRef.current :
-          methodRef.current === "PS4" ? cbersRef.current : null;
+        const imageLayer = methodRef.current === "PB1"
+          ? rasterRef.current : privateRasterVisible ? rasterRef.current : cbersRef.current;
         const pixel = imageLayer?.getData(event.pixel);
         const alpha = pixel
           ? ("getUint8" in pixel ? pixel.getUint8(3) : pixel[3])
@@ -228,6 +255,10 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       baseRef.current = null;
       cbersRef.current = null;
       rasterRef.current = null;
+      dtmRef.current = null;
+      polygonLayerRef.current = null;
+      pointLayerRef.current = null;
+      vLayerRef.current = null;
       rasterReadyRef.current = false;
       footprintRef.current = null;
       source.clear();
@@ -476,6 +507,33 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   }, [method, ps4Raster?.pieceId, ps4Raster?.sha256, pb1Raster?.pieceId, pb1Raster?.sha256]);
 
   useEffect(() => {
+    const layer = dtmRef.current;
+    layer?.setVisible(false);
+    if(method !== "PB1" || !pb1Dtm?.pieceId || !pb1Dtm.sha256 || !layer)return;
+    const source = new XYZ({
+      url:getApiUrl()+"/technical-pieces/"+pb1Dtm.pieceId+
+        "/pb1/raster/tiles/pb1_dtm/"+pb1Dtm.sha256+"/{z}/{x}/{y}.png",
+      crossOrigin:"use-credentials", minZoom:0,maxZoom:19,
+      attributions:"PB1 · MDT original cinza · "+pb1Dtm.sha256.slice(0,12),
+    });
+    layer.setSource(source);
+    layer.setVisible(pb1DtmVisible);
+    return ()=>{layer.setVisible(false);};
+  },[method,pb1Dtm?.pieceId,pb1Dtm?.sha256]);
+
+  useEffect(()=>{
+    if(method!=="PB1")return;
+    rasterRef.current?.setVisible(Boolean(pb1Raster)&&pb1ColorVisible);
+    rasterRef.current?.setOpacity(pb1ColorOpacity);
+    dtmRef.current?.setVisible(Boolean(pb1Dtm)&&pb1DtmVisible);
+    dtmRef.current?.setOpacity(pb1DtmOpacity);
+    polygonLayerRef.current?.setVisible(pb1PerimeterVisible);
+    pointLayerRef.current?.setVisible(pb1GnssVisible);
+    vLayerRef.current?.setVisible(pb1VerticesVisible);
+  },[method,pb1Raster?.sha256,pb1Dtm?.sha256,pb1ColorVisible,pb1DtmVisible,
+     pb1ColorOpacity,pb1DtmOpacity,pb1PerimeterVisible,pb1GnssVisible,pb1VerticesVisible]);
+
+  useEffect(() => {
     if (method === "PS4" || method === "PB1") setCbersEnabled(false);
     else setPs4MapWarning("");
   }, [method, ps4Raster?.sha256]);
@@ -499,13 +557,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     const showPreview = cbersEnabled && previewSupported;
     cbersRef.current?.setVisible(showPreview);
     // Nunca esconder o recorte privado se a cena auxiliar não possuir tiles.
-    rasterRef.current?.setVisible(Boolean(method === "PB1" ? pb1Raster : ps4Raster) && !showPreview);
+    rasterRef.current?.setVisible(Boolean(method === "PB1" ? pb1Raster&&pb1ColorVisible : ps4Raster) && !showPreview);
     cbersRef.current?.setOpacity(cbersOpacity);
     if (cbersEnabled) setCbersError(previewSupported
       ? "Cena INPE auxiliar selecionada; acurácia PS4 ainda não comprovada."
       : "Esta cena não possui tiles RGB auxiliares nesta versão. Exibindo o GeoTIFF privado, se disponível.");
     else setCbersError("");
-  }, [cbersEnabled, cbersOpacity, ps4SceneId, ps4Raster?.sha256, pb1Raster?.sha256, method]);
+  }, [cbersEnabled, cbersOpacity, ps4SceneId, ps4Raster?.sha256, pb1Raster?.sha256, method,pb1ColorVisible]);
 
   useEffect(() => {
     sourceRef.current.changed();
@@ -547,6 +605,33 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       <button type="button" onClick={() => changeZoom(1)}>Zoom +</button>
       <button type="button" onClick={() => changeZoom(-1)}>Zoom −</button>
     </div>
+    {method === "PB1" && <section aria-label="Camadas PB1" style={{
+      display:"grid",gap:10,padding:12,margin:"8px 0",border:"1px solid #cbd5d1",
+      borderRadius:10,background:"#f5faf7"
+    }}>
+      <strong style={{fontSize:13}}>Camadas PB1 · visualização simultânea</strong>
+      <div style={{display:"flex",flexWrap:"wrap",gap:"10px 18px"}}>
+        <label><input type="checkbox" checked={pb1ColorVisible} onChange={e=>setPb1ColorVisible(e.target.checked)}
+          disabled={!pb1Raster}/> ORIXP Color</label>
+        <label><input type="checkbox" checked={pb1DtmVisible} onChange={e=>setPb1DtmVisible(e.target.checked)}
+          disabled={!pb1Dtm}/> MDT cinza</label>
+        <label><input type="checkbox" checked={pb1PerimeterVisible} onChange={e=>setPb1PerimeterVisible(e.target.checked)}/> Perímetro</label>
+        <label><input type="checkbox" checked={pb1GnssVisible} onChange={e=>setPb1GnssVisible(e.target.checked)}/> Marcos GNSS</label>
+        <label><input type="checkbox" checked={pb1VerticesVisible} onChange={e=>setPb1VerticesVisible(e.target.checked)}/> Vértices V</label>
+      </div>
+      <div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
+        <label style={{fontSize:12}}>Opacidade ORIXP {Math.round(pb1ColorOpacity*100)}%
+          <input type="range" min="0" max="100" step="5" value={Math.round(pb1ColorOpacity*100)}
+            onChange={e=>setPb1ColorOpacity(Number(e.target.value)/100)} disabled={!pb1Raster}/>
+        </label>
+        <label style={{fontSize:12}}>Opacidade MDT {Math.round(pb1DtmOpacity*100)}%
+          <input type="range" min="0" max="100" step="5" value={Math.round(pb1DtmOpacity*100)}
+            onChange={e=>setPb1DtmOpacity(Number(e.target.value)/100)} disabled={!pb1Dtm}/>
+        </label>
+      </div>
+      <small>O MDT numérico é exibido com contraste cinza e NoData transparente.
+        Os cliques de V exigem a camada ORIXP visível e pixel válido, mesmo quando o MDT estiver sobreposto.</small>
+    </section>}
     {method === "PS4" && ps4CheckCapture && <p role="status" style={{background:"#fff3cf",color:"#7c4c06",padding:"9px 12px",borderRadius:8,fontWeight:750,fontSize:12}}>
       Modo checagem: marcadores GNSS temporariamente ocultos. Clique na feição real identificável na imagem, não na posição presumida do marco.
     </p>}
@@ -554,7 +639,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       border: "1px solid #9ca3af", overflow: "hidden" }} aria-label={method === "PS4" ? "Mapa de restituição experimental de vértices PS4" : "Mapa de construção de vértices"} />
     {baseError && <p role="status">{baseError}</p>}
     {cbersError && <p role="status" style={{ fontSize: 12 }}>{cbersError}</p>}
-    {method === "PS4" && <p role="status" style={{ fontSize: 12, fontWeight: 700 }}>{rasterMapStatus}</p>}
+    {(method === "PS4" || method === "PB1") && <p role="status" style={{ fontSize: 12, fontWeight: 700 }}>{rasterMapStatus}</p>}
     {ps4MapWarning && <p role="alert" style={{ fontSize: 12, color: "#9f1239" }}>{ps4MapWarning}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
     <p style={{ fontSize: 12, marginTop: 8 }}>
