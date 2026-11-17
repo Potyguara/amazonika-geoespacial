@@ -4106,6 +4106,9 @@ export function PecasTecnicasWorkspace({
                     pb1Raster={constructionMethod==="PB1" && pb1Raster && pb1PieceId
                       ?{pieceId:pb1PieceId,sha256:pb1Raster.sha256,
                         footprint:pb1Raster.metadata?.wgs84_extent}:null}
+                    pb1Dtm={constructionMethod==="PB1" && pb1Dtm && pb1PieceId
+                      ?{pieceId:pb1PieceId,sha256:pb1Dtm.sha256,
+                        footprint:pb1Dtm.metadata?.wgs84_extent}:null}
                     ps4SceneId={ps4SceneId}
                     ps4ReportAttached={ps4ReportAttached}
                     ps4Raster={loadedPieceId && ps4RasterAsset?.kind === "raster"
