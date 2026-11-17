@@ -530,6 +530,24 @@ export function PecasTecnicasWorkspace({
       ]]}
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
+  const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null}>;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
+  const processPb1Partial=async()=>{
+    setPb1Busy(true);setPb1Notice("");
+    try{
+      const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+      const payload:Record<string,number>={};
+      for(const key of ["sigma_e_m","sigma_n_m","source_sigma_m"] as const){
+        const raw=pb1Technical[key].trim();
+        if(raw){const value=Number(raw.replace(",","."));if(!Number.isFinite(value)||value<=0)throw new Error("Sigma inválido: "+key);payload[key]=value;}
+      }
+      const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/process-partial",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      const body=await res.json();
+      if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Falha no processamento PB1.");
+      setPb1Partial(body);
+      setPb1Notice("Resultados preliminares salvos. Campos sem fundamento permanecem pendentes; você pode concluir a construção.");
+    }catch(e){setPb1Notice(e instanceof Error?e.message:"Falha no processamento.");}
+    finally{setPb1Busy(false);}
+  };
   const calculatePb1Technical=async(saveFactorsOnly=false)=>{
     setPb1Busy(true);setPb1TechnicalResult(null);setPb1Notice("");
     try{
@@ -3532,6 +3550,12 @@ export function PecasTecnicasWorkspace({
                               </label>
                               <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
                               <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
+                              <button type="button" className="pecas-secondary" disabled={pb1Busy||!pb1Raster||!pb1Draft.length} onClick={()=>void processPb1Partial()}>Processar dados disponíveis automaticamente</button>
+                              {pb1Partial&&<div className="pecas-note">
+                                <strong>{pb1Partial.points.length} vértices processados · resultados preliminares</strong>
+                                <p>Precisão horizontal: {pb1Partial.horizontal_sigma_m?.toFixed(3)??"Pendente"} m · {pb1Partial.sigma_origin==="PEC_REFERENCE_ISOTROPIC_ESTIMATE"?"Estimativa de referência PEC (isotropia presumida)":pb1Partial.sigma_origin==="DECLARED"?"Parâmetros declarados":"Sem parâmetros disponíveis"}</p>
+                                <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Vértice</th><th>MDT</th><th>h</th><th>σE</th><th>σN</th><th>σh</th></tr></thead><tbody>{pb1Partial.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td>{[p.source_value_m,p.h_ellipsoidal_m,p.sigma_e_m,p.sigma_n_m,p.sigma_h_m].map((v,i)=><td key={i}>{v?.toFixed(3)??"—"}</td>)}</tr>)}</tbody></table></div>
+                              </div>}
                               <button type="button" className="pecas-primary" disabled={!pb1Closure.valid||!pb1Raster||actionBusy}
                                 onClick={()=>adoptPb1WorkingParcel(true)}>Concluir construção e aplicar à parcela</button>
                               <p className="pecas-note">Pendências de precisão e altimetria não impedem a peça preliminar; a ODS definitiva permanece bloqueada.</p>
