@@ -6,7 +6,7 @@ O arquivo privado não é incluído no repositório.
 import unittest
 from unittest.mock import patch
 
-from app.services.topcon_import import _canonical_point_id, _native_topcon_tables, parse_topcon_report
+from app.services.topcon_import import _canonical_point_id, _native_point_cells, _native_topcon_tables, parse_topcon_report
 
 ELMER_TEXT = """
 Project name: PROCESSAMENTO.ttp
@@ -27,6 +27,14 @@ class TestElmerPdfPoints(unittest.TestCase):
     def test_minus_sign_normalization_only_in_identifiers(self):
         self.assertEqual(_canonical_point_id("M−0223"), "M-0223")
         self.assertEqual(_canonical_point_id("M–0227"), "M-0227")
+
+    def test_pdf_colapsa_espaco_entre_longitude_e_altura(self):
+        # Neste layout, há um único espaço entre o W e a altitude negativa.
+        line = next(line for line in ELMER_TEXT.splitlines() if line.strip().startswith("M−0298"))
+        cells = _native_point_cells(line)
+        self.assertEqual(len(cells), 7)
+        self.assertEqual(cells[5], '51°21\'49,06267854"W')
+        self.assertEqual(cells[6], "-11,576")
 
     def test_five_point_summary_rows_including_four_marcos(self):
         native = _native_topcon_tables(ELMER_TEXT)
