@@ -788,6 +788,27 @@ def pb1_technical_preview(
     return result
 
 
+@router.get("/{piece_id}/pb1/report.pdf")
+def pb1_report_pdf(piece_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.pb1_report import build_pb1_report
+    piece = _owned(piece_id, db, user)
+    snapshot = piece.snapshot or {}
+    assets = ((snapshot.get("pb1") or {}).get("assets") or {})
+    paths = {}
+    for kind in ("pb1_color", "pb1_dtm"):
+        asset = assets.get(kind)
+        if asset and exists_matching(user.id, piece.id, asset):
+            paths[kind] = stored_file_path(user.id, piece.id, kind, asset["sha256"])
+    try:
+        data = build_pb1_report(piece.title, str(piece.id), snapshot, paths)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(content=data, media_type="application/pdf", headers={
+        "Content-Disposition": 'attachment; filename="RELATORIO_TECNICO_PB1.pdf"',
+        "Cache-Control": "private, no-store",
+    })
+
+
 @router.get("/{piece_id}/pb1/technical-preview")
 def get_pb1_technical_preview(piece_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     piece = _owned(piece_id, db, user)
