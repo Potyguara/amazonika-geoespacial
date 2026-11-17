@@ -99,6 +99,7 @@ export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_re
   sigef_vertex_code: string;
   sigef_method: string;
   boundary_type: string;
+  boundary_detail?: string;
   confrontant: string;
   ellipsoidal_height_m: number | null;
   sigma_lon_m: number | null;
@@ -222,6 +223,17 @@ const SIGEF_BOUNDARY_TYPES = [
   ["LN4", "Crista de encosta"], ["LN5", "Pé de encosta"],
   ["LN6", "Limite natural não tipificado"],
 ] as const;
+
+// Rótulos operacionais — a ODS recebe somente o código oficial do INCRA.
+// São descrições do elemento físico, NÃO novos códigos SIGEF.
+const BOUNDARY_DETAILS: Record<string, readonly string[]> = {
+  LA3:["Estrada","Rodovia","Estrada vicinal","Ramal","Travessão","Rua","Avenida"],
+  LA5:["Canal"],
+  LA4:["Vala"],
+  LA7:["Ferrovia","Linha de transmissão","Aceiro","Outro elemento artificial"],
+  LN1:["Rio","Igarapé","Córrego","Lago","Ressaca","Corpo d'água"],
+  LN6:["Nascente","Outro elemento natural"],
+};
 
 function groupTopconParcels(points: TopconBoundaryPoint[], fallback: string) {
   const groups = new globalThis.Map<string, { number: string; name: string; vertices: TopconBoundaryPoint[] }>();
@@ -2195,12 +2207,28 @@ export function PecasTecnicasWorkspace({
                                   </select></td>
                                   <td><select aria-label={`Tipo de limite ${point.name}`} disabled={!selected}
                                     value={selected?.boundary_type ?? ""}
-                                    onChange={(event) => updateBoundaryPoint(index, { boundary_type: event.target.value })}>
+                                    onChange={(event) => updateBoundaryPoint(index, {
+                                      boundary_type: event.target.value,
+                                      boundary_detail: "",
+                                    })}>
                                     <option value="">Selecione o limite</option>
                                     {SIGEF_BOUNDARY_TYPES.map(([code, label]) => <option key={code} value={code}>
                                       {code} — {label}
                                     </option>)}
-                                  </select></td>
+                                  </select>
+                                    {selected && BOUNDARY_DETAILS[selected.boundary_type]?.length && <label style={{display:"block",marginTop:4}}>
+                                      <span style={{fontSize:11}}>Descrição da feição</span>
+                                      <select aria-label={`Detalhe do limite ${point.name}`}
+                                        value={selected.boundary_detail||""}
+                                        onChange={event=>updateBoundaryPoint(index,{
+                                          boundary_detail:event.target.value
+                                        })}>
+                                        <option value="">Especificar…</option>
+                                        {BOUNDARY_DETAILS[selected.boundary_type].map(detail=>
+                                          <option key={detail} value={detail}>{detail}</option>)}
+                                      </select>
+                                    </label>}
+                                  </td>
                                   <td><input aria-label={`Confrontante ${point.name}`} disabled={!selected}
                                     value={selected?.confrontant ?? ""}
                                     onChange={(event) => updateBoundaryPoint(index, { confrontant: event.target.value })} /></td>
@@ -4078,6 +4106,9 @@ export function PecasTecnicasWorkspace({
                     pb1Raster={constructionMethod==="PB1" && pb1Raster && pb1PieceId
                       ?{pieceId:pb1PieceId,sha256:pb1Raster.sha256,
                         footprint:pb1Raster.metadata?.wgs84_extent}:null}
+                    pb1Dtm={constructionMethod==="PB1" && pb1Dtm && pb1PieceId
+                      ?{pieceId:pb1PieceId,sha256:pb1Dtm.sha256,
+                        footprint:pb1Dtm.metadata?.wgs84_extent}:null}
                     ps4SceneId={ps4SceneId}
                     ps4ReportAttached={ps4ReportAttached}
                     ps4Raster={loadedPieceId && ps4RasterAsset?.kind === "raster"

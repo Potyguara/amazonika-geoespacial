@@ -604,7 +604,7 @@ def pb1_raster_tile(
         if not tile_intersects_footprint(asset.get("metadata") or {}, z, x, y):
             return Response(transparent_png_tile(), media_type="image/png",
                             headers={"Cache-Control": "private, max-age=3600"})
-        png = render_png_tile(path, z, x, y)
+        png = render_png_tile(path, z, x, y, mode=kind)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except RuntimeError as exc:

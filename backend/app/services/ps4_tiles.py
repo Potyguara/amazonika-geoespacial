@@ -111,7 +111,60 @@ def _render_grayscale_tile(target: Path, temp: Path, env: dict,
         output.save(stream, "PNG")
         return stream.getvalue()
 
-def render_png_tile(path: Path, z: int, x: int, y: int) -> bytes:
+def _render_pb1_rgb_tile(target: Path, temp: Path, env: dict,
+                         source: Path) -> bytes:
+    """RGB com contraste global por banda e alfa do recorte.
+
+    GeoTIFF de visualização pode conter RGB de 8/16 bits. Renderizar com
+    escala global por imagem; jamais modificar o produto original.
+    """
+    info_run = subprocess.run(
+        ["gdalinfo", "-json", "-approx_stats", str(source)],
+        capture_output=True, text=True, timeout=40, check=False,
+        env={**env, "GDAL_PAM_ENABLED": "NO"},
+    )
+    if info_run.returncode:
+        raise ValueError("Não foi possível ler estatísticas do RGB oficial.")
+    bands = json.loads(info_run.stdout).get("bands") or []
+    if len(bands) < 3:
+        raise ValueError("RGB PB1 requer três bandas de imagem.")
+    channel_images = []
+    for index in range(3):
+        band = bands[index]
+        stats = (band.get("metadata") or {}).get("") or {}
+        low = float(stats.get("STATISTICS_MINIMUM", band.get("minimum", "nan")))
+        high = float(stats.get("STATISTICS_MAXIMUM", band.get("maximum", "nan")))
+        if not (isfinite(low) and isfinite(high)):
+            raise ValueError("RGB PB1 sem estatísticas radiométricas.")
+        if high <= low:
+            high = low + 1
+        dest = temp / f"channel-{index + 1}.png"
+        result = subprocess.run(
+            ["gdal_translate", "-q", "-of", "PNG", "-ot", "Byte",
+             "-b", str(index+1), "-scale", str(low), str(high), "0", "255",
+             str(target), str(dest)],
+            capture_output=True, timeout=15, check=False, env=env,
+        )
+        if result.returncode or not dest.is_file():
+            raise ValueError("Falha ao renderizar canal RGB PB1.")
+        with Image.open(dest) as img:
+            channel_images.append(img.convert("L").copy())
+    alpha_file = temp / "rgb-alpha.png"
+    result = subprocess.run(
+        ["gdal_translate", "-q", "-of", "PNG", "-ot", "Byte",
+         "-b", "4", str(target), str(alpha_file)],
+        capture_output=True, timeout=15, check=False, env=env,
+    )
+    if result.returncode or not alpha_file.is_file():
+        raise ValueError("Falha na máscara de transparência RGB PB1.")
+    with Image.open(alpha_file) as mask:
+        rgba = Image.merge("RGBA", (*channel_images, mask.convert("L")))
+        stream = BytesIO()
+        rgba.save(stream, "PNG")
+        return stream.getvalue()
+
+
+def render_png_tile(path: Path, z: int, x: int, y: int, mode: str = "auto") -> bytes:
     """Gera PNG de 256x256 sem persistir tiles temporários no volume."""
     if not path.is_file():
         raise ValueError("Ortoimagem não localizada.")
@@ -152,6 +205,14 @@ def render_png_tile(path: Path, z: int, x: int, y: int) -> bytes:
                     raise ValueError("Falha ao ler bandas do tile PS4.")
                 info = json.loads(info_run.stdout)
                 bands = info.get("bands") or []
+                if mode == "pb1_color":
+                    if len(bands) != 4:
+                        raise ValueError("RGB PB1 requer três canais e máscara alfa.")
+                    return _render_pb1_rgb_tile(target, temp, env, path)
+                if mode == "pb1_dtm":
+                    if len(bands) != 2:
+                        raise ValueError("MDT PB1 requer banda única e máscara alfa.")
+                    return _render_grayscale_tile(target, temp, env, path)
                 if len(bands) == 2 and bands[1].get("colorInterpretation") == "Alpha":
                     # Para L4 (uma banda + alpha), preservar a máscara de
                     # cobertura e aplicar contraste à banda Int16 separadamente.
