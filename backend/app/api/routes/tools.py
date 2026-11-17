@@ -45,6 +45,7 @@ class MemorialParcel(BaseModel):
     confrontants: list[str] | None = None
     altitudes_m: list[float | None] | None = None
     normal_altitudes_m: list[float | None] | None = None
+    mdt_altitudes_m: list[float | None] | None = None
     is_preliminary: bool = False
 
 
