@@ -1888,7 +1888,7 @@ export function PecasTecnicasWorkspace({
   }, [memorialText, memorialDirty, memorialSaved]);
 
   const [floatingFeedback,setFloatingFeedback]=useState<{message:string;error:boolean}|null>(null);
-  useEffect(()=>{const message=actionError||pdfError||topconError||verticalError||pa2Error||reviewedOdsError||workingOdsError||blankOdsError||actionFeedback||pb1Notice||sigmaImportFeedback||savedPieceNotice; if(message)setFloatingFeedback({message,error:Boolean(actionError||pdfError||topconError)});},[actionError,pdfError,topconError,verticalError,pa2Error,reviewedOdsError,workingOdsError,blankOdsError,actionFeedback,pb1Notice,sigmaImportFeedback,savedPieceNotice]);
+  useEffect(()=>{const message=actionError||pdfError||topconError||verticalError||pa2Error||reviewedOdsError||workingOdsError||blankOdsError||actionFeedback||pb1Notice||sigmaImportFeedback||savedPieceNotice; if(message)setFloatingFeedback({message,error:Boolean(actionError||pdfError||topconError||verticalError||pa2Error||reviewedOdsError||workingOdsError||blankOdsError)});},[actionError,pdfError,topconError,verticalError,pa2Error,reviewedOdsError,workingOdsError,blankOdsError,actionFeedback,pb1Notice,sigmaImportFeedback,savedPieceNotice]);
   if (!open) return null;
 
   const field = (label: string, key: keyof PecasData, placeholder = "") => (
@@ -2411,25 +2411,7 @@ export function PecasTecnicasWorkspace({
                           Para sugerir sigmas individuais, importe no TOPCON o quadro
                           de desvios-padrão dos pontos ajustados (N, E e U) ou a matriz
                           de covariância. A conferência de referencial e a confirmação
-                          técnica continuam obrigatórias.</p>
-                        <button type="button" className="pecas-secondary"
-                          disabled={!topconBoundary.length}
-                          onClick={() => {
-                            if (!window.confirm("Confirma que você verificou todas as alturas h no referencial SIRGAS2000 e sua época?")) return;
-                            setTopconBoundary((old) => old.map((p) => ({
-                              ...p,
-                              height_reference_confirmed: p.ellipsoidal_height_m !== null &&
-                                topconPreview?.points.some((source) => source.name === p.name)
-                                ? true : p.height_reference_confirmed,
-                            })));
-                            setVerticalConfirmed(Object.fromEntries(topconBoundary
-                              .filter((p) => p.ellipsoidal_height_m !== null &&
-                                topconPreview?.points.some((source) => source.name === p.name))
-                              .map((p) => [p.name, true])));
-                            setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature("");
-                          }}>
-                          Confirmar h de todos após conferência do RT
-                        </button>
+                          técnica serão tratadas na revisão de exportação.</p>
                         <p><strong>Dados do TOPCON — vetores GNSS:</strong> os RMS horizontal e
                           vertical e σX/Y/Z são apresentados abaixo para conferência.
                           Não equivalem automaticamente aos sigmas das coordenadas ajustadas
@@ -2487,7 +2469,7 @@ export function PecasTecnicasWorkspace({
                                 .map((field) => <td key={field}>
                                   <input key={`${point.name}:${field}`}
                                      aria-label={`${field} ${point.name}`} inputMode="decimal"
-                                     value={point[field] ?? (field==="sigma_lon_m"?point.sigma_e_m:field==="sigma_lat_m"?point.sigma_n_m:point.sigma_u_m) ?? ""}
+                                     value={point[field] ?? ""}
                                      onChange={(event) => {
                                        const value = event.target.value.trim().replace(",", ".");
                                        if (value !== "" && !Number.isFinite(Number(value))) return;
@@ -3209,9 +3191,9 @@ export function PecasTecnicasWorkspace({
           {actionError || externalError}
         </p>
       )}
-      {(floatingFeedback||actionBusy||pdfBusy||pb1Busy)&&<div role={floatingFeedback?.error?"alert":"status"} aria-live="polite" style={{position:"fixed",top:24,right:24,zIndex:200001,width:"min(420px,calc(100vw - 48px))",padding:20,background:"#fff",color:"#173e33",border:"1px solid #b4cec3",borderRadius:14,boxShadow:"0 12px 45px #102f2940"}}>
-        <strong>{actionBusy||pdfBusy||pb1Busy?"Processando…":floatingFeedback?.error?"Ação não concluída":"Resultado da operação"}</strong>
-        <p>{actionBusy||pdfBusy||pb1Busy?"Aguarde a conclusão da operação.":floatingFeedback?.message}</p>
+      {(floatingFeedback||actionBusy||pdfBusy||pb1Busy||verticalLoading||sigefParcelBusy||topconReviewBusy||pa2Busy||reviewedOdsBusy||workingOdsBusy||blankOdsBusy)&&<div role={floatingFeedback?.error?"alert":"status"} aria-live="polite" style={{position:"fixed",top:24,right:24,zIndex:200001,width:"min(420px,calc(100vw - 48px))",padding:20,background:"#fff",color:"#173e33",border:"1px solid #b4cec3",borderRadius:14,boxShadow:"0 12px 45px #102f2940"}}>
+        <strong>{actionBusy||pdfBusy||pb1Busy||verticalLoading||sigefParcelBusy||topconReviewBusy||pa2Busy||reviewedOdsBusy||workingOdsBusy||blankOdsBusy?"Processando…":floatingFeedback?.error?"Ação não concluída":"Resultado da operação"}</strong>
+        <p>{actionBusy||pdfBusy||pb1Busy||verticalLoading||sigefParcelBusy||topconReviewBusy||pa2Busy||reviewedOdsBusy||workingOdsBusy||blankOdsBusy?"Aguarde a conclusão da operação.":floatingFeedback?.message}</p>
         <button type="button" className="pecas-secondary" onClick={()=>setFloatingFeedback(null)}>Fechar</button>
       </div>}
       <footer className="pecas-footer">
