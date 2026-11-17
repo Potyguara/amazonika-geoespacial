@@ -1465,9 +1465,12 @@ export default function Home() {
         {activeView === "pieces" && (
           <TechnicalPiecesModule revision={pieceRevision}
             onImportTopcon={() => {
-              setActiveView("map");
+              // Novo projeto: nunca restaurar o último rascunho aberto.
+              // A peça anterior permanece salva e independente.
+              setRestorePiece(null);
               setAnalysisSessionOpen(false);
               setStartTopconNonce((value) => value + 1);
+              setActiveView("map");
             }}
             onOpen={(piece) => {
               setRestorePiece((previous) => ({
