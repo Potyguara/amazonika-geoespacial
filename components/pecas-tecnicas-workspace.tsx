@@ -4081,7 +4081,7 @@ export function PecasTecnicasWorkspace({
                             </div>
                           </details>
                         </section>}
-                        {pa2Mode && constructionMethod !== "PS4" && <>
+                        {pa2Mode && constructionMethod !== "PS4" && constructionMethod !== "PB1" && <>
                           {constructionMethod === "PA2" && <label className="pecas-field">
                             <span>Procedimento de construção PA2</span>
                             <select value={pa2Variant} onChange={(event) => {
@@ -4122,7 +4122,6 @@ export function PecasTecnicasWorkspace({
                               {" "}{mapHint.longitude.toFixed(7)}°. Informe a distância medida,
                               pois o clique não define coordenada para certificação.</p>}
                           </>}
-                          {constructionMethod!=="PB1" && constructionMethod!=="PS4" && <>
                           <p><strong>Alinhamento A:</strong> {pa2Witnesses[0] || "—"}
                             {" → "}{pa2Witnesses[1] || "—"}
                             {constructionMethod === "PA2" && pa2Variant === "INTERSECTION" && <>
@@ -4196,7 +4195,6 @@ export function PecasTecnicasWorkspace({
                               O resultado físico e as sugestões de precisão serão mantidos no rascunho.</p>
                           </div>}
                           {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
-                          </>}
                         </>}
                       </div>
 
