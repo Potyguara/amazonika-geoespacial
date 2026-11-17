@@ -308,7 +308,6 @@ type Props = {
   loadedPieceId?: string | null;
 };
 
-const stages = ["Dados do imóvel", "Áreas e vértices", "Memorial", "Planta", "Exportar"];
 const premiumSteps = [
   { title: "Importação GNSS", detail: "Pontos e precisões TOPCON", stage: 0, target: "geo96-import" },
   { title: "Vértices do divisor", detail: "Seleção e ordenamento", stage: 0, target: "geo96-vertices" },
@@ -1122,7 +1121,9 @@ export function PecasTecnicasWorkspace({
     }
     // Original adjusted-point precisions from TOPCON are retained. Manual adjustment
     // and a second confirmation click are optional; mandatory SIGEF columns are not.
-    const incomplete = parcelsForOds().flatMap(p=>p.vertices).filter(point =>
+    let current:ReturnType<typeof parcelsForOds>;
+    try{current=parcelsForOds();}catch(e){setReviewedOdsError(e instanceof Error?e.message:"Parcela inválida.");return;}
+    const incomplete = current.flatMap(p=>p.vertices).filter(point =>
       ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
         .every(value => typeof value === "number" && Number.isFinite(value) && value > 0));
     if (incomplete.length) {
@@ -1144,7 +1145,7 @@ export function PecasTecnicasWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           identification: makeSigefIdentity(),
-          parcels: parcelsForOds(),
+          parcels: current,
           neighbors: [],
         }),
       });
@@ -1442,7 +1443,7 @@ export function PecasTecnicasWorkspace({
     try {
       if(pb1Draft.length){if(pb1Closure.valid){adoptPb1WorkingParcel(true);return;}throw new Error("Existe um traçado PB1. Conclua-o antes de substituir a parcela.");}
       if(ps4Draft.length){if(ps4Ready){adoptPs4WorkingParcel();return;}throw new Error("Existe um traçado PS4. Conclua-o antes de substituir a parcela.");}
-      const parcels = parcelsForOds();
+      const parcels = groupTopconParcels(topconBoundary,data.title);
       if (!parcels.length) throw new Error("Nenhuma parcela TOPCON válida foi formada. Confira os marcos de limite, sua ordem e a identificação de parcela.");
       // A pré-validação geométrica não exige edição manual de sigmas.
       // A ODS segue sujeita às verificações completas do serviço específico.
@@ -1740,7 +1741,7 @@ export function PecasTecnicasWorkspace({
   const adoptTopconGeometry = () => {
     setTopconError("");
     try {
-      const parcels = parcelsForOds();
+      const parcels = groupTopconParcels(topconBoundary,data.title);
       if (!parcels.length) throw new Error("Selecione pelo menos três pontos de limite.");
       if (parcels.some((p) => p.vertices.length < 3)) {
         throw new Error("Cada parcela precisa de pelo menos três vértices.");
@@ -3061,9 +3062,8 @@ export function PecasTecnicasWorkspace({
                           <div className="pecas-card" id="geo97-legal" aria-label="Revisão final de identificação SIGEF">
                             <h4>Identificação e situação jurídica</h4>
                             <div className="pecas-form-grid">{field("Denominação do imóvel","title")}{field("Titular","owner")}{field("CPF/CNPJ","cpf")}{field("RG","rg")}{field("Localização","address")}</div>
-                            <p>Preencha os dados do titular e imóvel nos campos gerais acima.
-                              Informe aqui os municípios e a situação jurídica para testar todas as parcelas.
-                              Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
+                            <details className="pecas-advanced"><summary>Responsável técnico e ART</summary>{rtProfile&&<div className="pecas-form-grid">{([["full_name","Nome completo"],["profession","Título profissional"],["specialization","Especialização"],["crea","CREA / CAU"],["visto","Visto"],["incra_code","Credenciamento INCRA"],["art","ART específica"],["rg","RG"],["cpf","CPF"]] as const).map(([key,label])=><label key={key} className="pecas-field"><span>{label}</span><input value={rtProfile[key]} onChange={e=>onRtChange(key,e.target.value)}/></label>)}</div>}<button type="button" className="pecas-secondary" disabled={rtLoading} onClick={onRtReload}>Recarregar cadastro</button></details>
+                            <p>Os dados desta etapa serão utilizados nos documentos e na revisão final.</p>
                             <label className="pecas-field"><span>UF</span><select value={municipalityUF} onChange={e=>setMunicipalityUF(e.target.value)}>{["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map(uf=><option key={uf}>{uf}</option>)}</select></label>
                             <label className="pecas-field"><span>Adicionar município (Nome-UF)</span><select value="" onChange={e=>{
                               const list=Array.from(new Set([...sigefMunicipalities.split(/[;,]/).map(v=>v.trim()).filter(Boolean),e.target.value].filter(Boolean)));
@@ -3112,9 +3112,7 @@ export function PecasTecnicasWorkspace({
                             </div>}
                           </div>
                         )}
-              {!topconPreview && <div className="pecas-warning" role="status">
-                Importe o levantamento TOPCON antes de revisar a identificação jurídica.
-              </div>}
+
             </>}
             {premiumStep !== 6 && <div id="geo97-export">
             <h3>Revisão e exportação</h3>
@@ -3123,6 +3121,16 @@ export function PecasTecnicasWorkspace({
               {polygons.filter(p=>selectedIds.includes(p.id)).map(p=><p key={p.id}><strong>{p.name}</strong> · {p.vertices.length} vértices</p>)}
               {polygons.filter(p=>selectedIds.includes(p.id)).some(p=>p.vertexDetails?.some(d=>d.sigef_method==="PB1"))&&<p className="pecas-warning">PB1: exportação definitiva depende de aprovação técnica persistida e comprovação de precisão e altimetria.</p>}
               <button type="button" className="pecas-secondary" disabled={sigefParcelBusy} onClick={()=>void validateSigefParcel()}>{sigefParcelBusy?"Validando…":"Pré-validar identificação e geometria"}</button>
+              <details className="pecas-advanced"><summary>Pendências técnicas por vértice</summary>
+                {polygons.filter(p=>selectedIds.includes(p.id)).map(p=><div key={p.id} className="pecas-table-wrap"><table className="pecas-table"><thead><tr><th>Vértice</th><th>h</th><th>σE</th><th>σN</th><th>σh</th><th>Pendências</th></tr></thead><tbody>{p.vertices.map((code,i)=>{
+                  const d=p.vertexDetails?.[i]??{};const missing=[];const h=p.altitudes[i];
+                  if(!h?.trim()||d.height_reference_confirmed!==true)missing.push("h");
+                  for(const [k,l] of [["sigma_lon_m","σE"],["sigma_lat_m","σN"],["sigma_h_m","σh"]] as const)if(typeof d[k]!=="number"||!(Number(d[k])>0))missing.push(l);
+                  if(!d.sigef_method)missing.push("Método");if(!d.boundary_type)missing.push("Divisa");if(!p.confrontants[i])missing.push("Confrontante");
+                  if(d.sigef_method==="PB1")missing.push("Revisão PB1");
+                  return <tr key={i}><td style={{whiteSpace:"nowrap"}}>{code}</td><td>{h||"—"}</td>{(["sigma_lon_m","sigma_lat_m","sigma_h_m"] as const).map(k=><td key={k}>{String(d[k]??"—")}</td>)}<td>{missing.join(", ")||"Sem ausências detectadas"}</td></tr>;
+                })}</tbody></table></div>)}
+              </details>
               {sigefParcelReview&&<div role="status"><strong>{sigefParcelReview.status==="PREVALIDATED"?"Pré-validação cadastral concluída":"Pendências cadastrais"}</strong>{[...sigefParcelReview.errors,...sigefParcelReview.warnings].map((m,i)=><p key={i}>{m}</p>)}</div>}
               <button type="button" className="pecas-primary" disabled={reviewedOdsBusy||sigefParcelReview?.status!=="PREVALIDATED"||sigefValidatedSignature!==sigefSignature()} onClick={()=>void downloadReviewedOds()}>{reviewedOdsBusy?"Gerando…":"Gerar ODS revisada"}</button>
               {reviewedOdsError&&<p role="alert" className="pecas-warning">{reviewedOdsError}</p>}
