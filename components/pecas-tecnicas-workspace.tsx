@@ -2329,20 +2329,21 @@ export function PecasTecnicasWorkspace({
                           disabled={!topconBoundary.length}
                           onClick={() => {
                             if (!window.confirm("Confirmo que conferi os desvios padrão individuais extraídos do TOPCON, sua referência e o resultado do ajustamento. Desejo aprovar os valores já preenchidos?")) return;
-                            const candidates=topconBoundary.filter(point =>
-                              (point.sigma_lon_m??point.sigma_e_m)!=null &&
-                              (point.sigma_lat_m??point.sigma_n_m)!=null);
-                            setTopconBoundary(old=>old.map(point=>{
-                              const lon=point.sigma_lon_m??point.sigma_e_m;
-                              const lat=point.sigma_lat_m??point.sigma_n_m;
-                              const alt=point.sigma_h_m??point.sigma_u_m;
-                              return {...point,sigma_lon_m:lon,sigma_lat_m:lat,
-                                sigma_h_m:alt,sigma_reference_confirmed:
-                                  lon!=null&&lat!=null&&alt!=null};
-                            }));
-                            setSigmaImportFeedback(candidates.length+" de "+topconBoundary.length+
-                              " marcos com sigmas ajustados disponíveis no TOPCON preenchidos automaticamente. "+
-                              "Os demais permanecem em branco, sem valores inventados.");
+                            const valid=(v:number|null|undefined):v is number=>typeof v==="number"&&Number.isFinite(v)&&v>0;
+                            const first=(...values:Array<number|null|undefined>)=>values.find(valid)??null;
+                            const next=topconBoundary.map(point=>{
+                              const source=topconPreview?.points.find(p=>p.name===point.name);
+                              const lon=first(point.sigma_lon_m,point.sigma_e_m,source?.sigma_e_m);
+                              const lat=first(point.sigma_lat_m,point.sigma_n_m,source?.sigma_n_m);
+                              const alt=first(point.sigma_h_m,point.sigma_u_m,source?.sigma_u_m);
+                              return {...point,sigma_lon_m:lon,sigma_lat_m:lat,sigma_h_m:alt,
+                                sigma_reference_confirmed:lon!==null&&lat!==null&&alt!==null};
+                            });
+                            setTopconBoundary(next);
+                            const confirmed=next.filter(p=>p.sigma_reference_confirmed).length;
+                            setSigmaImportFeedback(confirmed+" de "+next.length+
+                              " vértices com os três sigmas preenchidos e confirmados na tabela avançada. "+
+                              (confirmed<next.length?"Os valores ausentes precisam do relatório de pontos ajustados; RMS de linha de base não será usado como substituto.":""));
                             setTopconReview(null); setSigefParcelReview(null);
                             setSigefValidatedSignature("");
                           }}>Confirmar sigmas individuais preenchidos</button>
@@ -3562,9 +3563,14 @@ export function PecasTecnicasWorkspace({
                               <p className="ps4-analysis-note">Status: <strong>PRELIMINAR</strong>.
                                 A precisão da fonte, o datum vertical, os sigmas e a aprovação RT permanecem pendentes.
                                 Não incluir estes V na ODS oficial automaticamente.</p>
+                              <button type="button" className="pecas-secondary" disabled={!pb1Ready}
+                                onClick={()=>{
+                                  const step=document.getElementById("pb1-technical-step") as HTMLDetailsElement|null;
+                                  if(step){step.open=true;step.scrollIntoView({behavior:"smooth",block:"start"});}
+                                }}>Continuar para cálculo técnico PB1</button>
                             </div>
                           </details>
-                          <details className="ps4-flow-card">
+                          <details className="ps4-flow-card" id="pb1-technical-step">
                             <summary className="ps4-flow-summary"><span className="ps4-step-no">5</span><span className="ps4-step-heading"><strong>Prévia de precisão e altimetria</strong><small>MDT original, fatores individuais e revisão técnica</small></span></summary>
                             <div className="ps4-flow-body">
                               <label className="pecas-field"><span>Tipo de altura do MDT</span><select value={pb1Technical.vertical_kind} onChange={e=>{setPb1Technical(o=>({...o,vertical_kind:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Selecione conforme documentação</option><option value="NORMAL">Normal · hgeoHNOR2020</option><option value="ORTHOMETRIC">Ortométrica · MAPGEO2015 (se compatível)</option><option value="ELLIPSOIDAL">Elipsoidal SIRGAS2000</option></select></label>
@@ -3589,7 +3595,9 @@ export function PecasTecnicasWorkspace({
                                 const blob=new Blob([pb1Draft.map(p=>p.name+" "+p.latitude.toFixed(8)+" "+p.longitude.toFixed(8)).join("\n")+"\n"],{type:"text/plain"});
                                 const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="PB1_vertices_IBGE.txt";link.click();URL.revokeObjectURL(url);
                               }}>Exportar ID LAT LON dos V para IBGE</button>
-                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical()}>Calcular prévia técnica PB1</button>
+                              {!pb1Ready&&<p className="pecas-note">Confirme o fechamento geométrico na etapa 4 para habilitar o cálculo.</p>}
+                              {!pb1Dtm&&<p className="pecas-note">Vincule o MDT numérico na etapa 2.</p>}
+                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Ready||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical()}>Calcular prévia técnica PB1</button>
                               {pb1TechnicalResult&&<div className="pecas-note"><strong>Precisão horizontal resultante: {pb1TechnicalResult.horizontal_sigma_m.toFixed(3)} m</strong><p>{pb1TechnicalResult.meets_numeric_threshold?"Dentro do limiar numérico declarado":"Excede o limiar numérico declarado"} · {pb1TechnicalResult.limit_m} m. Sem aprovação automática.</p><div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>V</th><th>Cota original</th><th>h (m)</th><th>σh (m)</th></tr></thead><tbody>{pb1TechnicalResult.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td><td>{p.source_value_m.toFixed(3)}</td><td>{p.h_ellipsoidal_m.toFixed(3)}</td><td>{p.sigma_h_m?.toFixed(3)??"—"}</td></tr>)}</tbody></table></div></div>}
                               <p className="pecas-note">Prévia salva no servidor, sem substituir coordenadas oficiais. A documentação e a compatibilidade do método ainda exigem revisão RT.</p>
                             </div>
@@ -4114,6 +4122,7 @@ export function PecasTecnicasWorkspace({
                               {" "}{mapHint.longitude.toFixed(7)}°. Informe a distância medida,
                               pois o clique não define coordenada para certificação.</p>}
                           </>}
+                          {constructionMethod!=="PB1" && constructionMethod!=="PS4" && <>
                           <p><strong>Alinhamento A:</strong> {pa2Witnesses[0] || "—"}
                             {" → "}{pa2Witnesses[1] || "—"}
                             {constructionMethod === "PA2" && pa2Variant === "INTERSECTION" && <>
@@ -4187,6 +4196,7 @@ export function PecasTecnicasWorkspace({
                               O resultado físico e as sugestões de precisão serão mantidos no rascunho.</p>
                           </div>}
                           {pa2Error && <p role="alert" className="pecas-warning">{pa2Error}</p>}
+                          </>}
                         </>}
                       </div>
 
