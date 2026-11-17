@@ -3383,7 +3383,7 @@ export function PecasTecnicasWorkspace({
                                 <small>Origem cartográfica e precisão documentada</small></span>
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
-                              <Pb1SheetLookup geometry={pb1LookupGeometry}
+                              <Pb1SheetLookup geometry={pb1LookupGeometry} autoLookup
                                 onSheetsFound={sheets=>{
                                   const intersecting=sheets.filter(row=>row.area_overlap);
                                   const list=(intersecting.length?intersecting:sheets)
