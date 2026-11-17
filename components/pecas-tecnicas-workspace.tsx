@@ -530,7 +530,7 @@ export function PecasTecnicasWorkspace({
       ]]}
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
-  const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null}>;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
+  const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;latitude:number;longitude:number;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null}>;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
   const processPb1Partial=async()=>{
     setPb1Busy(true);setPb1Notice("");
     try{
@@ -1520,6 +1520,7 @@ export function PecasTecnicasWorkspace({
         const utm=lonLatToSirgasUtm(v.longitude,v.latitude);
         if(utm.zone!==zone.zone||utm.hemisphere!==zone.hemisphere)
           throw new Error("Vértice PB1 em zona UTM diferente: "+v.name);
+        const r=pb1Partial?.points.find(p=>p.vertex_id===v.name && p.latitude===v.latitude && p.longitude===v.longitude);
         return {
           ...initial,name:v.name,sigef_vertex_code:v.name,point_role:"BOUNDARY" as const,
           longitude:v.longitude,latitude:v.latitude,
@@ -1528,7 +1529,7 @@ export function PecasTecnicasWorkspace({
           sigma_e_m:null,sigma_n_m:null,sigma_u_m:null,sigma_hz_m:null,
           sigma_lon_m:null,sigma_lat_m:null,sigma_h_m:null,
           sigma_reference_confirmed:false,height_reference_confirmed:false,
-          sigma_suggestion_e_m:null,sigma_suggestion_n_m:null,sigma_suggestion_h_m:null,
+          sigma_suggestion_e_m:r?.sigma_e_m??null,sigma_suggestion_n_m:r?.sigma_n_m??null,sigma_suggestion_h_m:r?.sigma_h_m??null,
           derived_physical_altitude_m:null,derived_physical_model:null,
           sigef_method:"PB1",boundary_type:"LN1",
           derived_calculation:{
@@ -1536,15 +1537,21 @@ export function PecasTecnicasWorkspace({
             official_sheet:pb1Source.sheet,product:pb1Source.product,
             accuracy_document:pb1Source.accuracy_reference,
             raster_sha256:v.raster_sha256,dtm_sha256:pb1Dtm?.sha256??null,
-            source_elevation_m:v.source_elevation_m,
+            source_elevation_m:r?.source_value_m??v.source_elevation_m,
+            preliminary_h_m:r?.h_ellipsoidal_m??null,
             source_vertical_datum:pb1Source.vertical_datum||"NAO_VERIFICADO",
             altitude_source:"MDT_ORIGINAL_NAO_CONVERTIDO",
             note:"MDT sem h confirmada. Sigma horizontal/vertical não atribuído; PB1 não liberado à ODS.",
           },
         };
       });
-      const vertices=[...topconBoundary.slice(0,pb1StartIndex+1),...newVertices,
-        ...topconBoundary.slice(pb1StartIndex+1)];
+      const originalMarcos=topconBoundary.map(p=>{
+        const vertical=verticalCalculated?.find(r=>r.name===p.name);
+        return {...p,derived_physical_altitude_m:vertical?.normal_height_m??p.derived_physical_altitude_m??null,
+          derived_physical_model:vertical?.normal_height_m!=null?"HN" as const:p.derived_physical_model};
+      });
+      const vertices=[...originalMarcos.slice(0,pb1StartIndex+1),...newVertices,
+        ...originalMarcos.slice(pb1StartIndex+1)];
       if(vertices.length!==pb1Closure.names.length||
          vertices.some((v,i)=>v.name!==pb1Closure.names[i]))
         throw new Error("Sequência diferente da poligonal confirmada. Refazer fechamento PB1.");
