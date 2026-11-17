@@ -49,7 +49,7 @@ def _clip_rect(pdf, left, bottom, width, height):
 
 
 def _columns(width):
-    fractions = (.12, .16, .16, .135, .135, .085, .115, .09)
+    fractions = (.125, .145, .145, .13, .13, .075, .075, .10, .075)
     starts = [0.0]
     for fraction in fractions[:-1]:
         starts.append(starts[-1] + fraction * width)
@@ -221,7 +221,8 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size, *, row_star
         (p.names[i],_dms(lon,"lon"),_dms(lat,"lat"),
          f"{transformer.transform(lon,lat)[0]:.3f}",
          f"{transformer.transform(lon,lat)[1]:.3f}",
-         (("HN~" if "-V-" in p.names[i].upper() else "HN ")+_br_number(p.normal_altitudes[i],2))
+         _br_number(p.altitudes[i],2) if p.altitudes[i] is not None else "—",
+         (("~" if "-V-" in p.names[i].upper() else "")+_br_number(p.normal_altitudes[i],2))
          if len(p.normal_altitudes)>i and p.normal_altitudes[i] is not None else "—",
          _azimuth_minutes(seg["azimuth"]),
          _br_number(seg["distance"],2))
@@ -245,7 +246,7 @@ def _coordinates_table(pdf, bounds, parcels, transformer, font_size, *, row_star
     pdf.setFillColor(PALE)
     pdf.rect(left,header_y,width,row_h,fill=1,stroke=0)
     headings=("VÉRTICE","LONGITUDE","LATITUDE","ESTE (m)","NORTE (m)",
-              "ALT. (m)","AZIMUTE","DIST. (m)")
+              "h (m)","HN (m)","AZIMUTE","DIST. (m)")
     pdf.setFont("Helvetica-Bold",min(font_size,7))
     pdf.setFillColor(GREEN)
     for (offset,col_width),heading in zip(cols,headings):
