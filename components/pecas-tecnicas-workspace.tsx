@@ -520,6 +520,12 @@ export function PecasTecnicasWorkspace({
     setPb1Busy(true);setPb1TechnicalResult(null);setPb1Notice("");
     try{
       const t=pb1Technical;
+      if(pb1Source.source_model && pb1Source.source_model!=="Outro"){
+        const expected:Record<string,string>={NORMAL:"hgeoHNOR2020",ORTHOMETRIC:"MAPGEO2015",ELLIPSOIDAL:"NONE"};
+        if(expected[t.vertical_kind] && pb1Source.source_model!==expected[t.vertical_kind])
+          throw new Error("O modelo original declarado ("+pb1Source.source_model+") difere do modelo de conversão disponível. Verifique a compatibilidade documental; a conversão direta não está habilitada.");
+      }
+
       if(!t.vertical_kind||!t.limit_category||[t.sigma_e_m,t.sigma_n_m,t.source_sigma_m].some(v=>!v.trim()))throw new Error("Preencha o tipo vertical, categoria do limite e sigmas documentados.");
       const factors:Record<string,number[]>={};
       for(const line of (pb1IbgeOutput&&t.vertical_kind==="NORMAL"?"":t.factors).trim().split(/\r?\n/).filter(Boolean)){
@@ -3464,7 +3470,7 @@ export function PecasTecnicasWorkspace({
                               {pb1Source.pec&&PB1_PEC_MM[pb1Source.pec]&&Number(pb1Source.scale)>0&&<p className="pecas-note">Referência normativa PEC tradicional: PEC {(PB1_PEC_MM[pb1Source.pec][0]*Number(pb1Source.scale)/1000).toLocaleString("pt-BR")} m; erro-padrão {(PB1_PEC_MM[pb1Source.pec][1]*Number(pb1Source.scale)/1000).toLocaleString("pt-BR")} m. Não são sigmas medidos dos vértices.</p>}
                               <label className="pecas-field"><span>Documento comprobatório da exatidão planimétrica</span>
                                 <input value={pb1Source.accuracy_reference} placeholder="Informe documento e classe efetivamente comprovados"
-                                  onChange={e=>setPb1Source(o=>({...o,accuracy_reference:e.target.value}))}/></label>
+                                  onChange={e=>{setPb1Source(o=>({...o,accuracy_reference:e.target.value}));setPb1TechnicalResult(null);}}/></label>
                               <div className="pecas-note">
                                 <strong>Referencial horizontal identificado:</strong> {pb1Dtm?.metadata?.crs_authority
                                   ||pb1Raster?.metadata?.crs_authority||"Não identificado"}.
@@ -3477,7 +3483,7 @@ export function PecasTecnicasWorkspace({
                               <label className="pecas-field"><span>Datum vertical declarado</span><select value={PB1_DATUM_OPTIONS.includes(pb1Source.vertical_datum)?pb1Source.vertical_datum:pb1Source.vertical_datum?"custom":""} onChange={e=>{setPb1Source(o=>({...o,vertical_datum:e.target.value==="custom"?o.vertical_datum:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Não identificado</option>{PB1_DATUM_OPTIONS.map(v=><option key={v}>{v}</option>)}<option value="custom">Personalizado / anteriormente informado</option></select></label>
                               <label className="pecas-field"><span>Referencial vertical informado (editável; não confundir com UTM)</span>
                                 <input value={pb1Source.vertical_datum} placeholder="Não presumir HN, H ou h sem metadados"
-                                  onChange={e=>setPb1Source(o=>({...o,vertical_datum:e.target.value}))}/></label>
+                                  onChange={e=>{setPb1Source(o=>({...o,vertical_datum:e.target.value}));setPb1TechnicalResult(null);}}/></label>
                               <label className="pecas-field"><span>Modelo altimétrico original da fonte</span><select value={pb1Source.source_model??""} onChange={e=>{setPb1Source(o=>({...o,source_model:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Não identificado</option>{PB1_MODEL_OPTIONS.map(v=><option key={v} value={v}>{v==="NONE"?"Não se aplica (altura elipsoidal)":v}</option>)}</select></label>
                               <label className="pecas-field"><span>Documento comprobatório do referencial vertical</span><input value={pb1Source.vertical_reference??""} onChange={e=>{setPb1Source(o=>({...o,vertical_reference:e.target.value}));setPb1TechnicalResult(null);}} placeholder="Ficha técnica ou metadados"/></label>
                               <p className="pecas-note">As escolhas são declarações de origem, não aprovação de exatidão. O modelo original pode diferir do modelo de conversão atual.</p>
