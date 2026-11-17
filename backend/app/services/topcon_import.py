@@ -147,6 +147,14 @@ def _value_after_label(text: str, label: str) -> str | None:
     return found.group(1).strip() if found else None
 
 
+def _canonical_point_id(value: str) -> str:
+    """Uniformiza hífens tipográficos que o PDF usa nos nomes M−0223.
+
+    Apenas identificadores; nunca altera os sinais das coordenadas.
+    """
+    return re.sub(r"[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]", "-", value.strip())
+
+
 def _point_name(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9_-]{1,32}", value)) and bool(
         re.search(r"[A-Za-z0-9]", value)
@@ -283,7 +291,8 @@ def _native_topcon_tables(text: str) -> dict | None:
                     if normalized in aliases:
                         point_sigma_indices[coordinate] = index
             continue
-        if state == "points" and len(cells) >= 7 and _point_name(cells[0]):
+        if state == "points" and len(cells) >= 7 and _point_name(_canonical_point_id(cells[0])):
+            point_id = _canonical_point_id(cells[0])
             try:
                 northing, easting, elevation = map(_number, cells[1:4])
                 lat = _geo_coord(cells[4], True)
@@ -300,7 +309,7 @@ def _native_topcon_tables(text: str) -> dict | None:
                             sigma_point[coord] = value
                     except (ValueError, TypeError):
                         pass
-            point_rows[cells[0]] = {
+            point_rows[point_id] = {
                 "sigma_point": sigma_point,
                 "northing": northing, "easting": easting,
                 "elevation": elevation, "latitude": lat,
