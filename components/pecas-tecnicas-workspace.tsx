@@ -319,9 +319,9 @@ const premiumSteps = [
   { title: "Construção de vértices", detail: "PB1 base oficial ou PS4 orbital", stage: 0, target: "geo96-ps4" },
   { title: "Sobreposições SIGEF", detail: "SIGEF Mensais e Brasil", stage: 0, target: "geo97-overlaps" },
   { title: "Áreas e vértices", detail: "Parcela M–V consolidada", stage: 1, target: "" },
+  { title: "Identificação jurídica", detail: "Titular, matrícula e situação", stage: 4, target: "geo97-legal" },
   { title: "Memorial", detail: "Conferência dos segmentos", stage: 2, target: "" },
   { title: "Planta", detail: "Prévia e elementos", stage: 3, target: "" },
-  { title: "Identificação jurídica", detail: "Titular, matrícula e situação", stage: 4, target: "geo97-legal" },
   { title: "Revisão e exportação", detail: "Documentos preliminares", stage: 4, target: "geo97-export" },
 ] as const;
 
@@ -357,7 +357,7 @@ export function PecasTecnicasWorkspace({
   const [workflowNotice, setWorkflowNotice] = useState("");
   const jumpToWorkflow = (index: number) => {
     setShowAllTasks(false);
-    if (index >= 5 && index <= 7 && selectedIds.length === 0) {
+    if (index >= 5 && index <= 8 && selectedIds.length === 0) {
       setPremiumStep(ps4Ready ? 3 : 1);
       setStage(0);
       setWorkflowNotice(ps4Ready
@@ -988,7 +988,7 @@ export function PecasTecnicasWorkspace({
     setSigefRegistration(d.registration);
     setAreaNature(d.area_nature??"");setSncr(d.sncr??"");
     setStage(d.stage >= 0 && d.stage <= 4 ? d.stage : 0);
-    setPremiumStep(d.stage>0?[0,5,6,7,9][d.stage]:d.ps4_closure?.confirmed?3:0);
+    setPremiumStep(d.stage>0?[0,5,7,8,9][d.stage]:d.ps4_closure?.confirmed?3:0);
     setTopconReview(null);
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
@@ -1385,7 +1385,7 @@ export function PecasTecnicasWorkspace({
       }));
       setTopconReview(null);setSigefParcelReview(null);setSigefValidatedSignature("");
       setSigmaImportFeedback(changes.size+" precisões individuais importadas de "+file.name+
-        ". Confira a origem do processamento e use 'Confirmar sigmas individuais preenchidos'.");
+        ". Confira a origem do processamento e use 'Atualizar precisões disponíveis'.");
     } catch(error) {
       setSigmaImportFeedback("Importação não concluída: "+
         (error instanceof Error?error.message:"arquivo inválido"));
@@ -1399,6 +1399,8 @@ export function PecasTecnicasWorkspace({
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     try {
+      if(pb1Draft.length){if(pb1Closure.valid){adoptPb1WorkingParcel(true);return;}throw new Error("Existe um traçado PB1. Conclua-o antes de substituir a parcela.");}
+      if(ps4Draft.length){if(ps4Ready){adoptPs4WorkingParcel();return;}throw new Error("Existe um traçado PS4. Conclua-o antes de substituir a parcela.");}
       const parcels = parcelsForOds();
       if (!parcels.length) throw new Error("Nenhuma parcela TOPCON válida foi formada. Confira os marcos de limite, sua ordem e a identificação de parcela.");
       // A pré-validação geométrica não exige edição manual de sigmas.
@@ -1702,10 +1704,6 @@ export function PecasTecnicasWorkspace({
       if (parcels.some((p) => p.vertices.length < 3)) {
         throw new Error("Cada parcela precisa de pelo menos três vértices.");
       }
-      if (!window.confirm(
-        "Aplicar os perímetros TOPCON como rascunhos cartográficos na Planta e Memorial? " +
-        "A aprovação geométrica e SIGEF permanece pendente e precisará da revisão do RT."
-      )) return;
       onAdoptTopconParcels(parcels.map(parcel=>({
         ...parcel,
         vertices:parcel.vertices.map(point=>{
@@ -1743,7 +1741,6 @@ export function PecasTecnicasWorkspace({
     setEditableMemorial(loadedMemorialDraft);
     setMemorialDirty(true);
     setMemorialSaved(true);
-    setStage(0);
     setPdfBlob(null);
     setPdfUrl(null);
     lastPdfKey.current = "";
@@ -1883,6 +1880,8 @@ export function PecasTecnicasWorkspace({
     setEditableMemorial(memorialText);
   }, [memorialText, memorialDirty, memorialSaved]);
 
+  const [floatingFeedback,setFloatingFeedback]=useState<{message:string;error:boolean}|null>(null);
+  useEffect(()=>{const message=actionError||pdfError||topconError||sigmaImportFeedback||pb1Notice||savedPieceNotice; if(message)setFloatingFeedback({message,error:Boolean(actionError||pdfError||topconError)});},[actionError,pdfError,topconError,sigmaImportFeedback,pb1Notice,savedPieceNotice]);
   if (!open) return null;
 
   const field = (label: string, key: keyof PecasData, placeholder = "") => (
@@ -1961,7 +1960,7 @@ export function PecasTecnicasWorkspace({
         {stages.map((name, index) => (
           <button type="button" key={name} aria-current={index === stage ? "step" : undefined}
             className={index === stage ? "active" : index < stage ? "done" : ""}
-            onClick={() => jumpToWorkflow(([0,5,6,7,9] as const)[index])}
+            onClick={() => jumpToWorkflow(([0,5,7,8,9] as const)[index])}
             disabled={(index > 1 && selectedIds.length === 0) || (index === 4 && !pdfReady)}
           >
             <span className="pecas-step-number">{index < stage ? <Check size={14} /> : index + 1}</span>
@@ -2323,18 +2322,6 @@ export function PecasTecnicasWorkspace({
                                       {code} — {label}
                                     </option>)}
                                   </select>
-                                    {selected && BOUNDARY_DETAILS[selected.boundary_type]?.length && <label style={{display:"block",marginTop:4}}>
-                                      <span style={{fontSize:11}}>Descrição da feição</span>
-                                      <select aria-label={`Detalhe do limite ${point.name}`}
-                                        value={selected.boundary_detail||""}
-                                        onChange={event=>updateBoundaryPoint(index,{
-                                          boundary_detail:event.target.value
-                                        })}>
-                                        <option value="">Especificar…</option>
-                                        {BOUNDARY_DETAILS[selected.boundary_type].map(detail=>
-                                          <option key={detail} value={detail}>{detail}</option>)}
-                                      </select>
-                                    </label>}
                                   </td>
                                   <td><input aria-label={`Confrontante ${point.name}`} disabled={!selected}
                                     value={selected?.confrontant ?? ""}
@@ -2383,7 +2370,6 @@ export function PecasTecnicasWorkspace({
                         <button type="button" className="pecas-secondary"
                           disabled={!topconBoundary.length}
                           onClick={() => {
-                            if (!window.confirm("Confirmo que conferi os desvios padrão individuais extraídos do TOPCON, sua referência e o resultado do ajustamento. Desejo aprovar os valores já preenchidos?")) return;
                             const valid=(v:number|null|undefined):v is number=>typeof v==="number"&&Number.isFinite(v)&&v>0;
                             const first=(...values:Array<number|null|undefined>)=>values.find(valid)??null;
                             const next=topconBoundary.map(point=>{
@@ -2392,12 +2378,12 @@ export function PecasTecnicasWorkspace({
                               const lat=first(point.sigma_lat_m,point.sigma_n_m,source?.sigma_n_m);
                               const alt=first(point.sigma_h_m,point.sigma_u_m,source?.sigma_u_m);
                               return {...point,sigma_lon_m:lon,sigma_lat_m:lat,sigma_h_m:alt,
-                                sigma_reference_confirmed:lon!==null&&lat!==null&&alt!==null};
+                                sigma_reference_confirmed:point.sigma_reference_confirmed===true};
                             });
                             setTopconBoundary(next);
-                            const confirmed=next.filter(p=>p.sigma_reference_confirmed).length;
+                            const confirmed=next.filter(p=>p.sigma_lon_m!==null&&p.sigma_lat_m!==null&&p.sigma_h_m!==null).length;
                             setSigmaImportFeedback(confirmed+" de "+next.length+
-                              " vértices com os três sigmas preenchidos e confirmados na tabela avançada. "+
+                              " vértices com os três sigmas disponíveis na tabela avançada. "+
                               (confirmed<next.length?"Os valores ausentes precisam do relatório de pontos ajustados; RMS de linha de base não será usado como substituto.":""));
                             setTopconReview(null); setSigefParcelReview(null);
                             setSigefValidatedSignature("");
@@ -2494,7 +2480,7 @@ export function PecasTecnicasWorkspace({
                                 .map((field) => <td key={field}>
                                   <input key={`${point.name}:${field}`}
                                      aria-label={`${field} ${point.name}`} inputMode="decimal"
-                                     value={point[field] ?? ""}
+                                     value={point[field] ?? (field==="sigma_lon_m"?point.sigma_e_m:field==="sigma_lat_m"?point.sigma_n_m:point.sigma_u_m) ?? ""}
                                      onChange={(event) => {
                                        const value = event.target.value.trim().replace(",", ".");
                                        if (value !== "" && !Number.isFinite(Number(value))) return;
@@ -3067,10 +3053,10 @@ export function PecasTecnicasWorkspace({
 
         {stage === 4 && (
           <div className="pecas-card">
-            {premiumStep === 8 && <>
+            {premiumStep === 6 && <>
               {topconPreview && (
                           <div className="pecas-card" id="geo97-legal" aria-label="Revisão final de identificação SIGEF">
-                            <h4>9. Identificação e situação jurídica — revisão final SIGEF</h4>
+                            <h4>Identificação e situação jurídica</h4>
                             <p>Preencha os dados do titular e imóvel nos campos gerais acima.
                               Informe aqui os municípios e a situação jurídica para testar todas as parcelas.
                               Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
@@ -3148,7 +3134,7 @@ export function PecasTecnicasWorkspace({
                 Importe o levantamento TOPCON antes de revisar a identificação jurídica.
               </div>}
             </>}
-            {premiumStep !== 8 && <div id="geo97-export">
+            {premiumStep !== 6 && <div id="geo97-export">
             <h3>5. Conferência e exportação</h3>
             <p>Documentos gerados pelos serviços existentes. As exportações vetoriais são feitas individualmente por polígono.</p>
             <div className="pecas-export-grid">
@@ -3210,6 +3196,11 @@ export function PecasTecnicasWorkspace({
           {actionError || externalError}
         </p>
       )}
+      {(floatingFeedback||actionBusy||pdfBusy||pb1Busy)&&<div role={floatingFeedback?.error?"alert":"status"} aria-live="polite" style={{position:"fixed",top:24,right:24,zIndex:200001,width:"min(420px,calc(100vw - 48px))",padding:20,background:"#fff",color:"#173e33",border:"1px solid #b4cec3",borderRadius:14,boxShadow:"0 12px 45px #102f2940"}}>
+        <strong>{actionBusy||pdfBusy||pb1Busy?"Processando…":floatingFeedback?.error?"Ação não concluída":"Resultado da operação"}</strong>
+        <p>{actionBusy||pdfBusy||pb1Busy?"Aguarde a conclusão da operação.":floatingFeedback?.message}</p>
+        <button type="button" className="pecas-secondary" onClick={()=>setFloatingFeedback(null)}>Fechar</button>
+      </div>}
       <footer className="pecas-footer">
         <span>{ps4Ready ? "Prévia PS4 fechada · " : ""}{selectedIds.length} parcela(s) oficial(is) selecionada(s) ·
           Passo {premiumStep + 1}/{premiumSteps.length} {savedPieceNotice && "· " + savedPieceNotice}</span>
@@ -3220,18 +3211,17 @@ export function PecasTecnicasWorkspace({
               await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
               setSavedPieceNotice("Rascunho salvo no servidor");
             })}>Salvar peça</button>
-          <button className="pecas-secondary" type="button" onClick={() => stage === 0 ? onClose() : jumpToWorkflow(([0,0,5,6,7] as const)[stage])}>
-            <ArrowLeft size={16} /> {stage === 0 ? "Mapa" : "Voltar"}
+          <button className="pecas-secondary" type="button" onClick={() => premiumStep===0 ? onClose() : jumpToWorkflow(premiumStep-1)}>
+            <ArrowLeft size={16} /> {premiumStep === 0 ? "Mapa" : "Voltar"}
           </button>
-          {stage < 4 && <button className="pecas-primary" type="button"
+          {premiumStep < 9 && <button className="pecas-primary" type="button"
             disabled={selectedIds.length === 0 || (stage === 3 && (!pdfReady || pdfBusy))}
             onClick={() => {
-              if(stage===0)jumpToWorkflow(5);
-              else jumpToWorkflow(([0,6,7,8,9] as const)[stage]);
+              jumpToWorkflow(Math.min(9,premiumStep+1));
             }}>
             Avançar <ArrowRight size={16} />
           </button>}
-          {stage === 4 && <button className="pecas-primary" type="button" onClick={onClose}>
+          {premiumStep === 9 && <button className="pecas-primary" type="button" onClick={onClose}>
             <Map size={16} /> Concluir e voltar ao mapa
           </button>}
         </div>
