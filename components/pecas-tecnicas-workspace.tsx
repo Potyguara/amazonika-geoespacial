@@ -1469,15 +1469,14 @@ export function PecasTecnicasWorkspace({
     }catch(e){setActionError(e instanceof Error?e.message:"Falha no relatório PB1.");}
     finally{setActionBusy(false);}
   };
-  const adoptPb1WorkingParcel=()=>{
+  const adoptPb1WorkingParcel=(finish=false)=>{
     setTopconError("");setWorkflowNotice("");
     try{
-      if(!pb1Ready||!pb1Closure.geometry||!pb1Raster)
+      if(!(finish?pb1Closure.valid:pb1Ready)||!pb1Closure.geometry||!pb1Raster)
         throw new Error("Feche o perímetro PB1 e confirme o ORIXP vinculado.");
       if(new Set(topconBoundary.map(p=>p.parcel_number)).size!==1)
         throw new Error("Trabalhe em uma única parcela de cada vez.");
-      if(!pb1Source.sheet.trim()||!pb1Source.product.trim())
-        throw new Error("Informe todas as folhas que compõem o mosaico e a identificação da fonte oficial.");
+
       const initial=topconBoundary[pb1StartIndex];
       if(!initial||initial.longitude===null||initial.latitude===null)
         throw new Error("Marco inicial PB1 inválido.");
@@ -1514,16 +1513,14 @@ export function PecasTecnicasWorkspace({
       if(vertices.length!==pb1Closure.names.length||
          vertices.some((v,i)=>v.name!==pb1Closure.names[i]))
         throw new Error("Sequência diferente da poligonal confirmada. Refazer fechamento PB1.");
-      if(!window.confirm("Aplicar "+newVertices.length+
-        " vértices PB1 à parcela PRELIMINAR?\\n" +
-        "A precisão, o datum vertical, h e os sigmas não estão validados. A ODS certificável permanece bloqueada."))return;
+      if(finish){setPb1ConfirmedSignature(pb1Signature);setPb1ClosureConfirmed(true);}
       onAdoptTopconParcels([{number:initial.parcel_number,
         name:initial.parcel_name||data.title||"Parcela preliminar",vertices}]);
       onDataChange("plantHeading","PLANTA PRELIMINAR PB1 — NÃO CERTIFICADA");
       onDataChange("memorialHeading","MEMORIAL PRELIMINAR PB1 — NÃO CERTIFICADO");
       setEditableMemorial("");setMemorialSaved(false);setMemorialDirty(false);
       setPdfBlob(null);setPdfUrl(null);lastPdfKey.current="";
-      setStage(1);setPremiumStep(5);
+      setPa2Mode(false);setStage(1);setPremiumStep(5);
       setSavedPieceNotice("Parcela PB1 preliminar aplicada com "+newVertices.length+" vértices V.");
     }catch(error){
       setTopconError(error instanceof Error?error.message:"Não foi possível aplicar PB1.");
@@ -2079,7 +2076,7 @@ export function PecasTecnicasWorkspace({
                 {pb1Ready&&<div className="geo97-adopt-banner" role="status">
                   <strong>PB1: traçado fechado com {pb1Draft.length} vértices V preliminares.</strong>
                   <p>É possível aplicar à planta preliminar; exatidão da base e altitude elipsoidal ainda pendentes.</p>
-                  <button type="button" className="pecas-primary" onClick={adoptPb1WorkingParcel}>
+                  <button type="button" className="pecas-primary" onClick={()=>adoptPb1WorkingParcel()}>
                     Aplicar geometria PB1 à parcela preliminar
                   </button>
                 </div>}
@@ -3444,9 +3441,88 @@ export function PecasTecnicasWorkspace({
                             </div>
                             <span className="ps4-step-state">Rascunho técnico</span>
                           </div>
-                          <details className="ps4-flow-card" open>
+                          <details className="ps4-flow-card">
                             <summary className="ps4-flow-summary"><span className="ps4-step-no">1</span>
-                              <span className="ps4-step-heading"><strong>Identificar produto e folha</strong>
+                              <span className="ps4-step-heading"><strong>Carregar recortes oficiais</strong>
+                                <small>Mosaico previamente montado em SIG e recortado; até 256 MiB por arquivo</small></span>
+                              <span className="ps4-step-caret">⌄</span></summary>
+                            <div className="ps4-flow-body">
+                              <label className="pecas-field"><span>MDT Color / ORIXP · mosaico RGB recortado (GeoTIFF)</span>
+                                <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
+                                  const file=e.target.files?.[0];if(file)void pb1Upload("pb1_color",file);
+                                  e.target.value="";
+                                }}/></label>
+                              <div className="pecas-note">{pb1Raster
+                                ?`RGB vinculado: ${pb1Raster.metadata?.width??"?"} × ${pb1Raster.metadata?.height??"?"} · SHA ${pb1Raster.sha256.slice(0,16)}…`
+                                :"Nenhum ORIXP anexado; cliques PB1 permanecem bloqueados."}</div>
+                              <label className="pecas-field"><span>MDT cinza · mosaico numérico recortado (GeoTIFF)</span>
+                                <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
+                                  const file=e.target.files?.[0];if(file)void pb1Upload("pb1_dtm",file);
+                                  e.target.value="";
+                                }}/></label>
+                              <div className="pecas-note">{pb1Dtm
+                                ?`MDT vinculado: ${pb1Dtm.metadata?.width??"?"} × ${pb1Dtm.metadata?.height??"?"} · SHA ${pb1Dtm.sha256.slice(0,16)}…`
+                                :"Sem MDT: é possível visualizar a fonte, mas a cota original dos V ficará pendente."}</div>
+                              <p className="pecas-note">O sistema não exige que o nome do arquivo corresponda
+                                ao código INOM/MI. A localização é verificada pelas coordenadas reais do GeoTIFF,
+                                e não pelo nome da folha.</p>
+                              {pb1Busy&&<p role="status">Processando o produto georreferenciado…</p>}
+                            </div>
+                          </details>
+                          <details className="ps4-flow-card" open>
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">2</span>
+                              <span className="ps4-step-heading"><strong>Digitalizar os vértices V</strong>
+                                <small>Clique somente sobre o recorte ORIXP oficial</small></span>
+                              <span className="ps4-step-state">{pb1Draft.length} V</span><span className="ps4-step-caret">⌄</span>
+                            </summary>
+                            <div className="ps4-flow-body">
+                              {!pb1Raster&&<p className="ps4-analysis-note">Importe o ORIXP RGB para habilitar a vetorização PB1.</p>}
+                              {pb1Candidate&&<div className="pecas-card">
+                                <strong>Ponto selecionado na fonte oficial</strong>
+                                <p>Latitude {pb1Candidate.latitude.toFixed(8)}° · longitude {pb1Candidate.longitude.toFixed(8)}°</p>
+                                <button type="button" className="pecas-primary" disabled={pb1Busy}
+                                  onClick={()=>void pb1AddPoint()}>Confirmar V PB1 e amostrar MDT</button>
+                                <button type="button" className="pecas-secondary" onClick={()=>setPb1Candidate(null)}>Cancelar</button>
+                              </div>}
+                              <div className="ps4-v-table-wrap"><table className="ps4-v-table">
+                                <thead><tr><th>Ordem</th><th>Vértice</th><th>Latitude</th><th>Longitude</th><th>Cota MDT original (m)</th><th>Ação</th></tr></thead>
+                                <tbody>{pb1Draft.map((v,i)=><tr key={v.name}>
+                                  <td>{i+1}</td><td className="ps4-v-code">{v.name}</td>
+                                  <td className="ps4-v-coord">{v.latitude.toFixed(8)}</td>
+                                  <td className="ps4-v-coord">{v.longitude.toFixed(8)}</td>
+                                  <td>{v.source_elevation_m===null?"Pendente":v.source_elevation_m.toFixed(3)}</td>
+                                  <td><button className="ps4-v-row-action" type="button" onClick={()=>{
+                                    setPb1Draft(old=>old.filter((_,j)=>i!==j));setPb1ClosureConfirmed(false);
+                                  }}>Remover</button></td>
+                                </tr>)}</tbody>
+                              </table></div>
+                              <p className="pecas-note">A cota é o valor original do MDT, não a altitude elipsoidal h.
+                                Sem verificação do datum vertical e modelo de conversão, h e sigma-h permanecem pendentes.</p>
+                            </div>
+                          </details>
+                          <details className="ps4-flow-card" open>
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">3</span>
+                              <span className="ps4-step-heading"><strong>Fechar perímetro M–V–M</strong>
+                                <small>O fechamento preliminar não certifica a precisão</small></span>
+                              <span className="ps4-step-state">{pb1Ready?"Fechado":"Pendente"}</span><span className="ps4-step-caret">⌄</span>
+                            </summary>
+                            <div className="ps4-flow-body">
+                              <label className="pecas-field"><span>Marco GNSS inicial do segmento substituído</span>
+                                <select value={pb1Start} onChange={e=>{setPb1Start(e.target.value);setPb1ClosureConfirmed(false);}}>
+                                  <option value="">Selecione o marco inicial</option>
+                                  {topconBoundary.map(v=><option key={v.name} value={v.name}>{v.name}</option>)}
+                                </select>
+                              </label>
+                              <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
+                              <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
+                              <button type="button" className="pecas-primary" disabled={!pb1Closure.valid||!pb1Raster||actionBusy}
+                                onClick={()=>adoptPb1WorkingParcel(true)}>Concluir construção e aplicar à parcela</button>
+                              <p className="pecas-note">Pendências de precisão e altimetria não impedem a peça preliminar; a ODS definitiva permanece bloqueada.</p>
+                            </div>
+                          </details>
+                          <details className="ps4-flow-card">
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">i</span>
+                              <span className="ps4-step-heading"><strong>Dados técnicos da base (avançado)</strong>
                                 <small>Origem cartográfica e precisão documentada</small></span>
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
@@ -3505,96 +3581,8 @@ export function PecasTecnicasWorkspace({
                                 O responsável técnico deverá conferir a escala, a exatidão e a compatibilidade com o limite.</p>
                             </div>
                           </details>
-                          <details className="ps4-flow-card" open>
-                            <summary className="ps4-flow-summary"><span className="ps4-step-no">2</span>
-                              <span className="ps4-step-heading"><strong>Carregar recortes oficiais</strong>
-                                <small>Mosaico previamente montado em SIG e recortado; até 256 MiB por arquivo</small></span>
-                              <span className="ps4-step-caret">⌄</span></summary>
-                            <div className="ps4-flow-body">
-                              <label className="pecas-field"><span>MDT Color / ORIXP · mosaico RGB recortado (GeoTIFF)</span>
-                                <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
-                                  const file=e.target.files?.[0];if(file)void pb1Upload("pb1_color",file);
-                                  e.target.value="";
-                                }}/></label>
-                              <div className="pecas-note">{pb1Raster
-                                ?`RGB vinculado: ${pb1Raster.metadata?.width??"?"} × ${pb1Raster.metadata?.height??"?"} · SHA ${pb1Raster.sha256.slice(0,16)}…`
-                                :"Nenhum ORIXP anexado; cliques PB1 permanecem bloqueados."}</div>
-                              <label className="pecas-field"><span>MDT cinza · mosaico numérico recortado (GeoTIFF)</span>
-                                <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
-                                  const file=e.target.files?.[0];if(file)void pb1Upload("pb1_dtm",file);
-                                  e.target.value="";
-                                }}/></label>
-                              <div className="pecas-note">{pb1Dtm
-                                ?`MDT vinculado: ${pb1Dtm.metadata?.width??"?"} × ${pb1Dtm.metadata?.height??"?"} · SHA ${pb1Dtm.sha256.slice(0,16)}…`
-                                :"Sem MDT: é possível visualizar a fonte, mas a cota original dos V ficará pendente."}</div>
-                              <p className="pecas-note">O sistema não exige que o nome do arquivo corresponda
-                                ao código INOM/MI. A localização é verificada pelas coordenadas reais do GeoTIFF,
-                                e não pelo nome da folha.</p>
-                              {pb1Busy&&<p role="status">Processando o produto georreferenciado…</p>}
-                            </div>
-                          </details>
-                          <details className="ps4-flow-card" open>
-                            <summary className="ps4-flow-summary"><span className="ps4-step-no">3</span>
-                              <span className="ps4-step-heading"><strong>Digitalizar os vértices V</strong>
-                                <small>Clique somente sobre o recorte ORIXP oficial</small></span>
-                              <span className="ps4-step-state">{pb1Draft.length} V</span><span className="ps4-step-caret">⌄</span>
-                            </summary>
-                            <div className="ps4-flow-body">
-                              {!pb1Raster&&<p className="ps4-analysis-note">Importe o ORIXP RGB para habilitar a vetorização PB1.</p>}
-                              {pb1Candidate&&<div className="pecas-card">
-                                <strong>Ponto selecionado na fonte oficial</strong>
-                                <p>Latitude {pb1Candidate.latitude.toFixed(8)}° · longitude {pb1Candidate.longitude.toFixed(8)}°</p>
-                                <button type="button" className="pecas-primary" disabled={pb1Busy}
-                                  onClick={()=>void pb1AddPoint()}>Confirmar V PB1 e amostrar MDT</button>
-                                <button type="button" className="pecas-secondary" onClick={()=>setPb1Candidate(null)}>Cancelar</button>
-                              </div>}
-                              <div className="ps4-v-table-wrap"><table className="ps4-v-table">
-                                <thead><tr><th>Ordem</th><th>Vértice</th><th>Latitude</th><th>Longitude</th><th>Cota MDT original (m)</th><th>Ação</th></tr></thead>
-                                <tbody>{pb1Draft.map((v,i)=><tr key={v.name}>
-                                  <td>{i+1}</td><td className="ps4-v-code">{v.name}</td>
-                                  <td className="ps4-v-coord">{v.latitude.toFixed(8)}</td>
-                                  <td className="ps4-v-coord">{v.longitude.toFixed(8)}</td>
-                                  <td>{v.source_elevation_m===null?"Pendente":v.source_elevation_m.toFixed(3)}</td>
-                                  <td><button className="ps4-v-row-action" type="button" onClick={()=>{
-                                    setPb1Draft(old=>old.filter((_,j)=>i!==j));setPb1ClosureConfirmed(false);
-                                  }}>Remover</button></td>
-                                </tr>)}</tbody>
-                              </table></div>
-                              <p className="pecas-note">A cota é o valor original do MDT, não a altitude elipsoidal h.
-                                Sem verificação do datum vertical e modelo de conversão, h e sigma-h permanecem pendentes.</p>
-                            </div>
-                          </details>
-                          <details className="ps4-flow-card" open>
-                            <summary className="ps4-flow-summary"><span className="ps4-step-no">4</span>
-                              <span className="ps4-step-heading"><strong>Fechar perímetro M–V–M</strong>
-                                <small>O fechamento preliminar não certifica a precisão</small></span>
-                              <span className="ps4-step-state">{pb1Ready?"Fechado":"Pendente"}</span><span className="ps4-step-caret">⌄</span>
-                            </summary>
-                            <div className="ps4-flow-body">
-                              <label className="pecas-field"><span>Marco GNSS inicial do segmento substituído</span>
-                                <select value={pb1Start} onChange={e=>{setPb1Start(e.target.value);setPb1ClosureConfirmed(false);}}>
-                                  <option value="">Selecione o marco inicial</option>
-                                  {topconBoundary.map(v=><option key={v.name} value={v.name}>{v.name}</option>)}
-                                </select>
-                              </label>
-                              <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
-                              <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
-                              <button type="button" className="pecas-primary" disabled={!pb1Closure.valid}
-                                onClick={()=>{setPb1ConfirmedSignature(pb1Signature);setPb1ClosureConfirmed(true);}}>
-                                Confirmar fechamento geométrico PB1
-                              </button>
-                              <p className="ps4-analysis-note">Status: <strong>PRELIMINAR</strong>.
-                                A precisão da fonte, o datum vertical, os sigmas e a aprovação RT permanecem pendentes.
-                                Não incluir estes V na ODS oficial automaticamente.</p>
-                              <button type="button" className="pecas-secondary" disabled={!pb1Ready}
-                                onClick={()=>{
-                                  const step=document.getElementById("pb1-technical-step") as HTMLDetailsElement|null;
-                                  if(step){step.open=true;step.scrollIntoView({behavior:"smooth",block:"start"});}
-                                }}>Continuar para cálculo técnico PB1</button>
-                            </div>
-                          </details>
                           <details className="ps4-flow-card" id="pb1-technical-step">
-                            <summary className="ps4-flow-summary"><span className="ps4-step-no">5</span><span className="ps4-step-heading"><strong>Prévia de precisão e altimetria</strong><small>MDT original, fatores individuais e revisão técnica</small></span></summary>
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">i</span><span className="ps4-step-heading"><strong>Precisão e altimetria (avançado)</strong><small>MDT original, fatores individuais e revisão técnica</small></span></summary>
                             <div className="ps4-flow-body">
                               <div className="pecas-note">
                                 <strong>Diagnóstico altimétrico local — MDT × GNSS</strong>
