@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { getApiUrl } from "@/lib/api";
 
-type Sheet = { inom: string; mi: string; bloco: string; area_overlap: boolean; boundary_touch_only: boolean };
+export type Sheet = { inom: string; mi: string; bloco: string; area_overlap: boolean; boundary_touch_only: boolean };
 type Lookup = { matched_sheets: Sheet[]; sheet_count: number; accuracy_status: string; notice: string };
 
-export function Pb1SheetLookup({ geometry }: { geometry: Record<string, unknown> | null }) {
+export function Pb1SheetLookup({ geometry, onSheetsFound }: {
+  geometry: Record<string, unknown> | null;
+  onSheetsFound?: (sheets: Sheet[]) => void;
+}) {
   const [result, setResult] = useState<Lookup | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -23,6 +26,7 @@ export function Pb1SheetLookup({ geometry }: { geometry: Record<string, unknown>
       if (!response.ok) throw new Error(typeof payload?.detail === "string"
         ? payload.detail : "Falha na identificação das folhas.");
       setResult(payload as Lookup);
+      onSheetsFound?.((payload as Lookup).matched_sheets);
     } catch (e) {setError(e instanceof Error?e.message:"Falha na articulação.");}
     finally {setBusy(false);}
   };
