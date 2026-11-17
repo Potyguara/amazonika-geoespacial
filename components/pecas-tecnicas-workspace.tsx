@@ -1537,7 +1537,7 @@ export function PecasTecnicasWorkspace({
       onDataChange("memorialHeading","MEMORIAL PRELIMINAR PB1 — NÃO CERTIFICADO");
       setEditableMemorial("");setMemorialSaved(false);setMemorialDirty(false);
       setPdfBlob(null);setPdfUrl(null);lastPdfKey.current="";
-      setPa2Mode(false);setStage(1);setPremiumStep(5);
+      setPa2Mode(false);setStage(0);setPremiumStep(3);
       setSavedPieceNotice("Parcela PB1 preliminar aplicada com "+newVertices.length+" vértices V.");
     }catch(error){
       setTopconError(error instanceof Error?error.message:"Não foi possível aplicar PB1.");
@@ -3238,7 +3238,7 @@ export function PecasTecnicasWorkspace({
                 void runAction(async () => {
                   setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
                   await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
-                  setPa2Mode(false);
+                  setPa2Mode(false);setStage(0);setPremiumStep(3);
                   setSavedPieceNotice(constructionMethod === "PB1"
                     ? "Traçado PB1 preliminar salvo — precisão e datum vertical pendentes"
                     : constructionMethod === "PS4"
@@ -3253,8 +3253,8 @@ export function PecasTecnicasWorkspace({
               onClick={() => void runAction(async () => {
                 setPs4Status({kind:"info",message:"Salvando rascunho cartográfico sem fechamento..."});
                 await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
-                setPa2Mode(false);
-                setSavedPieceNotice("Rascunho cartográfico salvo sem fechamento; complete antes da planta");
+                setPa2Mode(true);
+                setSavedPieceNotice("Rascunho cartográfico salvo. Continue no editor.");
               })}>Salvar rascunho sem fechar</button>}
           </div>
           {(actionError || actionBusy) && <div role={actionError ? "alert" : "status"}
