@@ -126,16 +126,16 @@ def _azimuth_minutes(degrees: float) -> str:
 
 
 def _display_altitude(parcel: Parcel, index: int) -> str:
-    """Prefer final normal height for drafting; preserve h separately for SIGEF."""
-    hn = (parcel.normal_altitudes[index]
-          if index < len(parcel.normal_altitudes) else None)
-    if hn is not None:
-        provisional = "-V-" in parcel.names[index].upper()
-        label = "HN estimada (interpolação M–V–M)" if provisional else "Altitude normal (HN)"
-        return f" e {label}: {_br_number(hn, 2)} m"
-    # Avoid silently labelling ellipsoidal h as a normal altitude.
+    """Preserve h as primary and identify complementary HN separately."""
     h = parcel.altitudes[index]
-    return f" e Altitude elipsoidal (h): {_br_number(h, 2)} m" if h is not None else ""
+    hn = parcel.normal_altitudes[index] if index < len(parcel.normal_altitudes) else None
+    parts = []
+    if h is not None:
+        parts.append(f"Altitude geométrica (h): {_br_number(h, 2)} m")
+    if hn is not None:
+        label = "HN estimada" if "-V-" in parcel.names[index].upper() else "Altitude normal (HN)"
+        parts.append(f"{label}: {_br_number(hn, 2)} m")
+    return " e " + "; ".join(parts) if parts else ""
 
 
 def build_joint_memorial(
