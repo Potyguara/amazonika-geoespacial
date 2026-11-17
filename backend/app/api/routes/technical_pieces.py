@@ -338,6 +338,8 @@ def _validated_snapshot(
     relevant_pb1 = ("pb1_draft", "pb1_closure", "pb1_source", "boundary")
     if piece and all((snapshot.get("topcon") or {}).get(k) ==
                      (prior_snapshot.get("topcon") or {}).get(k) for k in relevant_pb1):
+        if old_pb1.get("partial_preview"):
+            snapshot["pb1"]["partial_preview"] = old_pb1["partial_preview"]
         if old_pb1.get("technical_preview"):
             snapshot["pb1"]["technical_preview"] = old_pb1["technical_preview"]
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
@@ -577,6 +579,7 @@ def upload_pb1_file(
     pb1["review_status"] = "PRELIMINARY"
     pb1.pop("approval", None)
     pb1.pop("technical_preview", None)
+    pb1.pop("partial_preview", None)
     snapshot["pb1"] = pb1
     piece.snapshot = snapshot
     db.add(piece)
@@ -791,6 +794,72 @@ def pb1_technical_preview(
     return result
 
 
+class PB1PartialInput(BaseModel):
+    sigma_e_m: float | None = Field(default=None, gt=0)
+    sigma_n_m: float | None = Field(default=None, gt=0)
+    source_sigma_m: float | None = Field(default=None, gt=0)
+
+
+@router.post("/{piece_id}/pb1/process-partial")
+def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.pb1_partial import partial_parameters, partial_vertex
+    from app.services.pb1_dtm_sampling import sample_pb1_dtm
+    from app.services.pb1_ibge import parse_ibge_output
+    piece = _owned(piece_id, db, user)
+    snapshot = dict(piece.snapshot or {})
+    top = snapshot.get("topcon") or {}
+    points = top.get("pb1_draft") or []
+    pb = dict(snapshot.get("pb1") or {})
+    assets = pb.get("assets") or {}
+    color, dtm = assets.get("pb1_color"), assets.get("pb1_dtm")
+    if not color or not points or len(points)>500:
+        raise HTTPException(422, "É necessário um ORIXP e de 1 a 500 vértices salvos.")
+    source = top.get("pb1_source") or {}
+    params = partial_parameters(source, payload.model_dump())
+    factors = {}
+    record = pb.get("ibge_factors") or {}
+    if record.get("raw"):
+        try:
+            factors = parse_ibge_output(record["raw"], points)
+            # Do not use factors from an unidentified or different grid.
+            if not all(line.split()[-1].upper()=="HGEOHNOR_SANTANA" for line in record["raw"].splitlines() if line.strip()):
+                factors = {}
+        except ValueError:
+            factors = {}
+    path = stored_file_path(user.id,piece.id,"pb1_dtm",dtm["sha256"]) if dtm else None
+    bands = ((dtm or {}).get("metadata") or {}).get("bands") or [{}]
+    rows=[]
+    for point in points:
+        if point.get("raster_sha256") != color["sha256"]:
+            raise HTTPException(422,"Vértice vinculado a outro ORIXP.")
+        z=None
+        error=None
+        if path:
+            try:
+                z=sample_pb1_dtm(path,point["longitude"],point["latitude"],bands[0].get("no_data_value"))
+            except (ValueError,RuntimeError) as exc:
+                error=str(exc)
+        row=partial_vertex(point,z,params,factors.get(point["name"]),source)
+        if error: row["sampling_error"]=error
+        rows.append(row)
+    result={**params,"points":rows,"status":"PRELIMINARY_RT_REVIEW",
+        "color_sha256":color["sha256"],"dtm_sha256":dtm["sha256"] if dtm else None,
+        "calculated_at":datetime.now(timezone.utc).isoformat(),
+        "notice":"Estimativas preliminares; não constituem exatidão comprovada nem aprovação RT."}
+    pb["partial_preview"]=result
+    snapshot["pb1"]=pb
+    piece.snapshot=snapshot
+    db.commit()
+    return result
+
+
+@router.get("/{piece_id}/pb1/process-partial")
+def get_pb1_partial(piece_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    piece=_owned(piece_id,db,user)
+    return {"preview":((piece.snapshot or {}).get("pb1") or {}).get("partial_preview")}
+
+
 class PB1IbgeFactorsInput(BaseModel):
     ibge_output: str = Field(min_length=1, max_length=1000000)
 
@@ -811,6 +880,7 @@ def save_pb1_ibge_factors(piece_id: UUID, payload: PB1IbgeFactorsInput,
         "points": [{"name":p["name"],"latitude":p["latitude"],"longitude":p["longitude"]} for p in points],
         "raw": payload.ibge_output, "status":"FACTORS_ONLY", "imported_at":datetime.now(timezone.utc).isoformat()}
     pb = dict(snapshot.get("pb1") or {})
+    pb.pop("partial_preview",None)
     pb["ibge_factors"] = record
     snapshot["pb1"] = pb
     piece.snapshot = snapshot
