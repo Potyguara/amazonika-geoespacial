@@ -466,7 +466,28 @@ export function PecasTecnicasWorkspace({
   useEffect(()=>{
     if(!loadedPieceId)return;
     setPb1PieceId(loadedPieceId);
+    setPb1TechnicalResult(null);
+    setPb1IbgeOutput("");setPb1IbgeFilename("");
+    setPb1Technical({vertical_kind:"",vertical_datum:"",vertical_reference:"",accuracy_reference:"",sigma_e_m:"",sigma_n_m:"",source_sigma_m:"",limit_category:"",factor_reference:"",factors:""});
     let active=true;
+    fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/pb1/technical-preview",
+      {credentials:"include",cache:"no-store"})
+      .then(r=>{if(!r.ok)throw new Error("Não foi possível recuperar a prévia PB1.");return r.json();})
+      .then(body=>{
+        if(!active||!body?.preview)return;
+        const p=body.preview;
+        setPb1TechnicalResult(p);
+        const inputs=p.inputs??{};
+        setPb1Technical({
+          vertical_kind:String(inputs.vertical_kind??""),vertical_datum:String(inputs.vertical_datum??""),
+          vertical_reference:String(inputs.vertical_reference??""),accuracy_reference:String(inputs.accuracy_reference??""),
+          sigma_e_m:String(inputs.sigma_e_m??""),sigma_n_m:String(inputs.sigma_n_m??""),
+          source_sigma_m:String(inputs.source_sigma_m??""),limit_category:String(inputs.limit_category??""),
+          factor_reference:String(inputs.factor_reference??""),
+          factors:Object.entries(inputs.factors??{}).map(([id,values])=>id+";"+(Array.isArray(values)?values.join(";"):"")).join("\n")
+        });
+      })
+      .catch(e=>{if(active)setPb1Notice(String(e.message??e));});
     fetch(`${getApiUrl()}/technical-pieces/${loadedPieceId}/pb1/assets`,
       {credentials:"include",cache:"no-store"})
       .then(r=>r.ok?r.json():null)
@@ -2840,7 +2861,7 @@ export function PecasTecnicasWorkspace({
                 {selectedIds.includes(polygon.id) && (
                   <div className="pecas-table-wrap">
                     <table className="pecas-table">
-                      <thead><tr><th>#</th><th>Nome do vértice</th><th>Confrontante do segmento</th><th>Altitude elipsoidal (m)</th><th>Método</th><th>Tipo limite</th></tr></thead>
+                      <thead><tr><th>#</th><th>Nome do vértice</th><th>Confrontante do segmento</th><th>Altitude geométrica h (m)</th><th>Altitude normal HN (m)</th><th>Método</th><th>Tipo limite</th></tr></thead>
                       <tbody>
                         {polygon.vertices.map((name, index) => (
                           <tr key={index}>
@@ -2850,7 +2871,8 @@ export function PecasTecnicasWorkspace({
                             <td><input aria-label={`Confrontante do segmento ${index + 1}`}
                               value={polygon.confrontants[index] ?? ""}
                               onChange={(e) => onConfrontant(polygon.id, index, e.target.value)} /></td>
-                            <td>{polygon.altitudes[index] ?? "—"}</td>
+                            <td>{polygon.altitudes[index] || "—"}</td>
+                            <td>{String(polygon.vertexDetails?.[index]?.normal_altitude_m ?? "—")}</td>
                             <td>{String(polygon.vertexDetails?.[index]?.positioning_method ?? polygon.vertexDetails?.[index]?.sigef_method ?? "—")}</td>
                             <td>{String(polygon.vertexDetails?.[index]?.boundary_type ?? "—")}</td>
                           </tr>
