@@ -9,19 +9,19 @@ class DualAltitudeTests(unittest.TestCase):
             altitudes=[h], normal_altitudes=[hn])
 
     def test_both_heights(self):
-        text = _display_altitude(self.parcel(-2.414,21.186))
+        text = _display_altitude(self.parcel(-2.414,21.186),0)
         self.assertIn("Altitude geométrica (h)",text)
         self.assertIn("Altitude normal (HN)",text)
         self.assertIn("-2,41",text)
         self.assertIn("21,19",text)
 
     def test_missing_height_not_zero(self):
-        text = _display_altitude(self.parcel(None,13.575,"TEST-V-0001"))
+        text = _display_altitude(self.parcel(None,13.575,"TEST-V-0001"),0)
         self.assertNotIn("Altitude geométrica",text)
         self.assertIn("HN estimada",text)
 
     def test_zero_valid(self):
-        self.assertIn("0,00",_display_altitude(self.parcel(0,None)))
+        self.assertIn("0,00",_display_altitude(self.parcel(0,None),0))
 
     def test_table_nine_columns(self):
         columns = _columns(900)
