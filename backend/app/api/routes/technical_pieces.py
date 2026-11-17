@@ -647,6 +647,90 @@ def sample_pb1_height(
     }
 
 
+
+class PB1TechnicalInput(BaseModel):
+    vertical_kind: str
+    vertical_datum: str
+    vertical_reference: str
+    accuracy_reference: str
+    sigma_e_m: float
+    sigma_n_m: float
+    source_sigma_m: float
+    limit_category: str
+    factors: dict[str, list[float]] = {}
+    factor_reference: str = ""
+
+
+@router.post("/{piece_id}/pb1/technical-preview")
+def pb1_technical_preview(
+    piece_id: UUID, payload: PB1TechnicalInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Calcula prévia no servidor a partir dos V salvos e do MDT original."""
+    from math import hypot, isfinite
+    from app.services.pb1_vertical import PB1VerticalPoint, convert_pb1_height
+    from app.services.pb1_dtm_sampling import sample_pb1_dtm
+    piece = _owned(piece_id, db, user)
+    snapshot = piece.snapshot or {}
+    assets = (snapshot.get("pb1") or {}).get("assets") or {}
+    dtm = assets.get("pb1_dtm")
+    color = assets.get("pb1_color")
+    points = (snapshot.get("topcon") or {}).get("pb1_draft") or []
+    if not dtm or not color or not points:
+        raise HTTPException(422, "Salve os vértices PB1 e vincule os dois rasters.")
+    if len(points) > 500:
+        raise HTTPException(422, "O cálculo preliminar aceita até 500 V por operação.")
+    if not all(x.strip() for x in (payload.vertical_datum, payload.vertical_reference, payload.accuracy_reference)):
+        raise HTTPException(422, "Informe documentação vertical e de exatidão horizontal.")
+    if not all(isfinite(x) and x >= 0 for x in (payload.sigma_e_m, payload.sigma_n_m, payload.source_sigma_m)):
+        raise HTTPException(422, "Sigmas devem ser finitos e não negativos.")
+    if payload.sigma_e_m == 0 or payload.sigma_n_m == 0:
+        raise HTTPException(422, "Informe incertezas horizontais documentadas, maiores que zero.")
+    limits = {"NATURAL": 3.0, "INACCESSIBLE": 7.5, "ARTIFICIAL": 0.5}
+    if payload.limit_category not in limits:
+        raise HTTPException(422, "Classifique a acessibilidade e natureza do limite.")
+    model = {"NORMAL": "HGEOHNOR2020", "ORTHOMETRIC": "MAPGEO2015", "ELLIPSOIDAL": "NONE"}.get(payload.vertical_kind)
+    if not model:
+        raise HTTPException(422, "Tipo de altitude não identificado.")
+    if model != "NONE" and not payload.factor_reference.strip():
+        raise HTTPException(422, "Informe a origem dos fatores individuais do modelo.")
+    path = stored_file_path(user.id, piece.id, "pb1_dtm", dtm["sha256"])
+    bands = (dtm.get("metadata") or {}).get("bands") or [{}]
+    output = []
+    try:
+        for point in points:
+            if point.get("raster_sha256") != color["sha256"]:
+                raise ValueError("Vinculação ORIXP alterada; revise o traçado.")
+            name = point["name"]
+            factor = payload.factors.get(name)
+            if model != "NONE" and (factor is None or len(factor) != 2):
+                raise ValueError("Informe fator e sigma individual para " + name)
+            value = sample_pb1_dtm(path, point["longitude"], point["latitude"], bands[0].get("no_data_value"))
+            row = convert_pb1_height(PB1VerticalPoint(
+                vertex_id=name, source_value_m=value, source_vertical_kind=payload.vertical_kind,
+                source_vertical_datum=payload.vertical_datum, conversion_model=model,
+                conversion_factor_m=factor[0] if model != "NONE" else None,
+                source_sigma_m=payload.source_sigma_m,
+                factor_sigma_m=factor[1] if model != "NONE" else None,
+                raster_sha256=dtm["sha256"],
+            ))
+            output.append({**row, "latitude": point["latitude"], "longitude": point["longitude"],
+                           "sigma_e_m": payload.sigma_e_m, "sigma_n_m": payload.sigma_n_m})
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    horizontal = hypot(payload.sigma_e_m, payload.sigma_n_m)
+    return {"points": output, "horizontal_sigma_m": horizontal,
+            "limit_m": limits[payload.limit_category],
+            "meets_numeric_threshold": horizontal <= limits[payload.limit_category],
+            "accuracy_reference": payload.accuracy_reference,
+            "vertical_reference": payload.vertical_reference,
+            "factor_reference": payload.factor_reference,
+            "status": "PRELIMINARY_RT_REVIEW",
+            "notice": "Estimativa com parâmetros declarados; não comprova exatidão, datum ou aprovação RT."}
+
+
 @router.post("/{piece_id}/ps4/files/{kind}")
 def upload_ps4_file(
     piece_id: UUID, kind: str, file: UploadFile = File(...),
