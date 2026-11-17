@@ -372,13 +372,8 @@ export function PecasTecnicasWorkspace({
         setWorkflowNotice("Para iniciar PB1 ou PS4, importe e selecione pelo menos dois marcos GNSS do divisor.");
         return;
       }
-      if(constructionSkipped) {
-        setPa2Mode(false);
-        setWorkflowNotice("Construção opcional dispensada. Os marcos GNSS originais poderão compor a peça sem novos V.");
-        return;
-      }
-      setPa2Mode(true);
-      setWorkflowNotice("Mapa de construção aberto no método "+constructionMethod+". Confira a fonte, marque os V e confirme o fechamento M–V–M.");
+      setPa2Mode(false);
+      setWorkflowNotice("Escolha se o perímetro necessita de vértices adicionais.");
       return;
     }
     setWorkflowNotice("Etapa selecionada: " + item.title + ". Confira os dados antes de continuar.");
@@ -930,7 +925,7 @@ export function PecasTecnicasWorkspace({
     setPb1ClosureConfirmed(Boolean(d.pb1_closure?.confirmed));
     setPb1ConfirmedSignature(d.pb1_closure?.signature ?? "");
     setPb1Source(d.pb1_source ?? {sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
-    setConstructionSkipped(Boolean(d.construction_skipped));
+    setConstructionSkipped(Boolean(d.construction_skipped)&&!(d.pb1_draft?.length||d.ps4_draft?.length||d.boundary?.some(p=>Boolean(p.derived_calculation))));
     setPs4SceneId(d.ps4_selected_scene || d.ps4_draft?.[0]?.scene_id ||
       "CBERS4A_WPM_PCA_RGB321_20261016_214_113");
     setPs4Armed(Boolean(d.ps4_draft?.length));
@@ -997,37 +992,30 @@ export function PecasTecnicasWorkspace({
     },
   });
 
+  const hasAdditionalVertices = pb1Draft.length>0 || ps4Draft.length>0 ||
+    topconBoundary.some(p=>Boolean(p.derived_calculation)) ||
+    polygons.some(p=>p.vertexDetails?.some(d=>["PB1","PS4","PA1","PA2","PT8"].includes(String(d.sigef_method??""))));
+  const openAdditionalVertices = () => {
+    setConstructionSkipped(false);
+    if(pb1Draft.length) setConstructionMethod("PB1");
+    else if(ps4Draft.length || !verticalCalculated) setConstructionMethod("PS4");
+    setPa2Mode(true);setPa2Error("");
+    setWorkflowNotice("Escolha o método no espaço de trabalho cartográfico.");
+  };
   const skipAdditionalVertices = async () => {
-    if (ps4Draft.length && !window.confirm(
-      "Dispensar vértices adicionais removerá os V provisórios desta peça. Confirma?"
-    )) return;
+    // Do not discard an existing draft or adopted geometry through a checkbox.
+    if(hasAdditionalVertices){
+      setActionError("Existem vértices adicionais registrados. Revise ou remova-os explicitamente antes de dispensar a construção.");
+      return;
+    }
     setActionBusy(true); setActionError("");
     try {
-      const draft = {
-        ...draftForSave(), construction_skipped: true, ps4_draft: [],
-        ps4_closure: {start:"", confirmed:false, signature:""},
-      };
-      const id = await onSavePiece(editableMemorial.trim(), draft);
-      const base = `${getApiUrl()}/technical-pieces/${id}/ps4`;
-      const response = await fetch(base, {
-        method:"PUT",credentials:"include",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({needs_additional_vertices:false,vertices:[]}),
-      });
-      if (!response.ok) throw new Error("Não foi possível registrar a dispensa do PS4.");
-      const finish = await fetch(base+"/complete-no-v", {
-        method:"POST",credentials:"include",
-      });
-      if (!finish.ok) throw new Error("A subetapa sem V não foi concluída no servidor.");
-      setPs4Draft([]); setPs4ClosureConfirmed(false);
-      setPs4ConfirmedSignature("");setPs4Candidate(null);
+      await onSavePiece(editableMemorial.trim(), {...draftForSave(), construction_skipped:true});
       setConstructionSkipped(true);setPa2Mode(false);
-      setPs4ApprovalConfirmed(false);
-      setSavedPieceNotice("Sem vértices adicionais: subetapa concluída e salva.");
-      setWorkflowNotice("PS4 não aplicável: decisão persistida no servidor. Prossiga às etapas seguintes.");
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Falha ao concluir sem V.");
-    } finally { setActionBusy(false); }
+      setSavedPieceNotice("Sem vértices adicionais: decisão salva.");
+      setWorkflowNotice("Construção adicional dispensada para todos os métodos.");
+    } catch(e) {setActionError(e instanceof Error?e.message:"Falha ao salvar a decisão.");}
+    finally{setActionBusy(false);}
   };
   const [reviewedOdsError, setReviewedOdsError] = useState("");
   const [reviewedOdsNotice, setReviewedOdsNotice] = useState("");
@@ -1796,7 +1784,7 @@ export function PecasTecnicasWorkspace({
     Boolean(topconPreview),
     topconBoundary.length>=3,
     Boolean(verticalCalculated?.length),
-    Boolean(ps4Ready || constructionSkipped),
+    Boolean(pb1Ready || ps4Ready || constructionSkipped),
     Boolean(overlapCurrent && officialOverlap?.complete && officialOverlap?.count===0),
     selectedIds.length>0,
     Boolean(memorialText || editableMemorial),
@@ -2056,16 +2044,18 @@ export function PecasTecnicasWorkspace({
                   tecnicamente apropriada; não será estimada como se fosse GNSS.</p>
               </>}
               {premiumStep===3 && <>
-                <h4>Construção de vértices V — PB1 ou PS4</h4>
-                <p>PB1 identifica previamente as folhas de base oficial com precisão documentada.
-                  PS4 utiliza sensores orbitais e possui fluxo próprio de ortorretificação.
-                  A consulta de folhas PB1 ainda não altera o método dos vértices nem libera ODS.</p>
-                <Pb1SheetLookup geometry={pb1LookupGeometry} />
-                <button type="button" className="pecas-primary"
-                  disabled={!topconPreview||topconBoundary.length<2}
-                  onClick={()=>{setConstructionSkipped(false);setConstructionMethod("PB1");setPa2Mode(true);}}>
-                  Abrir editor PB1 · ORIXP + MDT
-                </button>
+                <h4>Construção de vértices adicionais</h4>
+                <p>Se os marcos GNSS já definem todo o perímetro, dispense esta etapa. Caso contrário, abra o editor e escolha o método de posicionamento adequado.</p>
+                <label className="pecas-check">
+                  <input type="checkbox" checked={!constructionSkipped} disabled={actionBusy}
+                    onChange={e=>{if(e.target.checked)openAdditionalVertices();else void skipAdditionalVertices();}}/>
+                  Preciso construir vértices adicionais (facultativo)
+                </label>
+                <p className="pecas-note">{constructionSkipped?"Dispensado — prossiga com os vértices existentes.":"Construção habilitada — PA1, PA2, PT8 (M/P), PS4 ou PB1, conforme disponibilidade e tipo de vértice."}</p>
+                {actionError&&<p role="alert" className="pecas-warning">{actionError}</p>}
+                {!constructionSkipped&&<button type="button" className="pecas-primary"
+                  disabled={!topconPreview||topconBoundary.length<2||actionBusy}
+                  onClick={openAdditionalVertices}>Abrir espaço de trabalho de vértices</button>}
                 {pb1Ready&&<div className="geo97-adopt-banner" role="status">
                   <strong>PB1: traçado fechado com {pb1Draft.length} vértices V preliminares.</strong>
                   <p>É possível aplicar à planta preliminar; exatidão da base e altitude elipsoidal ainda pendentes.</p>
@@ -2073,26 +2063,6 @@ export function PecasTecnicasWorkspace({
                     Aplicar geometria PB1 à parcela preliminar
                   </button>
                 </div>}
-                <h4>PS4 — Sensores orbitais (opção alternativa)</h4>
-                <p>Trabalhe com a imagem CBERS-4A, confirme a sequência de vértices
-                  e faça o fechamento M–V–M antes de consolidar a parcela preliminar.
-                  Se o perímetro GNSS já estiver completo, dispense esta etapa.</p>
-                <label className="pecas-check">
-                  <input type="checkbox" checked={!constructionSkipped}
-                    onChange={e=>{
-                      if (!e.target.checked) void skipAdditionalVertices();
-                      else {setConstructionSkipped(false);setWorkflowNotice("Construção PS4 reativada.");}
-                    }}/>
-                  Preciso construir vértices adicionais (facultativo)
-                </label>
-                <p className="geo96-next-step">{ps4Draft.length} vértices V registrados.
-                  Fechamento: {constructionSkipped?"dispensado pelo usuário":ps4Ready?"confirmado para prévia":"pendente"}.</p>
-                <button type="button" className="pecas-primary"
-                  disabled={!topconPreview||topconBoundary.length<2}
-                  onClick={()=>{
-                    setConstructionSkipped(false);
-                    setConstructionMethod("PS4");setPa2Mode(true);
-                  }}>Abrir mapa PS4 e imagens INPE</button>
                 {ps4Ready&&<div className="geo97-adopt-banner" role="status">
                   <strong>Poligonal fechada com {ps4Closure.names.length} vértices.</strong>
                   <p>A prévia e o PDF de cinco marcos são diferentes até aplicar
@@ -2102,9 +2072,7 @@ export function PecasTecnicasWorkspace({
                     Aplicar geometria M–V à parcela preliminar
                   </button>
                 </div>}
-                <p className="pecas-note">Acurácia PS4: não demonstrada;
-                  os V permanecem identificados como preliminares, sem coordenadas
-                  e altitudes certificáveis.</p>
+
               </>}
               <div className="geo97-flow-actions">
                 <button type="button" className="pecas-secondary"
@@ -2600,7 +2568,7 @@ export function PecasTecnicasWorkspace({
                           disabled={topconBoundary.length < 2}
                           onClick={() => {
                             if (!verticalCalculated) setConstructionMethod("PS4");
-                            setPa2Mode(true); setPa2Error("");
+                            openAdditionalVertices();
                             setWorkflowNotice("Espaço de trabalho aberto. O PS4 pode criar rascunhos sem altitude calculada.");
                           }}>
                           Abrir espaço de trabalho cartográfico
@@ -3423,12 +3391,11 @@ export function PecasTecnicasWorkspace({
                           medida a partir do primeiro. O mapa permite escolher visualmente
                           um local, mas o cálculo mantém as restrições geométricas do método. PS4 é independente da conversão altimétrica para criar rascunhos, mas exige acurácia comprovada para exportação.</p>
                         <label className="pecas-check"><input type="checkbox"
-                          checked={pa2Mode}
+                          checked={!constructionSkipped}
                           onChange={(e) => {
                             setPa2Result(null);
                             if (!e.target.checked) {
                               void skipAdditionalVertices();
-                              setPa2Witnesses([]);setMapHint(null);
                             } else {
                               setConstructionSkipped(false);
                               setPa2Mode(true);
