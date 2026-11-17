@@ -1079,7 +1079,34 @@ export function PecasTecnicasWorkspace({
     cns: sigefCns, registration: sigefRegistration,
     municipalities: sigefMunicipalities.split(/[;,]/).map((item) => item.trim()).filter(Boolean),
   });
-  const parcelsForOds = () => groupTopconParcels(topconBoundary, data.title);
+  // Export and review must consume the same selected geometry as the technical documents.
+  const parcelsForOds = () => {
+    const selected=polygons.filter(p=>selectedIds.includes(p.id));
+    if(!selected.length)throw new Error("Selecione a parcela consolidada.");
+    return selected.map((parcel,index)=>{
+      if(!parcel.coordinates || parcel.coordinates.length!==parcel.vertices.length)
+        throw new Error("Coordenadas indisponíveis: "+parcel.name);
+      const number=String(parcel.vertexDetails?.[0]?.parcel_number??index+1);
+      return {number,name:parcel.name,vertices:parcel.vertices.map((code,i)=>{
+        const d=parcel.vertexDetails?.[i]??{};
+        const [longitude,latitude]=parcel.coordinates![i];
+        const original=topconBoundary.find(p=>p.sigef_vertex_code===code && p.longitude!=null && p.latitude!=null &&
+          Math.abs(p.longitude-longitude)<1e-8 && Math.abs(p.latitude-latitude)<1e-8);
+        const h=parcel.altitudes[i]?.trim();
+        const numeric=(x:unknown)=>typeof x==="number"&&Number.isFinite(x)?x:null;
+        const method=String(d.sigef_method??d.positioning_method??"");
+        return {...original,name:String(d.name??code),point_role:"BOUNDARY",
+          parcel_number:number,parcel_name:parcel.name,sigef_vertex_code:code,longitude,latitude,
+          ellipsoidal_height_m:h&&Number.isFinite(Number(h.replace(",",".")))?Number(h.replace(",",".")):null,
+          height_reference_confirmed:d.height_reference_confirmed===true,
+          sigma_lon_m:numeric(d.sigma_lon_m),sigma_lat_m:numeric(d.sigma_lat_m),sigma_h_m:numeric(d.sigma_h_m),
+          sigef_method:method,boundary_type:String(d.boundary_type??""),confrontant:parcel.confrontants[i]??"",
+          confrontant_cns:String(d.confrontant_cns??original?.confrontant_cns??""),
+          confrontant_registration:String(d.confrontant_registration??original?.confrontant_registration??""),
+          derived_calculation:original?.derived_calculation??null};
+      })};
+    });
+  };
   const sigefSignature = () => {
     try {
       return JSON.stringify({ identification: makeSigefIdentity(), parcels: parcelsForOds() });
@@ -1088,14 +1115,14 @@ export function PecasTecnicasWorkspace({
     }
   };
   const downloadReviewedOds = async () => {
-    if (!topconReview?.ready_for_ods || sigefParcelReview?.status !== "PREVALIDATED") return;
+    if(sigefParcelReview?.status!=="PREVALIDATED"){setReviewedOdsError("Execute a pré-validação da parcela atual.");return;}
     if (ps4SigefIncomplete) {
       setReviewedOdsError("ODS preenchida bloqueada: os vértices PS4 exigem acurácia horizontal aprovada, h elipsoidal confirmada e sigmas individuais.");
       return;
     }
     // Original adjusted-point precisions from TOPCON are retained. Manual adjustment
     // and a second confirmation click are optional; mandatory SIGEF columns are not.
-    const incomplete = topconBoundary.filter(point =>
+    const incomplete = parcelsForOds().flatMap(p=>p.vertices).filter(point =>
       ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
         .every(value => typeof value === "number" && Number.isFinite(value) && value > 0));
     if (incomplete.length) {
@@ -1138,7 +1165,7 @@ export function PecasTecnicasWorkspace({
   };
 
   const validateSigefParcel = async () => {
-    if (!topconReview?.ready_for_ods || !topconReview.parcel_geometries?.length) return;
+    if (!selectedIds.length){setTopconError("Selecione uma parcela consolidada.");return;}
     setSigefParcelBusy(true);
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
@@ -1149,9 +1176,10 @@ export function PecasTecnicasWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           identification: makeSigefIdentity(),
-          parcels: topconReview.parcel_geometries.map((parcel) => ({
-            ...parcel, parcelling_type: "SEM_PARCELAMENTO",
-          })),
+          parcels: parcelsForOds().map(({number,name,vertices})=>{
+            const ring=vertices.map(v=>[v.longitude,v.latitude]);
+            return {number,name,geometry:{type:"Polygon",coordinates:[[...ring,ring[0]]]},parcelling_type:"SEM_PARCELAMENTO"};
+          }),
           neighbors: [],
         }),
       });
@@ -1969,18 +1997,6 @@ export function PecasTecnicasWorkspace({
           setActionFeedback(""); setActionError("");
         }} style={{ marginLeft: 12 }}>Fechar</button>
       </div>}
-      <nav className="pecas-stepper" aria-label="Etapas de elaboração">
-        {stages.map((name, index) => (
-          <button type="button" key={name} aria-current={index === stage ? "step" : undefined}
-            className={index === stage ? "active" : index < stage ? "done" : ""}
-            onClick={() => jumpToWorkflow(([0,5,7,8,9] as const)[index])}
-            disabled={(index > 1 && selectedIds.length === 0) || (index === 4 && !pdfReady)}
-          >
-            <span className="pecas-step-number">{index < stage ? <Check size={14} /> : index + 1}</span>
-            {name}
-          </button>
-        ))}
-      </nav>
       <main className="pecas-main" id="geo96-main">
         {showAllTasks && stage===0 && <button type="button" className="pecas-secondary"
           style={{marginBottom:12}} onClick={()=>setShowAllTasks(false)}>
@@ -2145,16 +2161,10 @@ export function PecasTecnicasWorkspace({
                 </div>}
 
               </>}
-              <div className="geo97-flow-actions">
-                <button type="button" className="pecas-secondary"
-                  onClick={()=>setShowAllTasks(true)}>Abrir edição avançada desta peça</button>
-                <button type="button" className="pecas-primary"
-                  onClick={()=>jumpToWorkflow(Math.min(4,premiumStep+1))}>
-                  {premiumStep===3?"Ir para sobreposições SIGEF":"Continuar para o próximo passo"} →
-                </button>
-              </div>
+              {premiumStep===1&&<details className="pecas-advanced"><summary>Editar precisões dos marcos GNSS</summary><label className="pecas-field"><span>Importar precisões individuais ajustadas (CSV)</span><input type="file" accept=".csv,.txt" onChange={e=>{const file=e.currentTarget.files?.[0];if(file)void importAdjustedSigmas(file);e.currentTarget.value="";}}/></label><p className="pecas-note">ID;SIGMA_E;SIGMA_N;SIGMA_H (m). RMS de linhas de base não substitui precisões individuais.</p><div className="pecas-table-wrap"><table className="pecas-table"><thead><tr><th>Marco</th><th>σE (m)</th><th>σN (m)</th><th>σh (m)</th></tr></thead><tbody>{topconBoundary.map((p,i)=><tr key={p.name}><td style={{whiteSpace:"nowrap"}}>{p.sigef_vertex_code||p.name}</td>{(["sigma_lon_m","sigma_lat_m","sigma_h_m"] as const).map(k=><td key={k}><input style={{minWidth:72,width:"100%"}} aria-label={p.name+" "+k} type="number" min="0" step="any" value={p[k]??""} onChange={e=>updateBoundaryPoint(i,{[k]:e.target.value===""?null:Number(e.target.value)})}/></td>)}</tr>)}</tbody></table></div></details>}
+              <details className="pecas-advanced"><summary>Ferramentas legadas (transição)</summary><button type="button" className="pecas-secondary" onClick={()=>setShowAllTasks(true)}>Abrir ferramentas anteriores</button></details>
             </div>
-            <div className="geo97-map-aside">
+            {premiumStep===3&&<div className="geo97-map-aside">
               <SituationMapPreview
                 geometry={displaySituationGeometry}
                 geometryKey={displaySituationKey}
@@ -2166,7 +2176,7 @@ export function PecasTecnicasWorkspace({
                 ps4Draft={ps4Draft}
                 ps4ClosureGeometry={ps4PreviewGeometry}
               />
-            </div>
+            </div>}
           </div>
         )}
         {stage === 0 && showAllTasks && (
@@ -3047,9 +3057,10 @@ export function PecasTecnicasWorkspace({
         {stage === 4 && (
           <div className="pecas-card">
             {premiumStep === 6 && <>
-              {topconPreview && (
+              {true && (
                           <div className="pecas-card" id="geo97-legal" aria-label="Revisão final de identificação SIGEF">
                             <h4>Identificação e situação jurídica</h4>
+                            <div className="pecas-form-grid">{field("Denominação do imóvel","title")}{field("Titular","owner")}{field("CPF/CNPJ","cpf")}{field("RG","rg")}{field("Localização","address")}</div>
                             <p>Preencha os dados do titular e imóvel nos campos gerais acima.
                               Informe aqui os municípios e a situação jurídica para testar todas as parcelas.
                               Não é gerado ODS e não é efetuada consulta de vizinhos nesta etapa.</p>
@@ -3099,34 +3110,6 @@ export function PecasTecnicasWorkspace({
                                 <input value={sigefRegistration} onChange={(e) => { setSigefRegistration(e.target.value); setSigefParcelReview(null);onLegalMetadataChange({registration:e.target.value});setPdfBlob(null);setPdfUrl(null); }} />
                               </label>
                             </div>}
-                            <button type="button" className="pecas-primary" disabled={sigefParcelBusy}
-                              onClick={() => void validateSigefParcel()}>
-                              {sigefParcelBusy ? "Validando identificação..." : "Pré-validar identificação e parcela"}
-                            </button>
-                            {sigefParcelReview && <div role="status">
-                              <p><strong>{sigefParcelReview.status === "PREVALIDATED"
-                                ? "Pré-validação cadastral sem erros locais"
-                                : "Pendências cadastrais detectadas"}</strong></p>
-                              {sigefParcelReview.parcels.map((p) => <p key={p.number}>
-                                Parcela {p.number}: {p.area_ha.toLocaleString("pt-BR")} ha</p>)}
-                              {sigefParcelReview.errors.map((msg, i) =>
-                                <p key={i} className="pecas-warning" role="alert">{msg}</p>)}
-                              {sigefParcelReview.warnings.map((msg, i) =>
-                                <p key={i} className="pecas-note">{msg}</p>)}
-                              <p>A ausência de base confrontante não comprova inexistência de sobreposição.
-                                Nenhum campo da ODS é inferido ou preenchido automaticamente aqui.</p>
-                              {sigefParcelReview.status === "PREVALIDATED" && <div>
-                                <button type="button" className="pecas-primary"
-                                  disabled={reviewedOdsBusy || ps4SigefIncomplete || !sigefValidatedSignature || sigefValidatedSignature !== sigefSignature()}
-                                  onClick={() => void downloadReviewedOds()}>
-                                  {reviewedOdsBusy ? "Gerando ODS..." : "Gerar ODS SIGEF revisada"}
-                                </button>
-                                {reviewedOdsError && <p className="pecas-warning" role="alert">{reviewedOdsError}</p>}
-                                {reviewedOdsNotice && <p role="status">{reviewedOdsNotice}</p>}
-                                <p>ODS para conferência técnica. A validação oficial do SIGEF
-                                  e a verificação com parcelas certificadas continuam necessárias.</p>
-                              </div>}
-                            </div>}
                           </div>
                         )}
               {!topconPreview && <div className="pecas-warning" role="status">
@@ -3134,7 +3117,18 @@ export function PecasTecnicasWorkspace({
               </div>}
             </>}
             {premiumStep !== 6 && <div id="geo97-export">
-            <h3>5. Conferência e exportação</h3>
+            <h3>Revisão e exportação</h3>
+            <section className="pecas-card"><h4>ODS SIGEF — revisão da parcela consolidada</h4>
+              <p>Validação local da mesma geometria utilizada na planta e no memorial. A certificação é realizada pelo SIGEF.</p>
+              {polygons.filter(p=>selectedIds.includes(p.id)).map(p=><p key={p.id}><strong>{p.name}</strong> · {p.vertices.length} vértices</p>)}
+              {polygons.filter(p=>selectedIds.includes(p.id)).some(p=>p.vertexDetails?.some(d=>d.sigef_method==="PB1"))&&<p className="pecas-warning">PB1: exportação definitiva depende de aprovação técnica persistida e comprovação de precisão e altimetria.</p>}
+              <button type="button" className="pecas-secondary" disabled={sigefParcelBusy} onClick={()=>void validateSigefParcel()}>{sigefParcelBusy?"Validando…":"Pré-validar identificação e geometria"}</button>
+              {sigefParcelReview&&<div role="status"><strong>{sigefParcelReview.status==="PREVALIDATED"?"Pré-validação cadastral concluída":"Pendências cadastrais"}</strong>{[...sigefParcelReview.errors,...sigefParcelReview.warnings].map((m,i)=><p key={i}>{m}</p>)}</div>}
+              <button type="button" className="pecas-primary" disabled={reviewedOdsBusy||sigefParcelReview?.status!=="PREVALIDATED"||sigefValidatedSignature!==sigefSignature()} onClick={()=>void downloadReviewedOds()}>{reviewedOdsBusy?"Gerando…":"Gerar ODS revisada"}</button>
+              {reviewedOdsError&&<p role="alert" className="pecas-warning">{reviewedOdsError}</p>}
+              {reviewedOdsNotice&&<p role="status">{reviewedOdsNotice}</p>}
+            </section>
+            {pb1Draft.length>0&&<button type="button" className="pecas-secondary" disabled={actionBusy} onClick={()=>void downloadPb1Report()}>Baixar relatório técnico PB1 (PDF)</button>}
             <p>Documentos gerados pelos serviços existentes. As exportações vetoriais são feitas individualmente por polígono.</p>
             <div className="pecas-export-grid">
               <button disabled={!pdfReady || actionBusy} onClick={() => { if (pdfReady && pdfBlob) downloadBlob(pdfBlob, `${fileSlug(data.title)}-planta-memorial.pdf`); }}>
@@ -3214,7 +3208,7 @@ export function PecasTecnicasWorkspace({
             <ArrowLeft size={16} /> {premiumStep === 0 ? "Mapa" : "Voltar"}
           </button>
           {premiumStep < 9 && <button className="pecas-primary" type="button"
-            disabled={selectedIds.length === 0 || (stage === 3 && (!pdfReady || pdfBusy))}
+            disabled={actionBusy || pdfBusy}
             onClick={() => {
               jumpToWorkflow(Math.min(9,premiumStep+1));
             }}>
