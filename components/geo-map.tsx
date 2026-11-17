@@ -538,7 +538,10 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         coordinates: (geometry.getCoordinates()[0]??[]).slice(0,-1)
           .map(coord=>toLonLat(coord) as [number,number]),
         confrontants, altitudes,
-        vertexDetails: (feature.get("sigef_vertex_details") as Array<Record<string, unknown>> | undefined) ?? [],
+        vertexDetails: names.map((_,i)=>({
+          ...((feature.get("sigef_vertex_details") as Array<Record<string, unknown>> | undefined)?.[i]??{}),
+          normal_altitude_m:(feature.get("normalAltitudeEstimates") as Array<number|null>|undefined)?.[i]??null,
+        })),
         areaHa: getArea(geometry, { projection: "EPSG:3857" }) / 10000,
         perimeterM: getLength(new LineString(geometry.getCoordinates()[0] ?? []), {
           projection: "EPSG:3857",
