@@ -152,6 +152,15 @@ type TopconPreview = {
   ready_for_sigef: false;
 };
 
+type Pb1Source = {sheet:string;product:string;accuracy_reference:string;vertical_datum:string;
+  scale?:string;pec?:string;vertical_kind?:string;source_model?:string;vertical_reference?:string};
+const PB1_SCALE_OPTIONS=["10000","25000","50000","100000","Outra"];
+const PB1_PEC_OPTIONS=["PEC A","PEC B","PEC C","PEC-PCD A","PEC-PCD B","PEC-PCD C","PEC-PCD D","Outra"];
+const PB1_DATUM_OPTIONS=["Santana — AP","Imbituba — SC","GRS80 — SIRGAS 2000 (elipsoidal)","Referência local","Outro"];
+const PB1_MODEL_OPTIONS=["MAPGEO2010","MAPGEO2015","hgeoHNOR2020","EGM96","EGM2008","NONE","Outro"];
+const PB1_KIND_OPTIONS=[["NORMAL","Altitude normal (HN)"],["ORTHOMETRIC","Altitude ortométrica (H)"],["ELLIPSOIDAL","Altitude geométrica (h)"],["OTHER","Outra referência"]];
+const PB1_PEC_MM:Record<string,[number,number]>={"PEC A":[0.5,0.3],"PEC B":[0.8,0.5],"PEC C":[1,0.6]};
+
 export type TopconDraft = {
   version: 1;
   preview: TopconPreview | null;
@@ -181,7 +190,7 @@ export type TopconDraft = {
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
   pb1_draft?: Array<{name:string;latitude:number;longitude:number;source_elevation_m:number|null;raster_sha256:string;created_at:string}>;
   pb1_closure?: {start:string;confirmed:boolean;signature?:string};
-  pb1_source?: {sheet:string;product:string;accuracy_reference:string;vertical_datum:string};
+  pb1_source?: Pb1Source;
   ps4_draft?: Array<{
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
@@ -411,7 +420,7 @@ export function PecasTecnicasWorkspace({
       crs_authority?:string|null; vertical_crs_name?:string|null;
       embedded_source_tags?:Record<string,string>};
   }>>({});
-  const [pb1Source,setPb1Source] = useState({sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
+  const [pb1Source,setPb1Source] = useState<Pb1Source>({sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
   const [ps4SceneId,setPs4SceneId] = useState("CBERS4A_WPM_PCA_RGB321_20261016_214_113");
   const [ps4Armed,setPs4Armed] = useState(false);
   const [ps4ApprovalConfirmed, setPs4ApprovalConfirmed] = useState(false);
@@ -3450,7 +3459,10 @@ export function PecasTecnicasWorkspace({
                               <label className="pecas-field"><span>Fonte e edição do produto oficial (independe do nome do arquivo)</span>
                                 <input value={pb1Source.product} placeholder="Ex.: Exército/GEA · base cartográfica 1:25.000 · ORIXP 2,5 m"
                                   onChange={e=>setPb1Source(o=>({...o,product:e.target.value}))}/></label>
-                              <label className="pecas-field"><span>Documento da exatidão planimétrica / PEC</span>
+                              <label className="pecas-field"><span>Escala original do produto</span><select value={pb1Source.scale??""} onChange={e=>{setPb1Source(o=>({...o,scale:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Não identificada</option>{PB1_SCALE_OPTIONS.map(v=><option key={v} value={v}>{v==="Outra"?v:"1:"+Number(v).toLocaleString("pt-BR")}</option>)}</select></label>
+                              <label className="pecas-field"><span>Classificação planimétrica declarada</span><select value={pb1Source.pec??""} onChange={e=>{setPb1Source(o=>({...o,pec:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Não comprovada</option>{PB1_PEC_OPTIONS.map(v=><option key={v}>{v}</option>)}</select></label>
+                              {pb1Source.pec&&PB1_PEC_MM[pb1Source.pec]&&Number(pb1Source.scale)>0&&<p className="pecas-note">Referência normativa PEC tradicional: PEC {(PB1_PEC_MM[pb1Source.pec][0]*Number(pb1Source.scale)/1000).toLocaleString("pt-BR")} m; erro-padrão {(PB1_PEC_MM[pb1Source.pec][1]*Number(pb1Source.scale)/1000).toLocaleString("pt-BR")} m. Não são sigmas medidos dos vértices.</p>}
+                              <label className="pecas-field"><span>Documento comprobatório da exatidão planimétrica</span>
                                 <input value={pb1Source.accuracy_reference} placeholder="Informe documento e classe efetivamente comprovados"
                                   onChange={e=>setPb1Source(o=>({...o,accuracy_reference:e.target.value}))}/></label>
                               <div className="pecas-note">
@@ -3461,9 +3473,14 @@ export function PecasTecnicasWorkspace({
                                 SIRGAS 2000 / UTM define coordenadas horizontais e não comprova
                                 por si só se as elevações são normais, ortométricas ou elipsoidais.
                               </div>
-                              <label className="pecas-field"><span>Datum vertical da elevação (não confundir com UTM)</span>
+                              <label className="pecas-field"><span>Tipo de altitude original do MDT</span><select value={pb1Source.vertical_kind??""} onChange={e=>{setPb1Source(o=>({...o,vertical_kind:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Não identificado</option>{PB1_KIND_OPTIONS.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+                              <label className="pecas-field"><span>Datum vertical declarado</span><select value={PB1_DATUM_OPTIONS.includes(pb1Source.vertical_datum)?pb1Source.vertical_datum:pb1Source.vertical_datum?"custom":""} onChange={e=>{setPb1Source(o=>({...o,vertical_datum:e.target.value==="custom"?o.vertical_datum:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Não identificado</option>{PB1_DATUM_OPTIONS.map(v=><option key={v}>{v}</option>)}<option value="custom">Personalizado / anteriormente informado</option></select></label>
+                              <label className="pecas-field"><span>Referencial vertical informado (editável; não confundir com UTM)</span>
                                 <input value={pb1Source.vertical_datum} placeholder="Não presumir HN, H ou h sem metadados"
                                   onChange={e=>setPb1Source(o=>({...o,vertical_datum:e.target.value}))}/></label>
+                              <label className="pecas-field"><span>Modelo altimétrico original da fonte</span><select value={pb1Source.source_model??""} onChange={e=>{setPb1Source(o=>({...o,source_model:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Não identificado</option>{PB1_MODEL_OPTIONS.map(v=><option key={v} value={v}>{v==="NONE"?"Não se aplica (altura elipsoidal)":v}</option>)}</select></label>
+                              <label className="pecas-field"><span>Documento comprobatório do referencial vertical</span><input value={pb1Source.vertical_reference??""} onChange={e=>{setPb1Source(o=>({...o,vertical_reference:e.target.value}));setPb1TechnicalResult(null);}} placeholder="Ficha técnica ou metadados"/></label>
+                              <p className="pecas-note">As escolhas são declarações de origem, não aprovação de exatidão. O modelo original pode diferir do modelo de conversão atual.</p>
                               {pb1Raster?.metadata?.embedded_source_tags &&
                                 Object.keys(pb1Raster.metadata.embedded_source_tags).length>0 &&
                                 <p className="pecas-note"><strong>Metadados de origem extraídos do RGB:</strong>{" "}
@@ -3573,6 +3590,14 @@ export function PecasTecnicasWorkspace({
                           <details className="ps4-flow-card" id="pb1-technical-step">
                             <summary className="ps4-flow-summary"><span className="ps4-step-no">5</span><span className="ps4-step-heading"><strong>Prévia de precisão e altimetria</strong><small>MDT original, fatores individuais e revisão técnica</small></span></summary>
                             <div className="ps4-flow-body">
+                              <button type="button" className="pecas-secondary" onClick={()=>{
+                                const k=pb1Source.vertical_kind??"";
+                                setPb1Technical(o=>({...o,vertical_kind:["NORMAL","ORTHOMETRIC","ELLIPSOIDAL"].includes(k)?k:"",
+                                  vertical_datum:pb1Source.vertical_datum,vertical_reference:pb1Source.vertical_reference??"",
+                                  accuracy_reference:pb1Source.accuracy_reference}));
+                                setPb1TechnicalResult(null);setPb1IbgeOutput("");setPb1IbgeFilename("");
+                              }}>Preencher dados da etapa 1</button>
+                              {pb1Source.source_model&&<p className="pecas-note">Modelo original declarado: {pb1Source.source_model}. Confira a compatibilidade antes de converter. Modelos distintos não são intercambiáveis.</p>}
                               <label className="pecas-field"><span>Tipo de altura do MDT</span><select value={pb1Technical.vertical_kind} onChange={e=>{setPb1Technical(o=>({...o,vertical_kind:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Selecione conforme documentação</option><option value="NORMAL">Normal · hgeoHNOR2020</option><option value="ORTHOMETRIC">Ortométrica · MAPGEO2015 (se compatível)</option><option value="ELLIPSOIDAL">Elipsoidal SIRGAS2000</option></select></label>
                               <label className="pecas-field"><span>Categoria do limite</span><select value={pb1Technical.limit_category} onChange={e=>{setPb1Technical(o=>({...o,limit_category:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Selecione</option><option value="NATURAL">Natural · 3 m</option><option value="INACCESSIBLE">Inacessível · 7,50 m</option><option value="ARTIFICIAL">Artificial · 0,50 m (somente conferência numérica)</option></select></label>
                               {([["vertical_datum","Datum vertical"],["vertical_reference","Documento do datum vertical"],["accuracy_reference","Documento de exatidão da base"],["sigma_e_m","Sigma E (m)"],["sigma_n_m","Sigma N (m)"],["source_sigma_m","Sigma da elevação MDT (m)"],["factor_reference","Origem dos fatores de conversão"]] as const).map(([key,label])=><label key={key} className="pecas-field"><span>{label}</span><input value={pb1Technical[key]} onChange={e=>{setPb1Technical(o=>({...o,[key]:e.target.value}));setPb1TechnicalResult(null);}}/></label>)}
