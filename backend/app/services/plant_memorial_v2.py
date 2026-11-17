@@ -42,6 +42,7 @@ class Parcel:
     confrontants: list[str]
     altitudes: list[float | None]
     normal_altitudes: list[float | None] = field(default_factory=list)
+    mdt_altitudes: list[float | None] = field(default_factory=list)
 
 
 def prepare_parcels(raw: list[dict]) -> list[Parcel]:
@@ -76,6 +77,8 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
         confrontants = data.get("confrontants") or [""] * len(points)
         altitudes = data.get("altitudes_m") or [None] * len(points)
         normal_altitudes = data.get("normal_altitudes_m") or [None] * len(points)
+        mdt_altitudes = data.get("mdt_altitudes_m") or [None] * len(points)
+        if len(mdt_altitudes)!=len(points): raise ValueError("Cotas MDT não correspondem aos vértices.")
         if (len(confrontants) != len(points) or len(altitudes) != len(points)
                 or len(normal_altitudes) != len(points)):
             raise ValueError(f"Área {index + 1}: confrontantes/altitudes não correspondem aos vértices.")
@@ -100,6 +103,7 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
             confrontants=[str(item or "").strip()[:250] for item in confrontants],
             altitudes=[float(item) if item is not None else None for item in altitudes],
             normal_altitudes=[float(item) if item is not None else None for item in normal_altitudes],
+            mdt_altitudes=[float(item) if item is not None else None for item in mdt_altitudes],
         ))
     return output
 
@@ -135,6 +139,9 @@ def _display_altitude(parcel: Parcel, index: int) -> str:
     if hn is not None:
         label = "HN estimada" if "-V-" in parcel.names[index].upper() else "Altitude normal (HN)"
         parts.append(f"{label}: {_br_number(hn, 2)} m")
+    z = parcel.mdt_altitudes[index] if index < len(parcel.mdt_altitudes) else None
+    if z is not None:
+        parts.append(f"Cota original MDT (referencial vertical a conferir): {_br_number(z, 3)} m")
     return " e " + "; ".join(parts) if parts else ""
 
 
