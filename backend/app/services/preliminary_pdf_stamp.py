@@ -24,12 +24,12 @@ def stamp_preliminary_pdf(raw_pdf: bytes) -> bytes:
         overlay.setFont("Helvetica-Bold", 8)
         overlay.drawCentredString(
             w / 2, 13,
-            "RESTITUICAO PS4 PROVISORIA - SEM VALIDACAO DE ACURACIA PARA SIGEF",
+            "DOCUMENTO PRELIMINAR - SUJEITO A REVISAO TECNICA PARA SIGEF",
         )
         overlay.setFont("Helvetica", 7)
         overlay.drawCentredString(
             w / 2, 25,
-            "HN~ = altitude normal interpolada entre marcos GNSS; NAO medida e NAO usada como h SIGEF.",
+            "HN~ = altitude normal estimada; consultar a metodologia. HN nao substitui h SIGEF.",
         )
         overlay.save()
         buffer.seek(0)
