@@ -124,7 +124,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     });
     cbersRef.current = cbersLayer;
     const rasterLayer = new TileLayer<XYZ>({
-      visible: false, opacity: 1, zIndex: 0,
+      visible: false, opacity: 1,
       source: new XYZ({
         url: "/__ps4_unconfigured__/{z}/{x}/{y}.png",
         crossOrigin: "use-credentials",
@@ -133,7 +133,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     });
     rasterRef.current = rasterLayer;
     const dtmLayer = new TileLayer<XYZ>({
-      visible:false, opacity:0.6, zIndex:2,
+      visible:false, opacity:0.6,
       source:new XYZ({url:"/__pb1_dtm_unconfigured__/{z}/{x}/{y}.png",
         crossOrigin:"use-credentials",minZoom:0,maxZoom:19}),
     });
@@ -522,7 +522,13 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   },[method,pb1Dtm?.pieceId,pb1Dtm?.sha256]);
 
   useEffect(()=>{
-    if(method!=="PB1")return;
+    if(method!=="PB1"){
+      polygonLayerRef.current?.setVisible(true);
+      pointLayerRef.current?.setVisible(true);
+      vLayerRef.current?.setVisible(true);
+      dtmRef.current?.setVisible(false);
+      return;
+    }
     rasterRef.current?.setVisible(Boolean(pb1Raster)&&pb1ColorVisible);
     rasterRef.current?.setOpacity(pb1ColorOpacity);
     dtmRef.current?.setVisible(Boolean(pb1Dtm)&&pb1DtmVisible);
