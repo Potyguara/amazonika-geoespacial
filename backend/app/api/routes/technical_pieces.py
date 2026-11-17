@@ -788,6 +788,44 @@ def pb1_technical_preview(
     return result
 
 
+class PB1IbgeFactorsInput(BaseModel):
+    ibge_output: str = Field(min_length=1, max_length=1000000)
+
+
+@router.post("/{piece_id}/pb1/ibge-factors")
+def save_pb1_ibge_factors(piece_id: UUID, payload: PB1IbgeFactorsInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.pb1_ibge import parse_ibge_output
+    from hashlib import sha256
+    piece = _owned(piece_id, db, user)
+    snapshot = dict(piece.snapshot or {})
+    points = (snapshot.get("topcon") or {}).get("pb1_draft") or []
+    try:
+        factors = parse_ibge_output(payload.ibge_output, points)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    record = {"factors": factors, "sha256": sha256(payload.ibge_output.encode()).hexdigest(),
+        "points": [{"name":p["name"],"latitude":p["latitude"],"longitude":p["longitude"]} for p in points],
+        "raw": payload.ibge_output, "status":"FACTORS_ONLY", "imported_at":datetime.now(timezone.utc).isoformat()}
+    pb = dict(snapshot.get("pb1") or {})
+    pb["ibge_factors"] = record
+    snapshot["pb1"] = pb
+    piece.snapshot = snapshot
+    db.commit()
+    return {"count":len(factors),"factors":factors,"status":"FACTORS_ONLY"}
+
+
+@router.get("/{piece_id}/pb1/ibge-factors")
+def get_pb1_ibge_factors(piece_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    piece = _owned(piece_id, db, user)
+    snapshot = piece.snapshot or {}
+    record = (snapshot.get("pb1") or {}).get("ibge_factors")
+    points = (snapshot.get("topcon") or {}).get("pb1_draft") or []
+    if record and record.get("points") == [{"name":p["name"],"latitude":p["latitude"],"longitude":p["longitude"]} for p in points]:
+        return {"record":record}
+    return {"record":None}
+
+
 @router.get("/{piece_id}/pb1/report.pdf")
 def pb1_report_pdf(piece_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from app.services.pb1_report import build_pb1_report
