@@ -330,6 +330,13 @@ def _validated_snapshot(
                 raise HTTPException(422, "Coordenada PB1 inválida.")
             if not (-180 <= point["longitude"] <= 180 and -90 <= point["latitude"] <= 90):
                 raise HTTPException(422, "Vértice PB1 fora de longitude/latitude WGS84.")
+    # Only server-calculated results survive; invalidate on any source or geometry change.
+    prior_snapshot = (piece.snapshot or {}) if piece else {}
+    relevant_pb1 = ("pb1_draft", "pb1_closure", "pb1_source", "boundary")
+    if piece and all((snapshot.get("topcon") or {}).get(k) ==
+                     (prior_snapshot.get("topcon") or {}).get(k) for k in relevant_pb1):
+        if old_pb1.get("technical_preview"):
+            snapshot["pb1"]["technical_preview"] = old_pb1["technical_preview"]
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
     same_checkpoint_geometry = bool(
         piece is not None and
@@ -566,6 +573,7 @@ def upload_pb1_file(
             snapshot["topcon"] = topcon
     pb1["review_status"] = "PRELIMINARY"
     pb1.pop("approval", None)
+    pb1.pop("technical_preview", None)
     snapshot["pb1"] = pb1
     piece.snapshot = snapshot
     db.add(piece)
@@ -657,7 +665,8 @@ class PB1TechnicalInput(BaseModel):
     sigma_n_m: float
     source_sigma_m: float
     limit_category: str
-    factors: dict[str, list[float]] = {}
+    factors: dict[str, list[float]] = Field(default_factory=dict)
+    ibge_output: str = Field(default="", max_length=1000000)
     factor_reference: str = ""
 
 
@@ -694,6 +703,17 @@ def pb1_technical_preview(
         raise HTTPException(422, "Tipo de altitude não identificado.")
     if model != "NONE" and not payload.factor_reference.strip():
         raise HTTPException(422, "Informe a origem dos fatores individuais do modelo.")
+    if len({p["name"] for p in points}) != len(points):
+        raise HTTPException(422, "Códigos PB1 repetidos.")
+    factors = payload.factors
+    if payload.ibge_output:
+        if model != "HGEOHNOR2020":
+            raise HTTPException(422, "O retorno hgeoHNOR2020 exige altura normal compatível.")
+        from app.services.pb1_ibge import parse_ibge_output
+        try:
+            factors = parse_ibge_output(payload.ibge_output, points)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     path = stored_file_path(user.id, piece.id, "pb1_dtm", dtm["sha256"])
     bands = (dtm.get("metadata") or {}).get("bands") or [{}]
     output = []
@@ -702,7 +722,7 @@ def pb1_technical_preview(
             if point.get("raster_sha256") != color["sha256"]:
                 raise ValueError("Vinculação ORIXP alterada; revise o traçado.")
             name = point["name"]
-            factor = payload.factors.get(name)
+            factor = factors.get(name)
             if model != "NONE" and (factor is None or len(factor) != 2):
                 raise ValueError("Informe fator e sigma individual para " + name)
             value = sample_pb1_dtm(path, point["longitude"], point["latitude"], bands[0].get("no_data_value"))
@@ -721,7 +741,7 @@ def pb1_technical_preview(
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
     horizontal = hypot(payload.sigma_e_m, payload.sigma_n_m)
-    return {"points": output, "horizontal_sigma_m": horizontal,
+    result = {"points": output, "horizontal_sigma_m": horizontal,
             "limit_m": limits[payload.limit_category],
             "meets_numeric_threshold": horizontal <= limits[payload.limit_category],
             "accuracy_reference": payload.accuracy_reference,
@@ -729,6 +749,22 @@ def pb1_technical_preview(
             "factor_reference": payload.factor_reference,
             "status": "PRELIMINARY_RT_REVIEW",
             "notice": "Estimativa com parâmetros declarados; não comprova exatidão, datum ou aprovação RT."}
+    result["inputs"] = payload.model_dump(exclude={"ibge_output"})
+    result["inputs"]["factors"] = factors
+    result["color_sha256"] = color["sha256"]
+    result["dtm_sha256"] = dtm["sha256"]
+    result["calculated_at"] = datetime.now(timezone.utc).isoformat()
+    saved = dict(snapshot)
+    saved["pb1"] = {**(snapshot.get("pb1") or {}), "technical_preview": result}
+    piece.snapshot = saved
+    db.commit()
+    return result
+
+
+@router.get("/{piece_id}/pb1/technical-preview")
+def get_pb1_technical_preview(piece_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    piece = _owned(piece_id, db, user)
+    return {"preview": ((piece.snapshot or {}).get("pb1") or {}).get("technical_preview")}
 
 
 @router.post("/{piece_id}/ps4/files/{kind}")
