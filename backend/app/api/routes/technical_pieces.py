@@ -656,6 +656,26 @@ def sample_pb1_height(
 
 
 
+@router.get("/{piece_id}/pb1/diagnostic")
+def pb1_diagnostic(piece_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.pb1_diagnostic import compare_mdt_controls
+    from app.services.pb1_dtm_sampling import sample_pb1_dtm
+    piece = _owned(piece_id, db, user)
+    snapshot = piece.snapshot or {}
+    topcon = snapshot.get("topcon") or {}
+    dtm = ((snapshot.get("pb1") or {}).get("assets") or {}).get("pb1_dtm")
+    if not dtm:
+        raise HTTPException(422, "Vincule o MDT numérico.")
+    path = stored_file_path(user.id, piece.id, "pb1_dtm", dtm["sha256"])
+    bands = (dtm.get("metadata") or {}).get("bands") or [{}]
+    try:
+        result = compare_mdt_controls(topcon.get("boundary") or [], topcon.get("vertical_calculated"),
+            lambda lon, lat: sample_pb1_dtm(path, lon, lat, bands[0].get("no_data_value")))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {**result, "dtm_sha256": dtm["sha256"]}
+
+
 class PB1TechnicalInput(BaseModel):
     vertical_kind: str
     vertical_datum: str
@@ -701,6 +721,13 @@ def pb1_technical_preview(
     model = {"NORMAL": "HGEOHNOR2020", "ORTHOMETRIC": "MAPGEO2015", "ELLIPSOIDAL": "NONE"}.get(payload.vertical_kind)
     if not model:
         raise HTTPException(422, "Tipo de altitude não identificado.")
+    source = (snapshot.get("topcon") or {}).get("pb1_source") or {}
+    declared = str(source.get("source_model") or "").upper()
+    if declared and declared not in ("OUTRO", model):
+        raise HTTPException(422, "Modelo original incompatível com a conversão disponível; revise a documentação.")
+    if source.get("vertical_kind") and source["vertical_kind"] != payload.vertical_kind:
+        raise HTTPException(422, "Tipo vertical divergente do declarado na origem.")
+
     if model != "NONE" and not payload.factor_reference.strip():
         raise HTTPException(422, "Informe a origem dos fatores individuais do modelo.")
     if len({p["name"] for p in points}) != len(points):
