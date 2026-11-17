@@ -413,6 +413,19 @@ export function PecasTecnicasWorkspace({
   const [pb1Candidate,setPb1Candidate] = useState<{longitude:number;latitude:number}|null>(null);
   const [pb1Notice,setPb1Notice] = useState("");
   const [pb1Busy,setPb1Busy] = useState(false);
+  const [pb1Diagnostic,setPb1Diagnostic]=useState<{rows:Array<{name:string;h_gnss_m:number|null;hn_ibge_m:number|null;mdt_m:number|null;residual_hn_m:number|null;error?:string}>;vs_hn:{count:number;mean_m:number;rmse_m:number;sample_std_m:number|null;max_abs_m:number}|null;vs_h:{count:number;mean_m:number;rmse_m:number;sample_std_m:number|null;max_abs_m:number}|null}|null>(null);
+  const runPb1Diagnostic=async()=>{
+    setPb1Busy(true);setPb1Diagnostic(null);setPb1Notice("");
+    try{
+      const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+      const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/diagnostic",{credentials:"include",cache:"no-store"});
+      const body=await res.json();
+      if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Diagnóstico indisponível.");
+      setPb1Diagnostic(body);
+    }catch(e){setPb1Notice(e instanceof Error?e.message:"Falha no diagnóstico.");}
+    finally{setPb1Busy(false);}
+  };
+
   const [pb1PieceId,setPb1PieceId] = useState<string|null>(null);
   const [pb1Assets,setPb1Assets] = useState<Record<string,{
     sha256:string;size_bytes:number;kind:string;metadata?:{width?:number;height?:number;bands?:Array<{type?:string}>;
@@ -475,7 +488,7 @@ export function PecasTecnicasWorkspace({
   useEffect(()=>{
     if(!loadedPieceId)return;
     setPb1PieceId(loadedPieceId);
-    setPb1TechnicalResult(null);
+    setPb1TechnicalResult(null);setPb1Diagnostic(null);
     setPb1IbgeOutput("");setPb1IbgeFilename("");
     setPb1Technical({vertical_kind:"",vertical_datum:"",vertical_reference:"",accuracy_reference:"",sigma_e_m:"",sigma_n_m:"",source_sigma_m:"",limit_category:"",factor_reference:"",factors:""});
     let active=true;
@@ -3596,6 +3609,16 @@ export function PecasTecnicasWorkspace({
                           <details className="ps4-flow-card" id="pb1-technical-step">
                             <summary className="ps4-flow-summary"><span className="ps4-step-no">5</span><span className="ps4-step-heading"><strong>Prévia de precisão e altimetria</strong><small>MDT original, fatores individuais e revisão técnica</small></span></summary>
                             <div className="ps4-flow-body">
+                              <div className="pecas-note">
+                                <strong>Diagnóstico altimétrico local — MDT × GNSS</strong>
+                                <p>Compara cotas do raster com h confirmada e HN disponível dos marcos. Não identifica automaticamente o datum.</p>
+                                <button type="button" className="pecas-secondary" disabled={pb1Busy||!pb1Dtm} onClick={()=>void runPb1Diagnostic()}>Comparar MDT com marcos GNSS</button>
+                                {pb1Diagnostic&&<>
+                                  <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Marco</th><th>h GNSS</th><th>HN IBGE</th><th>MDT</th><th>MDT − HN</th></tr></thead><tbody>{pb1Diagnostic.rows.map(r=><tr key={r.name}><td>{r.name}</td><td>{r.h_gnss_m?.toFixed(3)??"—"}</td><td>{r.hn_ibge_m?.toFixed(3)??"—"}</td><td>{r.mdt_m?.toFixed(3)??r.error??"—"}</td><td>{r.residual_hn_m?.toFixed(3)??"—"}</td></tr>)}</tbody></table></div>
+                                  {([["h",pb1Diagnostic.vs_h],["HN",pb1Diagnostic.vs_hn]] as const).map(([label,m])=>m&&<p key={label}>MDT − {label}: n={m.count} · média {m.mean_m.toFixed(3)} m · RMSE {m.rmse_m.toFixed(3)} m · desvio-padrão {m.sample_std_m?.toFixed(3)??"—"} m · máximo absoluto {m.max_abs_m.toFixed(3)} m.</p>)}
+                                  <p>Diagnóstico exploratório. Confirme a documentação, a altura do marco sobre o terreno e a independência dos controles.</p>
+                                </>}
+                              </div>
                               <button type="button" className="pecas-secondary" onClick={()=>{
                                 const k=pb1Source.vertical_kind??"";
                                 setPb1Technical(o=>({...o,vertical_kind:["NORMAL","ORTHOMETRIC","ELLIPSOIDAL"].includes(k)?k:"",
