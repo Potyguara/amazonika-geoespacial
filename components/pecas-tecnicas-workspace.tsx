@@ -530,11 +530,12 @@ export function PecasTecnicasWorkspace({
       ]]}
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
-  const calculatePb1Technical=async()=>{
+  const calculatePb1Technical=async(saveFactorsOnly=false)=>{
     setPb1Busy(true);setPb1TechnicalResult(null);setPb1Notice("");
     try{
       const t=pb1Technical;
-      if(pb1IbgeOutput){
+      if(saveFactorsOnly){
+        if(!pb1IbgeOutput)throw new Error("Selecione o TXT do IBGE.");
         const id=await onSavePiece(editableMemorial.trim(),draftForSave());
         const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/ibge-factors",{
           method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
@@ -3630,7 +3631,7 @@ export function PecasTecnicasWorkspace({
                                     if(file.size>1000000)throw new Error("Arquivo excede 1 MB.");
                                     setPb1IbgeOutput(await file.text());setPb1IbgeFilename(file.name);
                                     setPb1Technical(o=>({...o,factor_reference:"IBGE hgeoHNOR2020 · "+file.name}));
-                                    setPb1Notice("Arquivo carregado. Clique em Salvar fatores IBGE para conferir e persistir os resultados, sem exigir sigmas.");
+                                    setPb1Notice("Arquivo carregado. Clique em Salvar fatores IBGE sem calcular para persistir os resultados, sem exigir sigmas.");
                                   }catch(err){setPb1Notice(err instanceof Error?err.message:"Falha ao ler arquivo.");}
                                 }}/>
                                 {pb1IbgeFilename&&<span>{pb1IbgeFilename} <button type="button" onClick={()=>{setPb1IbgeOutput("");setPb1IbgeFilename("");setPb1TechnicalResult(null);}}>Remover</button></span>}
@@ -3642,7 +3643,8 @@ export function PecasTecnicasWorkspace({
                               }}>Exportar ID LAT LON dos V para IBGE</button>
                               {!pb1Ready&&<p className="pecas-note">Confirme o fechamento geométrico na etapa 4 para habilitar o cálculo.</p>}
                               {!pb1Dtm&&<p className="pecas-note">Vincule o MDT numérico na etapa 2.</p>}
-                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Ready||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical()}>{pb1IbgeOutput?"Salvar fatores IBGE":"Calcular prévia técnica PB1"}</button>
+                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Ready||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical(false)}>Calcular prévia técnica PB1 (opcional)</button>
+                              {pb1IbgeOutput&&<button type="button" className="pecas-secondary" disabled={pb1Busy} onClick={()=>void calculatePb1Technical(true)}>Salvar fatores IBGE sem calcular</button>}
                               {pb1TechnicalResult&&<div className="pecas-note"><strong>Precisão horizontal resultante: {pb1TechnicalResult.horizontal_sigma_m.toFixed(3)} m</strong><p>{pb1TechnicalResult.meets_numeric_threshold?"Dentro do limiar numérico declarado":"Excede o limiar numérico declarado"} · {pb1TechnicalResult.limit_m} m. Sem aprovação automática.</p><div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>V</th><th>Cota original</th><th>h (m)</th><th>σh (m)</th></tr></thead><tbody>{pb1TechnicalResult.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td><td>{p.source_value_m.toFixed(3)}</td><td>{p.h_ellipsoidal_m.toFixed(3)}</td><td>{p.sigma_h_m?.toFixed(3)??"—"}</td></tr>)}</tbody></table></div></div>}
                               <p className="pecas-note">O cálculo completo é facultativo nesta etapa. Para avançar, use Concluir construção na etapa 3. Prévia salva no servidor, sem substituir coordenadas oficiais. A documentação e a compatibilidade do método ainda exigem revisão RT.</p>
                             </div>
