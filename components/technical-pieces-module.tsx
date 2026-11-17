@@ -107,8 +107,9 @@ export function TechnicalPiecesModule({ onOpen, revision = 0, onImportTopcon }: 
     <header className="pecas-rt-heading">
       <div><h2>Peças Técnicas</h2><p>Rascunhos salvos, disponíveis para continuar a edição e gerar novas versões.</p></div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {onImportTopcon && <button type="button" className="pecas-primary" onClick={onImportTopcon}>
-          Importar relatório TOPCON Tools
+        {onImportTopcon && <button type="button" className="pecas-primary"
+          onClick={onImportTopcon} title="Criar peça técnica independente e iniciar no passo 1: Importação GNSS">
+          + Novo projeto · Importar TOPCON
         </button>}
         <button className="pecas-secondary" type="button" onClick={() => void load()}>Atualizar lista</button>
       </div>
