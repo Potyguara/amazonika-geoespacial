@@ -2,7 +2,8 @@
 import json
 import unittest
 from pathlib import Path
-from unittest.mock import patch, SimpleNamespace
+from unittest.mock import patch
+from types import SimpleNamespace
 
 from pyproj import CRS
 from app.services.ps4_assets import _raster_info
