@@ -1379,7 +1379,7 @@ export function PecasTecnicasWorkspace({
       if(new Set(topconBoundary.map(p=>p.parcel_number)).size!==1)
         throw new Error("Trabalhe em uma única parcela de cada vez.");
       if(!pb1Source.sheet.trim()||!pb1Source.product.trim())
-        throw new Error("Informe folha e produto oficial antes de aplicar a prévia.");
+        throw new Error("Informe todas as folhas que compõem o mosaico e a identificação da fonte oficial.");
       const initial=topconBoundary[pb1StartIndex];
       if(!initial||initial.longitude===null||initial.latitude===null)
         throw new Error("Marco inicial PB1 inválido.");
@@ -3354,11 +3354,11 @@ export function PecasTecnicasWorkspace({
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
                               <Pb1SheetLookup geometry={pb1LookupGeometry}/>
-                              <label className="pecas-field"><span>Folha INOM / MI</span>
-                                <input value={pb1Source.sheet} placeholder="Ex.: NA-22-C-IV-1-NO · 0244-1-NO"
+                              <label className="pecas-field"><span>Folhas INOM / MI cobertas pelo mosaico (uma ou mais)</span>
+                                <input value={pb1Source.sheet} placeholder="Ex.: 0244-1-NE; 0244-1-NO"
                                   onChange={e=>setPb1Source(o=>({...o,sheet:e.target.value}))}/></label>
-                              <label className="pecas-field"><span>Identificação e edição do produto oficial</span>
-                                <input value={pb1Source.product} placeholder="Ex.: Projeto Amapá/Exército · ORIXP 2,5 m"
+                              <label className="pecas-field"><span>Fonte e edição do produto oficial (independe do nome do arquivo)</span>
+                                <input value={pb1Source.product} placeholder="Ex.: Exército/GEA · base cartográfica 1:25.000 · ORIXP 2,5 m"
                                   onChange={e=>setPb1Source(o=>({...o,product:e.target.value}))}/></label>
                               <label className="pecas-field"><span>Documento da exatidão planimétrica / PEC</span>
                                 <input value={pb1Source.accuracy_reference} placeholder="Informe documento e classe efetivamente comprovados"
@@ -3366,17 +3366,21 @@ export function PecasTecnicasWorkspace({
                               <label className="pecas-field"><span>Datum vertical do MDT (conforme metadados)</span>
                                 <input value={pb1Source.vertical_datum} placeholder="Não presumir HN, H ou h sem metadados"
                                   onChange={e=>setPb1Source(o=>({...o,vertical_datum:e.target.value}))}/></label>
-                              <p className="pecas-note">Esses campos descrevem a fonte; não constituem validação automática.
+                              <p className="pecas-note">O nome do TIFF pode ser livre, inclusive o da folha predominante.
+                                Informe todas as folhas abrangidas pela área e mantenha os créditos e metadados
+                                da base original. Envie o mosaico já montado e recortado no SIG em GeoTIFF
+                                com SRC incorporado; arquivos .tfw isolados não definem o datum.
+                                Esses campos descrevem a fonte; não constituem validação automática.
                                 O responsável técnico deverá conferir a escala, a exatidão e a compatibilidade com o limite.</p>
                             </div>
                           </details>
                           <details className="ps4-flow-card" open>
                             <summary className="ps4-flow-summary"><span className="ps4-step-no">2</span>
                               <span className="ps4-step-heading"><strong>Carregar recortes oficiais</strong>
-                                <small>GeoTIFF RGB e MDT separados, no máximo 256 MiB cada</small></span>
+                                <small>Mosaico previamente montado em SIG e recortado; até 256 MiB por arquivo</small></span>
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
-                              <label className="pecas-field"><span>ORIXP Color · GeoTIFF RGB georreferenciado</span>
+                              <label className="pecas-field"><span>MDT Color / ORIXP · mosaico RGB recortado (GeoTIFF)</span>
                                 <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
                                   const file=e.target.files?.[0];if(file)void pb1Upload("pb1_color",file);
                                   e.target.value="";
@@ -3384,7 +3388,7 @@ export function PecasTecnicasWorkspace({
                               <div className="pecas-note">{pb1Raster
                                 ?`RGB vinculado: ${pb1Raster.metadata?.width??"?"} × ${pb1Raster.metadata?.height??"?"} · SHA ${pb1Raster.sha256.slice(0,16)}…`
                                 :"Nenhum ORIXP anexado; cliques PB1 permanecem bloqueados."}</div>
-                              <label className="pecas-field"><span>MDT cinza · GeoTIFF numérico de banda única</span>
+                              <label className="pecas-field"><span>MDT cinza · mosaico numérico recortado (GeoTIFF)</span>
                                 <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
                                   const file=e.target.files?.[0];if(file)void pb1Upload("pb1_dtm",file);
                                   e.target.value="";
@@ -3392,6 +3396,9 @@ export function PecasTecnicasWorkspace({
                               <div className="pecas-note">{pb1Dtm
                                 ?`MDT vinculado: ${pb1Dtm.metadata?.width??"?"} × ${pb1Dtm.metadata?.height??"?"} · SHA ${pb1Dtm.sha256.slice(0,16)}…`
                                 :"Sem MDT: é possível visualizar a fonte, mas a cota original dos V ficará pendente."}</div>
+                              <p className="pecas-note">O sistema não exige que o nome do arquivo corresponda
+                                ao código INOM/MI. A localização é verificada pelas coordenadas reais do GeoTIFF,
+                                e não pelo nome da folha.</p>
                               {pb1Busy&&<p role="status">Processando o produto georreferenciado…</p>}
                             </div>
                           </details>
