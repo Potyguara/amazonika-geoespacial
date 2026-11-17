@@ -226,14 +226,20 @@ const SIGEF_POSITION_METHODS = [
   ["PB2", "Base cartográfica sem precisão conhecida"],
 ] as const;
 const SIGEF_BOUNDARY_TYPES = [
-  ["LA1", "Cerca"], ["LA2", "Muro"], ["LA3", "Estrada"],
-  ["LA4", "Vala"], ["LA5", "Canal"], ["LA6", "Linha ideal"],
-  ["LA7", "Limite artificial não tipificado"],
-  ["LN1", "Corpo d'água ou curso d'água"],
-  ["LN2", "Linha de cumeada"], ["LN3", "Grota"],
-  ["LN4", "Crista de encosta"], ["LN5", "Pé de encosta"],
-  ["LN6", "Limite natural não tipificado"],
+  ["LA1","Cerca"],["LA1","Cerca viva"],["LA2","Muro"],
+  ["LA3","Estrada"],["LA3","Estrada interna"],["LA3","Estrada municipal"],["LA3","Estrada vicinal"],["LA3","Rodovia"],["LA3","Ramal"],
+  ["LA4","Vala"],["LA5","Canal"],["LA6","Linha ideal"],
+  ["LA7","Ferrovia"],["LA7","Limite artificial não tipificado"],
+  ["LN1","Corpo d'água ou curso d'água"],["LN1","Arroio"],["LN1","Córrego"],["LN1","Igarapé"],["LN1","Rio"],["LN1","Ribeirão"],["LN1","Sanga"],
+  ["LN2","Linha de cumeada"],["LN3","Grota"],["LN4","Crista de encosta"],["LN5","Pé de encosta"],["LN6","Limite natural não tipificado"],
 ] as const;
+const boundarySelection=(code?:string,detail?:string)=>{
+  const exact=SIGEF_BOUNDARY_TYPES.find(([c,l])=>c===code&&l===detail);
+  const fallback=exact??SIGEF_BOUNDARY_TYPES.find(([c])=>c===code);
+  return fallback?fallback.join("|"):"";
+};
+const boundaryLabel=(code?:string,detail?:string)=>boundarySelection(code,detail).split("|")[1]||code||"—";
+
 
 
 function groupTopconParcels(points: TopconBoundaryPoint[], fallback: string) {
@@ -1540,7 +1546,7 @@ export function PecasTecnicasWorkspace({
           sigma_reference_confirmed:false,height_reference_confirmed:false,
           sigma_suggestion_e_m:r?.sigma_e_m??null,sigma_suggestion_n_m:r?.sigma_n_m??null,sigma_suggestion_h_m:r?.sigma_h_m??null,
           derived_physical_altitude_m:null,derived_physical_model:null,
-          sigef_method:"PB1",boundary_type:"LN1",
+          sigef_method:"PB1",boundary_type:initial.boundary_type||"LN1",boundary_detail:initial.boundary_type?initial.boundary_detail:"",
           derived_calculation:{
             method:"PB1",status:"PRELIMINAR",accuracy_verified:false,
             official_sheet:pb1Source.sheet,product:pb1Source.product,
@@ -1660,7 +1666,7 @@ export function PecasTecnicasWorkspace({
             sigma_suggestion_e_m:null,sigma_suggestion_n_m:null,sigma_suggestion_h_m:null,
             derived_physical_altitude_m:virtualHN[pointIndex],
             derived_physical_model:virtualHN[pointIndex]===null?null:("HN" as const),
-            sigef_method:"PS4",boundary_type:"LN1",
+            sigef_method:"PS4",boundary_type:"LN1",boundary_detail:undefined,
             derived_calculation:{method:"PS4",scene_id:point.scene_id,
               status:ps4ApprovalConfirmed?"ACURACIA_HORIZONTAL_CONFERIDA_RT":"PRELIMINAR",
               accuracy_verified:ps4ApprovalConfirmed,
@@ -2319,15 +2325,13 @@ export function PecasTecnicasWorkspace({
                                     </option>)}
                                   </select></td>
                                   <td><select aria-label={`Tipo de limite ${point.name}`} disabled={!selected}
-                                    value={selected?.boundary_type ?? ""}
-                                    onChange={(event) => updateBoundaryPoint(index, {
-                                      boundary_type: event.target.value,
-                                      boundary_detail: "",
-                                    })}>
-                                    <option value="">Selecione o limite</option>
-                                    {SIGEF_BOUNDARY_TYPES.map(([code, label]) => <option key={code} value={code}>
-                                      {code} — {label}
-                                    </option>)}
+                                    value={boundarySelection(selected?.boundary_type,selected?.boundary_detail)}
+                                    onChange={(event) => {
+                                      const [code,detail]=event.target.value.split("|");
+                                      updateBoundaryPoint(index,{boundary_type:code,boundary_detail:detail??""});
+                                    }}>
+                                    <option value="">Selecione a divisa</option>
+                                    {[...SIGEF_BOUNDARY_TYPES].sort((a,b)=>a[1].localeCompare(b[1],"pt-BR")).map(([code,label])=><option key={code+"|"+label} value={code+"|"+label}>{label}</option>)}
                                   </select>
                                   </td>
                                   <td><input aria-label={`Confrontante ${point.name}`} disabled={!selected}
@@ -2905,7 +2909,7 @@ export function PecasTecnicasWorkspace({
                             <td>{polygon.altitudes[index] || "—"}</td>
                             <td>{String(polygon.vertexDetails?.[index]?.normal_altitude_m ?? "—")}</td>
                             <td>{String(polygon.vertexDetails?.[index]?.positioning_method ?? polygon.vertexDetails?.[index]?.sigef_method ?? "—")}</td>
-                            <td>{String(polygon.vertexDetails?.[index]?.boundary_type ?? "—")}</td>
+                            <td>{boundaryLabel(String(polygon.vertexDetails?.[index]?.boundary_type??""),String(polygon.vertexDetails?.[index]?.boundary_detail??""))}</td>
                           </tr>
                         ))}
                       </tbody>
