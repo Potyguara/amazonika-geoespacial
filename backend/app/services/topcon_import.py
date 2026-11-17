@@ -153,7 +153,7 @@ def _native_point_cells(line: str) -> list[str]:
     # em uma só célula ao deixar apenas um espaço entre elas.
     if len(cells) == 6:
         last = re.fullmatch(
-            r'(.+?[EWLO])\\s+([-+]?\\d+(?:[.,]\\d+)?)',
+            r'(.+?[EWLO])\s+([-+]?\d+(?:[.,]\d+)?)',
             cells[-1], re.I,
         )
         if last:
