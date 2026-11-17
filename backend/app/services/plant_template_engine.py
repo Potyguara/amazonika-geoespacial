@@ -222,8 +222,7 @@ def _rows(parcels, transformer):
             rows.append((
                 p.names[i], _dms(lon, "lon"), _dms(lat, "lat"),
                 f"{east:.3f}", f"{north:.3f}",
-                # O quadro usa a mesma HN do memorial; nunca h elipsoidal.
-                # V é uma altitude INTERPOLADA, não medição observada.
+                _br_number(p.altitudes[i], 2) if i < len(p.altitudes) and p.altitudes[i] is not None else "—",
                 (( _br_number(p.normal_altitudes[i], 2) +
                     ("~" if "-V-" in p.names[i].upper() else ""))
                  if i < len(p.normal_altitudes) and p.normal_altitudes[i] is not None
@@ -243,8 +242,8 @@ def _table(pdf, box, rows, palette, *, columns=1, font_size=6.2):
     _text(pdf, "QUADRO DE COORDENADAS E SEGMENTOS", box.x + 9,
           box.top - 16, 8.0, bold, "#FFFFFF")
     header = ("VÉRTICE", "LONGITUDE", "LATITUDE", "ESTE (m)", "NORTE (m)",
-              "HN (m)", "AZIMUTE", "DIST. (m)")
-    fractions = (.145, .158, .155, .13, .13, .086, .089, .107)
+              "h (m)", "HN (m)", "AZIMUTE", "DIST. (m)")
+    fractions = (.125, .145, .145, .13, .13, .075, .075, .10, .075)
     inner_top = box.top - 24
     row_h = max(12.0, font_size + 5.8)
     capacity = max(0, int((box.h - 24 - row_h - 6) // row_h))
@@ -256,7 +255,7 @@ def _table(pdf, box, rows, palette, *, columns=1, font_size=6.2):
     cell_width = box.w / columns
     for col in range(columns):
         x = box.x + col * cell_width
-        xcoords = [x + sum(fractions[:i]) * cell_width for i in range(8)]
+        xcoords = [x + sum(fractions[:i]) * cell_width for i in range(len(fractions))]
         pdf.setFillColor(_color(pale))
         pdf.rect(x, inner_top - row_h, cell_width, row_h, fill=1, stroke=0)
         for i, label in enumerate(header):
