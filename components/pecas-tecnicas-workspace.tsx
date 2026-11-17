@@ -489,6 +489,10 @@ export function PecasTecnicasWorkspace({
     setPb1IbgeOutput("");setPb1IbgeFilename("");
     setPb1Technical({vertical_kind:"",vertical_datum:"",vertical_reference:"",accuracy_reference:"",sigma_e_m:"",sigma_n_m:"",source_sigma_m:"",limit_category:"",factor_reference:"",factors:""});
     let active=true;
+    fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/pb1/ibge-factors",{credentials:"include",cache:"no-store"})
+      .then(r=>r.ok?r.json():null).then(body=>{
+        if(active&&body?.record?.raw){setPb1IbgeOutput(body.record.raw);setPb1IbgeFilename("Retorno IBGE salvo");}
+      }).catch(()=>{});
     fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/pb1/technical-preview",
       {credentials:"include",cache:"no-store"})
       .then(r=>{if(!r.ok)throw new Error("Não foi possível recuperar a prévia PB1.");return r.json();})
@@ -530,6 +534,18 @@ export function PecasTecnicasWorkspace({
     setPb1Busy(true);setPb1TechnicalResult(null);setPb1Notice("");
     try{
       const t=pb1Technical;
+      if(pb1IbgeOutput){
+        const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+        const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/ibge-factors",{
+          method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({ibge_output:pb1IbgeOutput})
+        });
+        const body=await res.json();
+        if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Retorno IBGE inválido.");
+        setPb1Notice(body.count+" fatores IBGE conferidos e salvos. A conversão de h pode ser concluída depois, com o datum compatível; os sigmas não impedem a importação.");
+        return;
+      }
+
       if(pb1Source.source_model && pb1Source.source_model!=="Outro"){
         const expected:Record<string,string>={NORMAL:"hgeoHNOR2020",ORTHOMETRIC:"MAPGEO2015",ELLIPSOIDAL:"NONE"};
         if(expected[t.vertical_kind] && pb1Source.source_model!==expected[t.vertical_kind])
@@ -3605,7 +3621,7 @@ export function PecasTecnicasWorkspace({
                               <label className="pecas-field"><span>Tipo de altura do MDT</span><select value={pb1Technical.vertical_kind} onChange={e=>{setPb1Technical(o=>({...o,vertical_kind:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Selecione conforme documentação</option><option value="NORMAL">Normal · hgeoHNOR2020</option><option value="ORTHOMETRIC">Ortométrica · MAPGEO2015 (se compatível)</option><option value="ELLIPSOIDAL">Elipsoidal SIRGAS2000</option></select></label>
                               <label className="pecas-field"><span>Categoria do limite</span><select value={pb1Technical.limit_category} onChange={e=>{setPb1Technical(o=>({...o,limit_category:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Selecione</option><option value="NATURAL">Natural · 3 m</option><option value="INACCESSIBLE">Inacessível · 7,50 m</option><option value="ARTIFICIAL">Artificial · 0,50 m (somente conferência numérica)</option></select></label>
                               {([["vertical_datum","Datum vertical"],["vertical_reference","Documento do datum vertical"],["accuracy_reference","Documento de exatidão da base"],["sigma_e_m","Sigma E (m)"],["sigma_n_m","Sigma N (m)"],["source_sigma_m","Sigma da elevação MDT (m)"],["factor_reference","Origem dos fatores de conversão"]] as const).map(([key,label])=><label key={key} className="pecas-field"><span>{label}</span><input value={pb1Technical[key]} onChange={e=>{setPb1Technical(o=>({...o,[key]:e.target.value}));setPb1TechnicalResult(null);}}/></label>)}
-                              {pb1Technical.vertical_kind==="NORMAL"&&<label className="pecas-field">
+                              {<label className="pecas-field">
                                 <span>Retorno do IBGE hgeoHNOR2020 (saida.txt)</span>
                                 <input type="file" accept=".txt,text/plain" onChange={async e=>{
                                   const file=e.target.files?.[0];if(!file)return;
@@ -3614,7 +3630,7 @@ export function PecasTecnicasWorkspace({
                                     if(file.size>1000000)throw new Error("Arquivo excede 1 MB.");
                                     setPb1IbgeOutput(await file.text());setPb1IbgeFilename(file.name);
                                     setPb1Technical(o=>({...o,factor_reference:"IBGE hgeoHNOR2020 · "+file.name}));
-                                    setPb1Notice("Arquivo carregado. IDs, coordenadas e fatores serão conferidos no cálculo.");
+                                    setPb1Notice("Arquivo carregado. Clique em Salvar fatores IBGE para conferir e persistir os resultados, sem exigir sigmas.");
                                   }catch(err){setPb1Notice(err instanceof Error?err.message:"Falha ao ler arquivo.");}
                                 }}/>
                                 {pb1IbgeFilename&&<span>{pb1IbgeFilename} <button type="button" onClick={()=>{setPb1IbgeOutput("");setPb1IbgeFilename("");setPb1TechnicalResult(null);}}>Remover</button></span>}
@@ -3626,9 +3642,9 @@ export function PecasTecnicasWorkspace({
                               }}>Exportar ID LAT LON dos V para IBGE</button>
                               {!pb1Ready&&<p className="pecas-note">Confirme o fechamento geométrico na etapa 4 para habilitar o cálculo.</p>}
                               {!pb1Dtm&&<p className="pecas-note">Vincule o MDT numérico na etapa 2.</p>}
-                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Ready||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical()}>Calcular prévia técnica PB1</button>
+                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Ready||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical()}>{pb1IbgeOutput?"Salvar fatores IBGE":"Calcular prévia técnica PB1"}</button>
                               {pb1TechnicalResult&&<div className="pecas-note"><strong>Precisão horizontal resultante: {pb1TechnicalResult.horizontal_sigma_m.toFixed(3)} m</strong><p>{pb1TechnicalResult.meets_numeric_threshold?"Dentro do limiar numérico declarado":"Excede o limiar numérico declarado"} · {pb1TechnicalResult.limit_m} m. Sem aprovação automática.</p><div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>V</th><th>Cota original</th><th>h (m)</th><th>σh (m)</th></tr></thead><tbody>{pb1TechnicalResult.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td><td>{p.source_value_m.toFixed(3)}</td><td>{p.h_ellipsoidal_m.toFixed(3)}</td><td>{p.sigma_h_m?.toFixed(3)??"—"}</td></tr>)}</tbody></table></div></div>}
-                              <p className="pecas-note">Prévia salva no servidor, sem substituir coordenadas oficiais. A documentação e a compatibilidade do método ainda exigem revisão RT.</p>
+                              <p className="pecas-note">O cálculo completo é facultativo nesta etapa. Para avançar, use Concluir construção na etapa 3. Prévia salva no servidor, sem substituir coordenadas oficiais. A documentação e a compatibilidade do método ainda exigem revisão RT.</p>
                             </div>
                           </details>
                           {pb1Notice&&<div role="status" className="pecas-note">{pb1Notice}</div>}
