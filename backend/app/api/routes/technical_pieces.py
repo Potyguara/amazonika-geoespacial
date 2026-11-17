@@ -330,6 +330,9 @@ def _validated_snapshot(
                 raise HTTPException(422, "Coordenada PB1 inválida.")
             if not (-180 <= point["longitude"] <= 180 and -90 <= point["latitude"] <= 90):
                 raise HTTPException(422, "Vértice PB1 fora de longitude/latitude WGS84.")
+    record = old_pb1.get("ibge_factors")
+    if record and record.get("points") == [{"name":p["name"],"latitude":p["latitude"],"longitude":p["longitude"]} for p in pb1_points]:
+        snapshot["pb1"]["ibge_factors"] = record
     # Only server-calculated results survive; invalidate on any source or geometry change.
     prior_snapshot = (piece.snapshot or {}) if piece else {}
     relevant_pb1 = ("pb1_draft", "pb1_closure", "pb1_source", "boundary")
