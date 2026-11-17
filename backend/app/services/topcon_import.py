@@ -140,11 +140,40 @@ def _cells(line: str) -> list[str]:
     return [x for x in cells if x]
 
 
+def _native_point_cells(line: str) -> list[str]:
+    """Lê o quadro Point Summary, mesmo com colunas PDF separadas por 1 espaço.
+
+    Limita a correção às linhas de coordenadas; outras tabelas preservam
+    a tabulação original. Não separam espaços internos de graus/minutos.
+    """
+    cells = _cells(line)
+    if len(cells) >= 7:
+        return cells
+    # O PDF por vezes junta 'longitude W' e 'altura elipsoidal'
+    # em uma só célula ao deixar apenas um espaço entre elas.
+    if len(cells) == 6:
+        last = re.fullmatch(
+            r'(.+?[EWLO])\s+([-+]?\d+(?:[.,]\d+)?)',
+            cells[-1], re.I,
+        )
+        if last:
+            return cells[:-1] + [last.group(1), last.group(2)]
+    return cells
+
+
 def _value_after_label(text: str, label: str) -> str | None:
     regex = re.compile(r"(?im)^\s*" + re.escape(label) +
                        r"\s*:\s*([^\n\r]+)")
     found = regex.search(text)
     return found.group(1).strip() if found else None
+
+
+def _canonical_point_id(value: str) -> str:
+    """Uniformiza hífens tipográficos que o PDF usa nos nomes M−0223.
+
+    Apenas identificadores; nunca altera os sinais das coordenadas.
+    """
+    return re.sub(r"[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]", "-", value.strip())
 
 
 def _point_name(value: str) -> bool:
@@ -269,7 +298,7 @@ def _native_topcon_tables(text: str) -> dict | None:
             if state == "points":
                 seen_points = True
             continue
-        cells = _cells(line)
+        cells = _native_point_cells(line) if state == "points" else _cells(line)
         if not cells:
             continue
         if state == "points" and any("desv padrao" in _norm(cell) for cell in cells):
@@ -283,7 +312,8 @@ def _native_topcon_tables(text: str) -> dict | None:
                     if normalized in aliases:
                         point_sigma_indices[coordinate] = index
             continue
-        if state == "points" and len(cells) >= 7 and _point_name(cells[0]):
+        if state == "points" and len(cells) >= 7 and _point_name(_canonical_point_id(cells[0])):
+            point_id = _canonical_point_id(cells[0])
             try:
                 northing, easting, elevation = map(_number, cells[1:4])
                 lat = _geo_coord(cells[4], True)
@@ -300,7 +330,7 @@ def _native_topcon_tables(text: str) -> dict | None:
                             sigma_point[coord] = value
                     except (ValueError, TypeError):
                         pass
-            point_rows[cells[0]] = {
+            point_rows[point_id] = {
                 "sigma_point": sigma_point,
                 "northing": northing, "easting": easting,
                 "elevation": elevation, "latitude": lat,
