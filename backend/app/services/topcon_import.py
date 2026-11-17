@@ -140,6 +140,27 @@ def _cells(line: str) -> list[str]:
     return [x for x in cells if x]
 
 
+def _native_point_cells(line: str) -> list[str]:
+    """Lê o quadro Point Summary, mesmo com colunas PDF separadas por 1 espaço.
+
+    Limita a correção às linhas de coordenadas; outras tabelas preservam
+    a tabulação original. Não separam espaços internos de graus/minutos.
+    """
+    cells = _cells(line)
+    if len(cells) >= 7:
+        return cells
+    # O PDF por vezes junta 'longitude W' e 'altura elipsoidal'
+    # em uma só célula ao deixar apenas um espaço entre elas.
+    if len(cells) == 6:
+        last = re.fullmatch(
+            r'(.+?[EWLO])\\s+([-+]?\\d+(?:[.,]\\d+)?)',
+            cells[-1], re.I,
+        )
+        if last:
+            return cells[:-1] + [last.group(1), last.group(2)]
+    return cells
+
+
 def _value_after_label(text: str, label: str) -> str | None:
     regex = re.compile(r"(?im)^\s*" + re.escape(label) +
                        r"\s*:\s*([^\n\r]+)")
@@ -277,7 +298,7 @@ def _native_topcon_tables(text: str) -> dict | None:
             if state == "points":
                 seen_points = True
             continue
-        cells = _cells(line)
+        cells = _native_point_cells(line) if state == "points" else _cells(line)
         if not cells:
             continue
         if state == "points" and any("desv padrao" in _norm(cell) for cell in cells):
