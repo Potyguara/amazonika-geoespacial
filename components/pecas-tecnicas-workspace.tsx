@@ -393,6 +393,8 @@ export function PecasTecnicasWorkspace({
   const [constructionSkipped,setConstructionSkipped] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4" | "PB1">("PS4");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
+  const [pb1Technical,setPb1Technical]=useState({vertical_kind:"",vertical_datum:"",vertical_reference:"",accuracy_reference:"",sigma_e_m:"",sigma_n_m:"",source_sigma_m:"",limit_category:"",factor_reference:"",factors:""});
+  const [pb1TechnicalResult,setPb1TechnicalResult]=useState<{points:Array<{vertex_id:string;source_value_m:number;h_ellipsoidal_m:number;sigma_h_m:number|null}>;horizontal_sigma_m:number;limit_m:number;meets_numeric_threshold:boolean}|null>(null);
   const [pb1Draft,setPb1Draft] = useState<NonNullable<TopconDraft["pb1_draft"]>>([]);
   const [pb1Start,setPb1Start] = useState("");
   const [pb1ClosureConfirmed,setPb1ClosureConfirmed] = useState(false);
@@ -482,6 +484,31 @@ export function PecasTecnicasWorkspace({
       ]]}
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
+  const calculatePb1Technical=async()=>{
+    setPb1Busy(true);setPb1TechnicalResult(null);setPb1Notice("");
+    try{
+      const t=pb1Technical;
+      if(!t.vertical_kind||!t.limit_category||[t.sigma_e_m,t.sigma_n_m,t.source_sigma_m].some(v=>!v.trim()))throw new Error("Preencha o tipo vertical, categoria do limite e sigmas documentados.");
+      const factors:Record<string,number[]>={};
+      for(const line of t.factors.trim().split(/\r?\n/).filter(Boolean)){
+        const [id,eta,sigma,...extra]=line.trim().split(/[;\s]+/);
+        if(!id||!eta||!sigma||extra.length||factors[id])throw new Error("Fatores: uma linha por V, código;fator;sigma.");
+        const values=[eta,sigma].map(v=>Number(v.replace(",",".")));
+        if(values.some(v=>!Number.isFinite(v)))throw new Error("Fator inválido: "+id);
+        factors[id]=values;
+      }
+      const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+      const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/technical-preview",{
+        method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({...t,factors,sigma_e_m:Number(t.sigma_e_m.replace(",",".")),sigma_n_m:Number(t.sigma_n_m.replace(",",".")),source_sigma_m:Number(t.source_sigma_m.replace(",","."))})
+      });
+      const body=await res.json();
+      if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Dados técnicos inválidos.");
+      setPb1TechnicalResult(body);
+      setPb1Notice("Prévia calculada no servidor. Não constitui aprovação RT.");
+    }catch(e){setPb1Notice(e instanceof Error?e.message:"Falha no cálculo PB1.");}
+    finally{setPb1Busy(false);}
+  };
   const pb1Upload=async(kind:"pb1_color"|"pb1_dtm",file:File)=>{
     setPb1Busy(true);setPb1Notice("");
     try{
@@ -2822,7 +2849,7 @@ export function PecasTecnicasWorkspace({
                               value={polygon.confrontants[index] ?? ""}
                               onChange={(e) => onConfrontant(polygon.id, index, e.target.value)} /></td>
                             <td>{polygon.altitudes[index] ?? "—"}</td>
-                            <td>{String(polygon.vertexDetails?.[index]?.positioning_method ?? "—")}</td>
+                            <td>{String(polygon.vertexDetails?.[index]?.positioning_method ?? polygon.vertexDetails?.[index]?.sigef_method ?? "—")}</td>
                             <td>{String(polygon.vertexDetails?.[index]?.boundary_type ?? "—")}</td>
                           </tr>
                         ))}
@@ -3511,6 +3538,22 @@ export function PecasTecnicasWorkspace({
                               <p className="ps4-analysis-note">Status: <strong>PRELIMINAR</strong>.
                                 A precisão da fonte, o datum vertical, os sigmas e a aprovação RT permanecem pendentes.
                                 Não incluir estes V na ODS oficial automaticamente.</p>
+                            </div>
+                          </details>
+                          <details className="ps4-flow-card">
+                            <summary className="ps4-flow-summary"><span className="ps4-step-no">5</span><span className="ps4-step-heading"><strong>Prévia de precisão e altimetria</strong><small>MDT original, fatores individuais e revisão técnica</small></span></summary>
+                            <div className="ps4-flow-body">
+                              <label className="pecas-field"><span>Tipo de altura do MDT</span><select value={pb1Technical.vertical_kind} onChange={e=>{setPb1Technical(o=>({...o,vertical_kind:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Selecione conforme documentação</option><option value="NORMAL">Normal · hgeoHNOR2020</option><option value="ORTHOMETRIC">Ortométrica · MAPGEO2015 (se compatível)</option><option value="ELLIPSOIDAL">Elipsoidal SIRGAS2000</option></select></label>
+                              <label className="pecas-field"><span>Categoria do limite</span><select value={pb1Technical.limit_category} onChange={e=>{setPb1Technical(o=>({...o,limit_category:e.target.value}));setPb1TechnicalResult(null);}}><option value="">Selecione</option><option value="NATURAL">Natural · 3 m</option><option value="INACCESSIBLE">Inacessível · 7,50 m</option><option value="ARTIFICIAL">Artificial · 0,50 m (somente conferência numérica)</option></select></label>
+                              {([["vertical_datum","Datum vertical"],["vertical_reference","Documento do datum vertical"],["accuracy_reference","Documento de exatidão da base"],["sigma_e_m","Sigma E (m)"],["sigma_n_m","Sigma N (m)"],["source_sigma_m","Sigma da elevação MDT (m)"],["factor_reference","Origem dos fatores de conversão"]] as const).map(([key,label])=><label key={key} className="pecas-field"><span>{label}</span><input value={pb1Technical[key]} onChange={e=>{setPb1Technical(o=>({...o,[key]:e.target.value}));setPb1TechnicalResult(null);}}/></label>)}
+                              {pb1Technical.vertical_kind!=="ELLIPSOIDAL"&&<label className="pecas-field"><span>Fatores individuais (código; fator assinado em m; sigma em m)</span><textarea rows={5} value={pb1Technical.factors} onChange={e=>{setPb1Technical(o=>({...o,factors:e.target.value}));setPb1TechnicalResult(null);}}/></label>}
+                              <button type="button" className="pecas-secondary" disabled={!pb1Draft.length} onClick={()=>{
+                                const blob=new Blob([pb1Draft.map(p=>p.name+" "+p.latitude.toFixed(8)+" "+p.longitude.toFixed(8)).join("\n")+"\n"],{type:"text/plain"});
+                                const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="PB1_vertices_IBGE.txt";link.click();URL.revokeObjectURL(url);
+                              }}>Exportar ID LAT LON dos V para IBGE</button>
+                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical()}>Calcular prévia técnica PB1</button>
+                              {pb1TechnicalResult&&<div className="pecas-note"><strong>Precisão horizontal resultante: {pb1TechnicalResult.horizontal_sigma_m.toFixed(3)} m</strong><p>{pb1TechnicalResult.meets_numeric_threshold?"Dentro do limiar numérico declarado":"Excede o limiar numérico declarado"} · {pb1TechnicalResult.limit_m} m. Sem aprovação automática.</p><div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>V</th><th>Cota original</th><th>h (m)</th><th>σh (m)</th></tr></thead><tbody>{pb1TechnicalResult.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td><td>{p.source_value_m.toFixed(3)}</td><td>{p.h_ellipsoidal_m.toFixed(3)}</td><td>{p.sigma_h_m?.toFixed(3)??"—"}</td></tr>)}</tbody></table></div></div>}
+                              <p className="pecas-note">Prévia não gravada como coordenada oficial. A documentação e a compatibilidade do método ainda exigem revisão RT.</p>
                             </div>
                           </details>
                           {pb1Notice&&<div role="status" className="pecas-note">{pb1Notice}</div>}
