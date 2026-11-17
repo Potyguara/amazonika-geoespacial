@@ -316,10 +316,33 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     vertices: number;
   }>({ areaHectares: null, perimeterMeters: null, vertices: 0 });
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const lastStartTopconNonce = useRef(startTopconNonce);
+  // Começar em zero é essencial: GeoMap é montado novamente ao sair da
+  // lista de peças e o pedido recebido nesse primeiro render não pode sumir.
+  const lastStartTopconNonce = useRef(0);
   useEffect(() => {
-    if (startTopconNonce <= lastStartTopconNonce.current) return;
+    if (!startTopconNonce || startTopconNonce === lastStartTopconNonce.current) return;
     lastStartTopconNonce.current = startTopconNonce;
+    // Novo projeto independente: limpar geometria, seleção, documento e
+    // qualquer vínculo com peça ou TOPCON anteriormente restaurados.
+    sourceRef.current.clear();
+    vertexLabelSourceRef.current.clear();
+    setPolygons([]);
+    setSelectedPolygonIds([]);
+    setImportedMetadata(null);
+    setLegalMetadata({});
+    setMemorialTitle("Novo projeto");
+    setPlantHeading("PLANTA GEORREFERENCIADA");
+    setMemorialHeading("MEMORIAL DESCRITIVO");
+    setMemorialOwner("");
+    setOwnerRg("");
+    setOwnerCpf("");
+    setPropertyAddress("");
+    setEditedMemorial(null);
+    setMemorialText("");
+    setLastGeneratedPdfId(null);
+    setSituationSnapshot(null);
+    setGeometryMetrics({areaHectares:null,perimeterMeters:null,vertices:0});
+    onGeometryChange(null);
     setAdvancedPanel(null);
     setCurrentPieceId(null);
     setLoadedTopconDraft(null);
