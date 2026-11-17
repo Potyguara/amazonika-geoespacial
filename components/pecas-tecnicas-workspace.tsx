@@ -185,6 +185,7 @@ export type TopconDraft = {
   ps4_closure?: { start: string; confirmed: boolean; signature?: string };
   ps4_selected_scene?: string;
   construction_skipped?: boolean;
+  construction_requested?: boolean;
   ps4_ortho_report?: {scene_id:string;reference:string;rms_m:number|null;reviewed_by_rt:boolean};
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
@@ -395,6 +396,7 @@ export function PecasTecnicasWorkspace({
   const [topconReviewFeedback, setTopconReviewFeedback] = useState<{status:"info"|"error"|"success";message:string}|null>(null);
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionSkipped,setConstructionSkipped] = useState(false);
+  const [constructionRequested,setConstructionRequested] = useState(false);
   const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4" | "PB1">("PS4");
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [pb1IbgeOutput,setPb1IbgeOutput]=useState("");
@@ -925,7 +927,9 @@ export function PecasTecnicasWorkspace({
     setPb1ClosureConfirmed(Boolean(d.pb1_closure?.confirmed));
     setPb1ConfirmedSignature(d.pb1_closure?.signature ?? "");
     setPb1Source(d.pb1_source ?? {sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
-    setConstructionSkipped(Boolean(d.construction_skipped)&&!(d.pb1_draft?.length||d.ps4_draft?.length||d.boundary?.some(p=>Boolean(p.derived_calculation))));
+    const existingAdditional=Boolean(d.pb1_draft?.length||d.ps4_draft?.length||d.boundary?.some(p=>Boolean(p.derived_calculation)));
+    setConstructionSkipped(Boolean(d.construction_skipped)&&!existingAdditional);
+    setConstructionRequested(existingAdditional||d.construction_requested===true&&!d.construction_skipped);
     setPs4SceneId(d.ps4_selected_scene || d.ps4_draft?.[0]?.scene_id ||
       "CBERS4A_WPM_PCA_RGB321_20261016_214_113");
     setPs4Armed(Boolean(d.ps4_draft?.length));
@@ -971,6 +975,7 @@ export function PecasTecnicasWorkspace({
     pb1_closure: {start:pb1Start,confirmed:pb1Ready,signature:pb1Ready?pb1ConfirmedSignature:""},
     ps4_selected_scene: ps4SceneId,
     construction_skipped: constructionSkipped,
+    construction_requested: constructionRequested,
     ps4_ortho_report: ps4OrthoReport,
     official_overlap:overlapCurrent?officialOverlap:undefined,
     ps4_quality:ps4Quality,
@@ -996,7 +1001,7 @@ export function PecasTecnicasWorkspace({
     topconBoundary.some(p=>Boolean(p.derived_calculation)) ||
     polygons.some(p=>p.vertexDetails?.some(d=>["PB1","PS4","PA1","PA2","PT8"].includes(String(d.sigef_method??""))));
   const openAdditionalVertices = () => {
-    setConstructionSkipped(false);
+    setConstructionSkipped(false);setConstructionRequested(true);
     if(pb1Draft.length) setConstructionMethod("PB1");
     else if(ps4Draft.length || !verticalCalculated) setConstructionMethod("PS4");
     setPa2Mode(true);setPa2Error("");
@@ -1010,8 +1015,8 @@ export function PecasTecnicasWorkspace({
     }
     setActionBusy(true); setActionError("");
     try {
-      await onSavePiece(editableMemorial.trim(), {...draftForSave(), construction_skipped:true});
-      setConstructionSkipped(true);setPa2Mode(false);
+      await onSavePiece(editableMemorial.trim(), {...draftForSave(), construction_skipped:true, construction_requested:false});
+      setConstructionSkipped(true);setConstructionRequested(false);setPa2Mode(false);
       setSavedPieceNotice("Sem vértices adicionais: decisão salva.");
       setWorkflowNotice("Construção adicional dispensada para todos os métodos.");
     } catch(e) {setActionError(e instanceof Error?e.message:"Falha ao salvar a decisão.");}
@@ -1409,7 +1414,7 @@ export function PecasTecnicasWorkspace({
   const importTopcon = async (file: File) => {
     setTopconError("");
     setTopconPreview(null);
-    setPa2Mode(false); setConstructionSkipped(false);
+    setPa2Mode(false); setConstructionSkipped(false);setConstructionRequested(false);
     setPa2Result(null); setPa2Witnesses([]); setMapHint(null);
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
     setTopconBoundary([]);
@@ -2047,13 +2052,14 @@ export function PecasTecnicasWorkspace({
                 <h4>Construção de vértices adicionais</h4>
                 <p>Se os marcos GNSS já definem todo o perímetro, dispense esta etapa. Caso contrário, abra o editor e escolha o método de posicionamento adequado.</p>
                 <label className="pecas-check">
-                  <input type="checkbox" checked={!constructionSkipped} disabled={actionBusy}
+                  <input type="checkbox" checked={constructionRequested||hasAdditionalVertices} disabled={actionBusy||!topconPreview||topconBoundary.length<2}
                     onChange={e=>{if(e.target.checked)openAdditionalVertices();else void skipAdditionalVertices();}}/>
                   Preciso construir vértices adicionais (facultativo)
                 </label>
-                <p className="pecas-note">{constructionSkipped?"Dispensado — prossiga com os vértices existentes.":"Construção habilitada — PA1, PA2, PT8 (M/P), PS4 ou PB1, conforme disponibilidade e tipo de vértice."}</p>
+                <p className="pecas-note">{constructionSkipped?"Dispensado — prossiga com os vértices existentes.":constructionRequested||hasAdditionalVertices?"Construção habilitada — escolha o método no editor.":"Sem seleção — confirme a dispensa ou marque para construir."}</p>
+                {!constructionSkipped&&!constructionRequested&&!hasAdditionalVertices&&<button type="button" className="pecas-secondary" disabled={actionBusy} onClick={()=>void skipAdditionalVertices()}>Continuar sem vértices adicionais</button>}
                 {actionError&&<p role="alert" className="pecas-warning">{actionError}</p>}
-                {!constructionSkipped&&<button type="button" className="pecas-primary"
+                {(constructionRequested||hasAdditionalVertices)&&<button type="button" className="pecas-primary"
                   disabled={!topconPreview||topconBoundary.length<2||actionBusy}
                   onClick={openAdditionalVertices}>Abrir espaço de trabalho de vértices</button>}
                 {pb1Ready&&<div className="geo97-adopt-banner" role="status">
@@ -3391,7 +3397,7 @@ export function PecasTecnicasWorkspace({
                           medida a partir do primeiro. O mapa permite escolher visualmente
                           um local, mas o cálculo mantém as restrições geométricas do método. PS4 é independente da conversão altimétrica para criar rascunhos, mas exige acurácia comprovada para exportação.</p>
                         <label className="pecas-check"><input type="checkbox"
-                          checked={!constructionSkipped}
+                          checked={constructionRequested||hasAdditionalVertices}
                           onChange={(e) => {
                             setPa2Result(null);
                             if (!e.target.checked) {
