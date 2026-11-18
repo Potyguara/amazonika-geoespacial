@@ -739,7 +739,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       feature.set("vertexNames", vertices.map((p) => p.sigef_vertex_code || p.name), true);
       feature.set("confrontants", vertices.map((p) => p.confrontant || ""), true);
       feature.set("altitudes", vertices.map((p) =>
-        !p.height_reference_confirmed || p.ellipsoidal_height_m === null
+        (!p.height_reference_confirmed && p.sigef_method !== "PB1") || p.ellipsoidal_height_m === null
           ? "" : String(p.ellipsoidal_height_m)), true);
       // HN interpolada é um atributo DE VISUALIZAÇÃO separado de h GNSS.
       feature.set("normalAltitudeEstimates", vertices.map(p =>
