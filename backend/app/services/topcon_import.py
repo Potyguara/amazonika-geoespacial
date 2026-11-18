@@ -11,6 +11,7 @@ import math
 import re
 import unicodedata
 from html.parser import HTMLParser
+import codecs
 
 from pyproj import Transformer
 from pypdf import PdfReader
@@ -80,14 +81,135 @@ def _rows_from_xlsx(raw: bytes) -> str:
     return "\n".join(lines)
 
 
+def _decode_html(raw: bytes) -> str:
+    if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return raw.decode("utf-16")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", errors="replace")
+
+
+class NativeTableParser(HTMLParser):
+    """Preserve blank cells and HTML row boundaries, independent of formatting."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.tables = []
+        self.table = None
+        self.row = None
+        self.parts = None
+        self.tag = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "table":
+            self.table = {"caption": "", "rows": []}
+        elif self.table is not None and tag == "tr":
+            self.row = []
+        elif self.table is not None and tag in ("td", "th", "caption"):
+            self.parts = []
+            self.tag = tag
+
+    def handle_data(self, data):
+        if self.parts is not None:
+            self.parts.append(data)
+
+    def handle_endtag(self, tag):
+        if self.table is None:
+            return
+        if tag == self.tag and self.parts is not None:
+            value = " ".join("".join(self.parts).split())
+            if tag == "caption":
+                self.table["caption"] = value
+            elif self.row is not None:
+                self.row.append(value)
+            self.parts = None
+            self.tag = None
+        elif tag == "tr" and self.row is not None:
+            self.table["rows"].append(self.row)
+            self.row = None
+        elif tag == "table":
+            self.tables.append(self.table)
+            self.table = None
+
+
+def _native_html_tables(raw: bytes) -> dict | None:
+    parser = NativeTableParser()
+    parser.feed(_decode_html(raw))
+    table = next((t for t in parser.tables if _norm(t["caption"]) == "point summary"), None)
+    if table is None:
+        return None
+    rows = table["rows"]
+    if not rows:
+        raise ValueError("Point Summary sem linhas.")
+    headers = [re.sub(r"\s*\(m\)$", "", _norm(c)) for c in rows[0]]
+    def index(*aliases):
+        for alias in aliases:
+            if alias in headers:
+                return headers.index(alias)
+        return None
+    columns = {key: index(*aliases) for key, aliases in {
+        "name": ("nome", "name"), "northing": ("malha norte", "grid northing"),
+        "easting": ("malha este", "grid easting"), "elevation": ("elevacao", "elevation"),
+        "latitude": ("latitude", "latitude wgs84"), "longitude": ("longitude", "longitude wgs84"),
+        "ellip_reported": ("alt elip", "alt elip wgs84", "ell height", "ellipsoidal height"),
+        "control": ("controle", "control"),
+        "n": ("desv padrao n", "desvio padrao n", "std dev n"),
+        "e": ("desv padrao e", "desvio padrao e", "std dev e"),
+        "hz": ("desv padrao hz", "desvio padrao hz", "std dev hz"),
+        "u": ("desv padrao u", "desvio padrao u", "std dev u"),
+    }.items()}
+    if any(columns[k] is None for k in ("name","northing","easting","elevation","latitude","longitude","ellip_reported")):
+        return None  # Preserve legacy report support.
+    points = {}
+    for row in rows[1:]:
+        def get(key):
+            i = columns[key]
+            return row[i] if i is not None and i < len(row) else ""
+        if not any(row):
+            continue
+        name = _canonical_point_id(get("name"))
+        if not _point_name(name) or name in points:
+            raise ValueError("Identificador de ponto inválido ou duplicado: " + name)
+        try:
+            point = {k:_number(get(k)) for k in ("northing","easting","elevation","ellip_reported")}
+            point.update(latitude=_geo_coord(get("latitude"),True), longitude=_geo_coord(get("longitude"),False))
+        except ValueError as exc:
+            raise ValueError(f"{name}: coordenadas ou altura inválidas no Point Summary.") from exc
+        point["sigma_point"] = {}
+        for key in ("n","e","hz","u"):
+            if get(key):
+                val = _number(get(key))
+                if val < 0:
+                    raise ValueError(f"{name}: desvio padrão negativo.")
+                point["sigma_point"][key] = val
+        point["control"] = _norm(get("control"))
+        point["project_geographic"] = headers[columns["latitude"]] == "latitude" and headers[columns["longitude"]] == "longitude"
+        points[name] = point
+        if len(points) > LIMIT_POINTS:
+            raise ValueError("Relatório excede 5.000 pontos.")
+    if not points:
+        raise ValueError("Point Summary sem pontos válidos.")
+    # Parse observations directly, retaining Cartesian sigmas as vector evidence only.
+    observations, occupations = [], []
+    for t in parser.tables:
+        title = _norm(t["caption"])
+        for row in t["rows"][1:]:
+            if title == "observacoes gps" and len(row) >= 10:
+                try:
+                    nums = [_number(v) for v in row[1:9]]
+                except ValueError:
+                    continue
+                observations.append(dict(zip(("dn_m","de_m","dz_m","horizontal_rms_m","vertical_rms_m","sigma_x_m","sigma_y_m","sigma_z_m"), nums), baseline=row[0], solution_type=row[9]))
+            elif title == "ocupacoes gps" and len(row) >= 6:
+                name = _canonical_point_id(row[0])
+                occupations.append(dict(point=name, original_name=row[0], started_at_reported=row[1], ended_at_reported=row[2], duration=row[3], method="", interval_ms=row[5], antenna=row[4]))
+    return {"points":points,"observations":observations[:LIMIT_POINTS],"occupations":occupations[:LIMIT_POINTS]}
+
+
 def _text(raw: bytes, extension: str) -> str:
     if extension in (".html", ".htm"):
         parser = TopconHTMLParser()
-        try:
-            decoded = raw.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            decoded = raw.decode("cp1252", errors="replace")
-        parser.feed(decoded)
+        parser.feed(_decode_html(raw))
         return parser.text()
     if extension == ".pdf":
         try:
@@ -392,7 +514,9 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
         if current and line.strip():
             sections[current].append(_cells(line))
 
-    native = _native_topcon_tables(text)
+    native = _native_html_tables(raw) if ext in (".html", ".htm") else None
+    if native is None:
+        native = _native_topcon_tables(text)
     utm = _point_fields(sections["utm"], 3)
     geographic = _parse_geo_rows(sections["geo"])
     sigma = _point_fields(sections["sigma"], 4)
@@ -412,7 +536,7 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
             if all(k in values for k in ("n", "e", "u")):
                 sigma[name] = [
                     values["n"], values["e"],
-                    math.hypot(values["n"], values["e"]), values["u"],
+                    values.get("hz", math.hypot(values["n"], values["e"])), values["u"],
                 ]
     if not utm or not geographic:
         raise ValueError(
@@ -480,7 +604,10 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
         if native is not None and name in native["points"]:
             # Campo explicitamente WGS84 no relatório; requer comprovação
             # de referencial/época antes de reutilizar como SIRGAS 2000.
-            point["ellipsoidal_height_reported_m"] = native["points"][name]["ellip_reported"]
+            source = native["points"][name]
+            point["ellipsoidal_height_reported_m"] = source["ellip_reported"]
+            if source.get("control") in ("ambos","both","horizontal","vertical","plano","altura"):
+                point["point_role"] = "CONTROL"
         if geo and transformer:
             try:
                 lon2, lat2 = transformer.transform(easting, northing)
@@ -500,13 +627,15 @@ def parse_topcon_report(raw: bytes, filename: str) -> dict:
                 f"Precisões individuais ajustadas extraídas de Point Summary: {available_individual} ponto(s). "
                 "Conferir referencial, época e qualidade do ajustamento antes de confirmar."
             )
-        warnings.append(
-            "O relatório nativo apresenta RMS dos vetores, não precisões "
+        if not available_individual:
+            warnings.append(
+                "O relatório nativo apresenta RMS dos vetores, não precisões "
             "individuais das coordenadas; preencher σ Longitude/Latitude/h "
             "somente após conferência dos resultados ajustados."
         )
-        warnings.append(
-            "Latitude, longitude e altura elipsoidal estão rotuladas WGS84 "
+        if not all(p.get("project_geographic") for p in native["points"].values()):
+            warnings.append(
+                "Latitude, longitude e altura elipsoidal estão rotuladas WGS84 "
             "no TOPCON; confirmar SIRGAS2000 e época, sem conversão automática."
         )
     if any(p["sigma_hz_m"] is None for p in points if p["point_role"] != "CONTROL"):
