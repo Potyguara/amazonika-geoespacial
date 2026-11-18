@@ -1,7 +1,7 @@
 import unittest
 from math import hypot
 from pyproj import Geod
-from app.services.sgl_metrics import sgl_metrics
+from app.services.sgl_metrics import sgl_metrics, puissant_azimuth
 from app.services.plant_memorial_v2 import prepare_parcels
 from app.services.topcon_perimeter_review import review_topcon_perimeter
 from app.api.routes.technical_pieces import parcel_metrics, ParcelMetricsInput
@@ -48,3 +48,25 @@ class SGLTests(unittest.TestCase):
         self.assertEqual(checked["metrics_method"],"SGL_GRS80")
         raw["altitudes_m"]=[None,100.,100.,100.]
         self.assertEqual(prepare_parcels([raw])[0].metrics_method,"GEODESIC_PRELIMINARY")
+
+    def test_puissant_quadrants(self):
+        geod=Geod(ellps="GRS80")
+        for lon,lat in [(-51.4,.4),(-49.,-25.5),(-60.,-12.)]:
+            for az in [0,45,90,135,180,225,270,315]:
+                for distance in [10,1500,15000]:
+                    end=geod.fwd(lon,lat,az,distance)[:2]
+                    calculated=puissant_azimuth(lon,lat,*end)
+                    error=abs((calculated-az+180)%360-180)*3600
+                    self.assertLess(error,1.0,(lon,lat,az,distance,error))
+
+    def test_puissant_ufpr_example_against_independent_geodesic(self):
+        a=(-49-2/60-11.4622/3600,-25-33/60-6.918/3600)
+        b=(-49-6/60-27.1595/3600,-25-31/60-11.190/3600)
+        expected=Geod(ellps="GRS80").inv(*a,*b)[0]%360
+        self.assertLess(abs(puissant_azimuth(*a,*b)-expected)*3600,1.0)
+
+    def test_puissant_domain(self):
+        with self.assertRaises(ValueError):
+            puissant_azimuth(-51.,0.,-49.,0.)
+        with self.assertRaises(ValueError):
+            puissant_azimuth(-51.,0.,-51.,0.)
