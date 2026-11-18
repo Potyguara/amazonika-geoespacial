@@ -64,6 +64,22 @@ def _owned(piece_id: UUID, db: Session, user: User) -> TechnicalPiece:
 
 
 
+class ParcelMetricsInput(BaseModel):
+    parcels: list[dict] = Field(min_length=1, max_length=100)
+
+
+@router.post("/parcel-metrics")
+def parcel_metrics(payload: ParcelMetricsInput, user: User = Depends(get_current_user)):
+    """Mesma preparação de parcelas usada pelos documentos técnicos."""
+    from app.services.plant_memorial_v2 import prepare_parcels
+    try:
+        parcels = prepare_parcels(payload.parcels)
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"parcels": [{"area_ha": p.area_ha, "perimeter_m": p.perimeter,
+                         "metrics_method": p.metrics_method} for p in parcels]}
+
+
 @router.post("/import-topcon")
 def import_topcon(
     file: UploadFile = File(...),
