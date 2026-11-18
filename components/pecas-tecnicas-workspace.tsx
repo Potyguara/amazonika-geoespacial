@@ -546,10 +546,17 @@ export function PecasTecnicasWorkspace({
     if(loadedPieceId)fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/pb1/process-partial",{credentials:"include",cache:"no-store"}).then(r=>r.ok?r.json():null).then(body=>{if(active&&body?.preview)setPb1Partial(body.preview);}).catch(()=>{});
     return ()=>{active=false;};
   },[loadedPieceId]);
-  const processPb1Partial=async()=>{
+  const processPb1Partial=async(finish=false)=>{
     setPb1Busy(true);setPb1Notice("");
     try{
+      if(!pb1Dtm||!pb1Draft.length)throw new Error("Vincule o MDT numérico e digitalize os vértices.");
+      if(finish&&!pb1Closure.valid)throw new Error(pb1Closure.message);
       const id=await onSavePiece(editableMemorial.trim(),draftForSave());
+      if(pb1IbgeOutput){
+        const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/ibge-factors",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({ibge_output:pb1IbgeOutput})});
+        const body=await res.json();
+        if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Retorno IBGE inválido.");
+      }
       const payload:Record<string,number>={};
       for(const key of ["sigma_e_m","sigma_n_m","source_sigma_m"] as const){
         const raw=pb1Technical[key].trim();
@@ -559,7 +566,8 @@ export function PecasTecnicasWorkspace({
       const body=await res.json();
       if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Falha no processamento PB1.");
       setPb1Partial(body);
-      setPb1Notice("Resultados preliminares salvos. Campos sem fundamento permanecem pendentes; você pode concluir a construção.");
+      if(finish)adoptPb1WorkingParcel(true,body);
+      else setPb1Notice("Resultados preliminares calculados. Campos sem fundamento permanecem pendentes.");
     }catch(e){setPb1Notice(e instanceof Error?e.message:"Falha no processamento.");}
     finally{setPb1Busy(false);}
   };
@@ -1622,7 +1630,7 @@ export function PecasTecnicasWorkspace({
     }catch(e){setActionError(e instanceof Error?e.message:"Falha no relatório PB1.");}
     finally{setActionBusy(false);}
   };
-  const adoptPb1WorkingParcel=(finish=false)=>{
+  const adoptPb1WorkingParcel=(finish=false,processed:typeof pb1Partial=pb1Partial)=>{
     setTopconError("");setWorkflowNotice("");
     try{
       if(!(finish?pb1Closure.valid:pb1Ready)||!pb1Closure.geometry||!pb1Dtm)
@@ -1638,17 +1646,17 @@ export function PecasTecnicasWorkspace({
         const utm=lonLatToSirgasUtm(v.longitude,v.latitude);
         if(utm.zone!==zone.zone||utm.hemisphere!==zone.hemisphere)
           throw new Error("Vértice PB1 em zona UTM diferente: "+v.name);
-        const r=pb1Partial?.points.find(p=>p.vertex_id===v.name && p.latitude===v.latitude && p.longitude===v.longitude);
+        const r=processed?.points.find(p=>p.vertex_id===v.name && p.latitude===v.latitude && p.longitude===v.longitude);
         return {
           ...initial,name:v.name,sigef_vertex_code:v.name,point_role:"BOUNDARY" as const,
           longitude:v.longitude,latitude:v.latitude,
           easting_m:utm.easting_m,northing_m:utm.northing_m,
-          elevation_reported_m:null,ellipsoidal_height_reported_m:null,ellipsoidal_height_m:null,
+          elevation_reported_m:null,ellipsoidal_height_reported_m:null,ellipsoidal_height_m:r?.h_ellipsoidal_m??null,
           sigma_e_m:null,sigma_n_m:null,sigma_u_m:null,sigma_hz_m:null,
           sigma_lon_m:null,sigma_lat_m:null,sigma_h_m:null,
           sigma_reference_confirmed:false,height_reference_confirmed:false,
           sigma_suggestion_e_m:r?.sigma_e_m??null,sigma_suggestion_n_m:r?.sigma_n_m??null,sigma_suggestion_h_m:r?.sigma_h_m??null,
-          derived_physical_altitude_m:null,derived_physical_model:null,
+          derived_physical_altitude_m:r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?r.source_value_m:null,derived_physical_model:r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?"HN":null,
           sigef_method:"PB1",boundary_type:initial.boundary_type||"LN1",boundary_detail:initial.boundary_type?initial.boundary_detail:"",
           derived_calculation:{
             method:"PB1",status:"PRELIMINAR",accuracy_verified:false,
@@ -1658,8 +1666,8 @@ export function PecasTecnicasWorkspace({
             source_elevation_m:r?.source_value_m??v.source_elevation_m,
             preliminary_h_m:r?.h_ellipsoidal_m??null,
             source_vertical_datum:pb1Source.vertical_datum||"NAO_VERIFICADO",
-            altitude_source:"MDT_ORIGINAL_NAO_CONVERTIDO",
-            note:"MDT sem h confirmada. Sigma horizontal/vertical não atribuído; PB1 não liberado à ODS.",
+            altitude_source:r?.h_ellipsoidal_m!=null?"MDT_CONVERSAO_PRELIMINAR":"MDT_ORIGINAL_NAO_CONVERTIDO",
+            note:"Valores preliminares; precisão e referencial sujeitos à revisão. PB1 não liberado à ODS.",
           },
         };
       });
@@ -3644,14 +3652,14 @@ export function PecasTecnicasWorkspace({
                               </label>
                               <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
                               <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
-                              <button type="button" className="pecas-secondary" disabled={pb1Busy||!pb1Dtm||!pb1Draft.length} onClick={()=>void processPb1Partial()}>Processar dados disponíveis automaticamente</button>
+                              
                               {pb1Partial&&<div className="pecas-note">
                                 <strong>{pb1Partial.points.length} vértices processados · resultados preliminares</strong>
                                 <p>Precisão horizontal: {pb1Partial.horizontal_sigma_m?.toFixed(3)??"Pendente"} m · {pb1Partial.sigma_origin==="PEC_REFERENCE_ISOTROPIC_ESTIMATE"?"Estimativa de referência PEC (isotropia presumida)":pb1Partial.sigma_origin==="DECLARED"?"Parâmetros declarados":"Sem parâmetros disponíveis"}</p>
                                 <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Vértice</th><th>MDT</th><th>h</th><th>σE</th><th>σN</th><th>σh</th></tr></thead><tbody>{pb1Partial.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td>{[p.source_value_m,p.h_ellipsoidal_m,p.sigma_e_m,p.sigma_n_m,p.sigma_h_m].map((v,i)=><td key={i}>{v?.toFixed(3)??"—"}</td>)}</tr>)}</tbody></table></div>
                               </div>}
                               <button type="button" className="pecas-primary" disabled={!pb1Closure.valid||!pb1Dtm||actionBusy||pb1Busy}
-                                onClick={()=>adoptPb1WorkingParcel(true)}>Concluir construção e aplicar à parcela</button>
+                                onClick={()=>void processPb1Partial(true)}>{pb1Busy?"Processando…":"Concluir construção e aplicar à parcela"}</button>
                               <p className="pecas-note">Pendências de precisão e altimetria não impedem a peça preliminar; a ODS definitiva permanece bloqueada.</p>
                             </div>
                           </details>
@@ -3749,7 +3757,7 @@ export function PecasTecnicasWorkspace({
                                     if(file.size>1000000)throw new Error("Arquivo excede 1 MB.");
                                     setPb1IbgeOutput(await file.text());setPb1IbgeFilename(file.name);
                                     setPb1Technical(o=>({...o,factor_reference:"IBGE hgeoHNOR2020 · "+file.name}));
-                                    setPb1Notice("Arquivo carregado. Clique em Salvar fatores IBGE sem calcular para persistir os resultados, sem exigir sigmas.");
+                                    setPb1Notice("Arquivo carregado. Os fatores serão conferidos e salvos na conclusão da construção.");
                                   }catch(err){setPb1Notice(err instanceof Error?err.message:"Falha ao ler arquivo.");}
                                 }}/>
                                 {pb1IbgeFilename&&<span>{pb1IbgeFilename} <button type="button" onClick={()=>{setPb1IbgeOutput("");setPb1IbgeFilename("");setPb1TechnicalResult(null);}}>Remover</button></span>}
@@ -3761,10 +3769,10 @@ export function PecasTecnicasWorkspace({
                               }}>Exportar ID LAT LON dos V para IBGE</button>
                               {!pb1Ready&&<p className="pecas-note">Confirme o fechamento geométrico na etapa 4 para habilitar o cálculo.</p>}
                               {!pb1Dtm&&<p className="pecas-note">Vincule o MDT numérico na etapa 2.</p>}
-                              <button type="button" className="pecas-primary" disabled={pb1Busy||!pb1Ready||!pb1Draft.length||!pb1Dtm} onClick={()=>void calculatePb1Technical(false)}>Calcular prévia técnica PB1 (opcional)</button>
-                              {pb1IbgeOutput&&<button type="button" className="pecas-secondary" disabled={pb1Busy} onClick={()=>void calculatePb1Technical(true)}>Salvar fatores IBGE sem calcular</button>}
+                              
+                              
                               {pb1TechnicalResult&&<div className="pecas-note"><strong>Precisão horizontal resultante: {pb1TechnicalResult.horizontal_sigma_m.toFixed(3)} m</strong><p>{pb1TechnicalResult.meets_numeric_threshold?"Dentro do limiar numérico declarado":"Excede o limiar numérico declarado"} · {pb1TechnicalResult.limit_m} m. Sem aprovação automática.</p><div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>V</th><th>Cota original</th><th>h (m)</th><th>σh (m)</th></tr></thead><tbody>{pb1TechnicalResult.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td><td>{p.source_value_m.toFixed(3)}</td><td>{p.h_ellipsoidal_m.toFixed(3)}</td><td>{p.sigma_h_m?.toFixed(3)??"—"}</td></tr>)}</tbody></table></div></div>}
-                              <p className="pecas-note">O cálculo completo é facultativo nesta etapa. Para avançar, use Concluir construção na etapa 3. Prévia salva no servidor, sem substituir coordenadas oficiais. A documentação e a compatibilidade do método ainda exigem revisão RT.</p>
+                              <p className="pecas-note">Os dados informados serão utilizados ao concluir a construção. A documentação e a compatibilidade do método ainda exigem revisão RT.</p>
                             </div>
                           </details>
                           {pb1Notice&&<div role="status" className="pecas-note">{pb1Notice}</div>}
