@@ -108,6 +108,32 @@ class ReviewedSigefOdsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "acurácia horizontal"):
             build_reviewed_sigef_ods(case)
 
+    def ps1_case(self):
+        case = payload()
+        v = case["parcels"][0]["vertices"][1]
+        v.update(sigef_vertex_code="TEST-V-0001", name="TEST-V-0001",
+                 sigef_method="PS1", sigma_lon_m=.1, sigma_lat_m=.2, sigma_h_m=.3,
+                 derived_calculation={"method": "PS1", "accuracy_verified": True})
+        from copy import deepcopy
+        return case, deepcopy(v)
+
+    def test_ps1_rejects_client_approval(self):
+        case, v = self.ps1_case()
+        with self.assertRaisesRegex(ValueError, "PS1 sem aprovação"):
+            build_reviewed_sigef_ods(case)
+
+    def test_ps1_approved_exports(self):
+        case, v = self.ps1_case()
+        blob = build_reviewed_sigef_ods(case, approved_ps1_vertices=[v])
+        parsed = parse_sigef_ods(blob)
+        self.assertIn("TEST-V-0001", parsed["features"][0]["properties"]["vertexNames"])
+
+    def test_ps1_changed_sigma_rejected(self):
+        case, v = self.ps1_case()
+        case["parcels"][0]["vertices"][1]["sigma_lon_m"] = .01
+        with self.assertRaisesRegex(ValueError, "PS1 sem aprovação"):
+            build_reviewed_sigef_ods(case, approved_ps1_vertices=[v])
+
     def test_blocks_internal_overlap(self):
         case = payload()
         case["parcels"][1]["vertices"] = [
