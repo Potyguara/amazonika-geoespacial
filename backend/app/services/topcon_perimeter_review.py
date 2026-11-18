@@ -11,6 +11,7 @@ from collections import Counter
 
 from pyproj import Geod
 from shapely.geometry import Polygon
+from app.services.sgl_metrics import sgl_metrics
 
 MAX_VERTICES = 5000
 GEOD = Geod(ellps="GRS80")
@@ -102,6 +103,7 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
     geometry = None
     area_ha = None
     perimeter_m = None
+    metrics_method = None
     if len(coords) >= 3 and len(set(coords)) >= 3:
         polygon = Polygon(coords)
         if not polygon.is_valid or polygon.is_empty or polygon.area <= 0:
@@ -111,6 +113,17 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
                 [p[0] for p in coords], [p[1] for p in coords]
             )
             area_ha = abs(signed_area) / 10000.0
+            metrics_method = "GEODESIC_PRELIMINARY"
+            heights = [v["ellipsoidal_height_m"] for v in safe_vertices]
+            if all(_finite(h) for h in heights):
+                metrics = sgl_metrics(coords, heights)
+                area_ha = metrics["area_ha"]
+                perimeter_m = metrics["perimeter_m"]
+                metrics_method = "SGL_GRS80"
+                if not all(p.get("height_reference_confirmed") is True for p in points):
+                    warnings.append("SGL calculado com alturas disponíveis, ainda sujeitas à confirmação do referencial.")
+            else:
+                warnings.append("Área e perímetro geodésicos preliminares: faltam alturas h para SGL.")
             if signed_area >= 0:
                 ods_errors.append("Ordene os vértices em sentido horário antes de exportar.")
             northernmost = max(range(len(coords)), key=lambda i: (coords[i][1], -coords[i][0]))
@@ -136,6 +149,7 @@ def review_topcon_perimeter(points: list[dict]) -> dict:
         "errors": errors, "warnings": warnings,
         "vertex_count": len(points), "vertices": safe_vertices,
         "geometry": geometry if not errors else None,
+        "metrics_method": metrics_method,
         "area_ha": round(area_ha, 4) if area_ha is not None else None,
         "perimeter_m": round(perimeter_m, 3) if perimeter_m is not None else None,
         "disclaimer": "Pré-validação local: não é certificação do SIGEF/INCRA.",
