@@ -349,12 +349,13 @@ def _validated_snapshot(
     pb1_points = ((snapshot.get("topcon") or {}).get("pb1_draft") or [])
     if pb1_points:
         official_color = (trusted_assets.get("pb1_color") or {}).get("sha256")
-        if not official_color:
-            raise HTTPException(422, "Vértices PB1 requerem ORIXP oficial vinculado no servidor.")
+        official_dtm = (trusted_assets.get("pb1_dtm") or {}).get("sha256")
+        if not official_dtm:
+            raise HTTPException(422, "Vértices PB1 requerem MDT numérico vinculado no servidor.")
         if len(pb1_points) > 5000:
             raise HTTPException(422, "Limite de 5000 vértices PB1 excedido.")
         for point in pb1_points:
-            if not isinstance(point, dict) or point.get("raster_sha256") != official_color:
+            if not isinstance(point, dict) or point.get("raster_sha256") not in {h for h in (official_color, official_dtm) if h}:
                 raise HTTPException(422, "Vértice PB1 vinculado a outro GeoTIFF. Refaça a captura.")
             if not isinstance(point.get("name"), str) or not point["name"].strip():
                 raise HTTPException(422, "Código de vértice PB1 inválido.")
@@ -746,8 +747,8 @@ def pb1_technical_preview(
     dtm = assets.get("pb1_dtm")
     color = assets.get("pb1_color")
     points = (snapshot.get("topcon") or {}).get("pb1_draft") or []
-    if not dtm or not color or not points:
-        raise HTTPException(422, "Salve os vértices PB1 e vincule os dois rasters.")
+    if not dtm or not points or not exists_matching(user.id, piece.id, dtm):
+        raise HTTPException(422, "Salve os vértices PB1 e vincule o MDT numérico válido.")
     if len(points) > 500:
         raise HTTPException(422, "O cálculo preliminar aceita até 500 V por operação.")
     if not all(x.strip() for x in (payload.vertical_datum, payload.vertical_reference, payload.accuracy_reference)):
@@ -787,8 +788,8 @@ def pb1_technical_preview(
     output = []
     try:
         for point in points:
-            if point.get("raster_sha256") != color["sha256"]:
-                raise ValueError("Vinculação ORIXP alterada; revise o traçado.")
+            if point.get("raster_sha256") not in {a["sha256"] for a in (color, dtm) if a}:
+                raise ValueError("Vinculação raster alterada; revise o traçado.")
             name = point["name"]
             factor = factors.get(name)
             if model != "NONE" and (factor is None or len(factor) != 2):
@@ -819,7 +820,7 @@ def pb1_technical_preview(
             "notice": "Estimativa com parâmetros declarados; não comprova exatidão, datum ou aprovação RT."}
     result["inputs"] = payload.model_dump(exclude={"ibge_output"})
     result["inputs"]["factors"] = factors
-    result["color_sha256"] = color["sha256"]
+    result["color_sha256"] = color["sha256"] if color else None
     result["dtm_sha256"] = dtm["sha256"]
     result["calculated_at"] = datetime.now(timezone.utc).isoformat()
     saved = dict(snapshot)
@@ -848,8 +849,8 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
     pb = dict(snapshot.get("pb1") or {})
     assets = pb.get("assets") or {}
     color, dtm = assets.get("pb1_color"), assets.get("pb1_dtm")
-    if not color or not points or len(points)>500:
-        raise HTTPException(422, "É necessário um ORIXP e de 1 a 500 vértices salvos.")
+    if not dtm or not points or len(points)>500 or not exists_matching(user.id, piece.id, dtm):
+        raise HTTPException(422, "É necessário MDT numérico válido e de 1 a 500 vértices salvos.")
     source = top.get("pb1_source") or {}
     params = partial_parameters(source, payload.model_dump())
     factors = {}
@@ -866,8 +867,8 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
     bands = ((dtm or {}).get("metadata") or {}).get("bands") or [{}]
     rows=[]
     for point in points:
-        if point.get("raster_sha256") != color["sha256"]:
-            raise HTTPException(422,"Vértice vinculado a outro ORIXP.")
+        if point.get("raster_sha256") not in {a["sha256"] for a in (color, dtm) if a}:
+            raise HTTPException(422,"Vértice vinculado a outro raster.")
         z=None
         error=None
         if path:
@@ -876,10 +877,11 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
             except (ValueError,RuntimeError) as exc:
                 error=str(exc)
         row=partial_vertex(point,z,params,factors.get(point["name"]),source)
-        if error: row["sampling_error"]=error
+        if error or z is None:
+            raise HTTPException(422, f"{point['name']}: MDT sem cota válida ({error or 'NoData'}).")
         rows.append(row)
     result={**params,"points":rows,"status":"PRELIMINARY_RT_REVIEW",
-        "color_sha256":color["sha256"],"dtm_sha256":dtm["sha256"] if dtm else None,
+        "color_sha256":color["sha256"] if color else None,"dtm_sha256":dtm["sha256"],
         "calculated_at":datetime.now(timezone.utc).isoformat(),
         "notice":"Estimativas preliminares; não constituem exatidão comprovada nem aprovação RT."}
     pb["partial_preview"]=result
