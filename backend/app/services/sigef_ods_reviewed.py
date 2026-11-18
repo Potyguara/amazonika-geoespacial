@@ -19,6 +19,7 @@ from app.services.sigef_ods import (
 )
 from app.services.sigef_parcel_review import review_sigef_parcels
 from app.services.topcon_perimeter_review import review_topcon_perimeter
+from app.services.ps1_persistence import same_vertex
 
 
 def _required_text(value, field: str) -> str:
@@ -158,14 +159,10 @@ def build_reviewed_sigef_ods(payload: dict, *, approved_ps1_vertices: list[dict]
             if vertex.get("sigef_method") == "PS1":
                 # Only the authenticated route may supply server-persisted approvals.
                 # Never accept an approval flag sent in a parcel payload.
-                keys = ("sigef_vertex_code", "longitude", "latitude",
-                        "ellipsoidal_height_m", "sigma_lon_m", "sigma_lat_m",
-                        "sigma_h_m", "sigef_method", "boundary_type",
-                        "confrontant", "confrontant_cns", "confrontant_registration")
                 if not any(
                     saved.get("height_reference_confirmed") is True
                     and (saved.get("derived_calculation") or {}).get("accuracy_verified") is True
-                    and all(saved.get(k) == vertex.get(k) for k in keys)
+                    and same_vertex(saved, vertex)
                     for saved in (approved_ps1_vertices or [])
                 ):
                     raise ValueError("PS1 sem aprovação técnica persistida ou com dados alterados; ODS bloqueada.")
