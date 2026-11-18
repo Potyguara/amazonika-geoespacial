@@ -566,7 +566,7 @@ export function PecasTecnicasWorkspace({
       const body=await res.json();
       if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Falha no processamento PB1.");
       setPb1Partial(body);
-      if(finish)adoptPb1WorkingParcel(true,body);
+      if(finish)await adoptPb1WorkingParcel(true,body);
       else setPb1Notice("Resultados preliminares calculados. Campos sem fundamento permanecem pendentes.");
     }catch(e){setPb1Notice(e instanceof Error?e.message:"Falha no processamento.");}
     finally{setPb1Busy(false);}
@@ -1513,7 +1513,7 @@ export function PecasTecnicasWorkspace({
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
     try {
-      if(pb1Draft.length){if(pb1Closure.valid){adoptPb1WorkingParcel(true);return;}throw new Error("Existe um traçado PB1. Conclua-o antes de substituir a parcela.");}
+      if(pb1Draft.length){if(pb1Closure.valid){await processPb1Partial(true);return;}throw new Error("Existe um traçado PB1. Conclua-o antes de substituir a parcela.");}
       if(ps4Draft.length){if(ps4Ready){adoptPs4WorkingParcel();return;}throw new Error("Existe um traçado PS4. Conclua-o antes de substituir a parcela.");}
       const parcels = groupTopconParcels(topconBoundary,data.title);
       if (!parcels.length) throw new Error("Nenhuma parcela TOPCON válida foi formada. Confira os marcos de limite, sua ordem e a identificação de parcela.");
@@ -1630,7 +1630,7 @@ export function PecasTecnicasWorkspace({
     }catch(e){setActionError(e instanceof Error?e.message:"Falha no relatório PB1.");}
     finally{setActionBusy(false);}
   };
-  const adoptPb1WorkingParcel=(finish=false,processed:typeof pb1Partial=pb1Partial)=>{
+  const adoptPb1WorkingParcel=async(finish=false,processed:typeof pb1Partial=pb1Partial)=>{
     setTopconError("");setWorkflowNotice("");
     try{
       if(!(finish?pb1Closure.valid:pb1Ready)||!pb1Closure.geometry||!pb1Dtm)
@@ -1681,14 +1681,15 @@ export function PecasTecnicasWorkspace({
       if(vertices.length!==pb1Closure.names.length||
          vertices.some((v,i)=>v.name!==pb1Closure.names[i]))
         throw new Error("Sequência diferente da poligonal confirmada. Refazer fechamento PB1.");
-      if(finish){setPb1ConfirmedSignature(pb1Signature);setPb1ClosureConfirmed(true);}
       onAdoptTopconParcels([{number:initial.parcel_number,
         name:initial.parcel_name||data.title||"Parcela preliminar",vertices}]);
+      await onSavePiece("",{...draftForSave(),pb1_closure:{start:pb1Start,confirmed:true,signature:pb1Signature},stage:0,premium_step:4});
+      if(finish){setPb1ConfirmedSignature(pb1Signature);setPb1ClosureConfirmed(true);}
       onDataChange("plantHeading","PLANTA PRELIMINAR PB1 — NÃO CERTIFICADA");
       onDataChange("memorialHeading","MEMORIAL PRELIMINAR PB1 — NÃO CERTIFICADO");
       setEditableMemorial("");setMemorialSaved(false);setMemorialDirty(false);
       setPdfBlob(null);setPdfUrl(null);lastPdfKey.current="";
-      setPa2Mode(false);setStage(0);setPremiumStep(3);
+      setPa2Mode(false);setStage(0);setPremiumStep(4);
       setSavedPieceNotice("Parcela PB1 preliminar aplicada com "+newVertices.length+" vértices V.");
     }catch(error){
       setTopconError(error instanceof Error?error.message:"Não foi possível aplicar PB1.");
@@ -2233,13 +2234,7 @@ export function PecasTecnicasWorkspace({
                   disabled={!topconPreview||topconBoundary.length<2||actionBusy}
                   onClick={openAdditionalVertices}>Abrir espaço de trabalho de vértices</button>}
                 {pb1Draft.length>0&&<button type="button" className="pecas-secondary" disabled={actionBusy} onClick={()=>void downloadPb1Report()}>Baixar relatório técnico PB1 (PDF)</button>}
-                {pb1Ready&&<div className="geo97-adopt-banner" role="status">
-                  <strong>PB1: traçado fechado com {pb1Draft.length} vértices V preliminares.</strong>
-                  <p>É possível aplicar à planta preliminar; exatidão da base e altitude elipsoidal ainda pendentes.</p>
-                  <button type="button" className="pecas-primary" onClick={()=>adoptPb1WorkingParcel()}>
-                    Aplicar geometria PB1 à parcela preliminar
-                  </button>
-                </div>}
+                {pb1Ready&&<p className="geo96-next-step">PB1: traçado preliminar com {pb1Draft.length} vértices V. Confira a parcela na próxima etapa.</p>}
                 {ps4Ready&&<div className="geo97-adopt-banner" role="status">
                   <strong>Poligonal fechada com {ps4Closure.names.length} vértices.</strong>
                   <p>A prévia e o PDF de cinco marcos são diferentes até aplicar
@@ -3328,11 +3323,11 @@ export function PecasTecnicasWorkspace({
               <strong>Espaço de trabalho — Construção de vértices</strong>
               <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais · PB1 Base oficial</p>
             </div>
-            {constructionMethod==="PS1"?<button type="button" className="pecas-primary" disabled={ps1Busy} onClick={()=>void finalizePs1()}>{ps1Busy?"Processando...":"Concluir, validar e salvar"}</button>:<button type="button" className="pecas-secondary"
+            {constructionMethod==="PS1"?<button type="button" className="pecas-primary" disabled={ps1Busy} onClick={()=>void finalizePs1()}>{ps1Busy?"Processando...":"Concluir, validar e salvar"}</button>:constructionMethod==="PB1"?null:<button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => {
-                if ((constructionMethod === "PS4" && !ps4Ready) || (constructionMethod === "PB1" && !pb1Ready)) {
-                  setPs4Status({kind:"error",message:(constructionMethod === "PB1" ? pb1Closure : ps4Closure).valid
+                if (constructionMethod === "PS4" && !ps4Ready) {
+                  setPs4Status({kind:"error",message:ps4Closure.valid
                     ? "Ainda falta confirmar o segmento e o fechamento da prévia (etapa 2)."
                     : "Não é possível concluir: " + (constructionMethod === "PB1" ? pb1Closure : ps4Closure).message +
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
@@ -3345,13 +3340,11 @@ export function PecasTecnicasWorkspace({
                   setPs4Status({kind:"info",message:"Salvando peça e traçado no servidor..."});
                   await onSavePiece(editableMemorial.trim() ? editableMemorial : "", draftForSave());
                   setPa2Mode(false);setStage(0);setPremiumStep(3);
-                  setSavedPieceNotice(constructionMethod === "PB1"
-                    ? "Traçado PB1 preliminar salvo — precisão e datum vertical pendentes"
-                    : constructionMethod === "PS4"
+                  setSavedPieceNotice(constructionMethod === "PS4"
                     ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
                     : "Construção salva e prévia atualizada");
                 });
-              }}>{actionBusy ? "Salvando..." : (constructionMethod === "PS4" || constructionMethod === "PB1")
+              }}>{actionBusy ? "Salvando..." : constructionMethod === "PS4"
                 ? "Concluir traçado PRELIMINAR e voltar à peça"
                 : "Concluir, salvar e voltar à peça"}</button>}
             {(constructionMethod === "PS4" || constructionMethod === "PB1") && <button type="button" className="pecas-secondary"
