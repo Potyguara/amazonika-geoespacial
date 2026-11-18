@@ -884,7 +884,7 @@ export function PecasTecnicasWorkspace({
             name: point.name,
             latitude: point.latitude,
             longitude: point.longitude,
-            ellipsoidal_height_m: point.ellipsoidal_height_m,
+            ellipsoidal_height_m: point.ellipsoidal_height_m??topconPreview?.points.find(p=>p.name===point.name)?.ellipsoidal_height_reported_m??null,
             height_reference_confirmed: Boolean(verticalConfirmed[point.name] || point.height_reference_confirmed),
             conversion_factor_m: verticalFactors[point.name] ?? "",
             factor_uncertainty_m: verticalFactorUncertainty[point.name] ?? null,
@@ -898,7 +898,7 @@ export function PecasTecnicasWorkspace({
       if (result?.status !== "READY") throw new Error(
         (result?.errors ?? []).join("; ") || "Dados altimétricos incompletos.");
       setVerticalCalculated(result.points);
-      setTopconBoundary(old=>old.map(p=>{const v=result.points.find((x:{name:string})=>x.name===p.name);return v?{...p,height_reference_confirmed:true,derived_physical_altitude_m:v.normal_height_m??v.orthometric_height_m??null,derived_physical_model:v.normal_height_m!=null?"HN" as const:v.orthometric_height_m!=null?"H" as const:null}:p;}));
+      setTopconBoundary(old=>old.map(p=>{const v=result.points.find((x:{name:string})=>x.name===p.name);return v?{...p,ellipsoidal_height_m:v.ellipsoidal_height_m??p.ellipsoidal_height_m??topconPreview?.points.find(x=>x.name===p.name)?.ellipsoidal_height_reported_m??null,height_reference_confirmed:true,derived_physical_altitude_m:v.normal_height_m??v.orthometric_height_m??null,derived_physical_model:v.normal_height_m!=null?"HN" as const:v.orthometric_height_m!=null?"H" as const:null}:p;}));
     } catch (error) {
       setVerticalError(error instanceof Error ? error.message : "Falha na conversão.");
     } finally {
@@ -1710,7 +1710,10 @@ export function PecasTecnicasWorkspace({
       });
       const originalMarcos=topconBoundary.map(p=>{
         const vertical=verticalCalculated?.find(r=>r.name===p.name);
-        return {...p,derived_physical_altitude_m:vertical?.normal_height_m??p.derived_physical_altitude_m??null,
+        const original=topconPreview?.points.find(x=>x.name===p.name);
+        const h=p.ellipsoidal_height_m??original?.ellipsoidal_height_reported_m??null;
+        return {...p,ellipsoidal_height_m:h,height_reference_confirmed:Boolean(p.height_reference_confirmed||verticalConfirmed[p.name]||(vertical&&h!==null)),
+          derived_physical_altitude_m:vertical?.normal_height_m??p.derived_physical_altitude_m??null,
           derived_physical_model:vertical?.normal_height_m!=null?"HN" as const:p.derived_physical_model};
       });
       const vertices=[...originalMarcos.slice(0,pb1StartIndex+1),...newVertices,
