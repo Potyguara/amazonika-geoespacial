@@ -18,7 +18,7 @@ from reportlab.pdfgen import canvas
 from shapely.geometry import Polygon, shape
 
 from app.services.plant_memorial import _logo_path, load_document_template
-from app.services.sgl_metrics import sgl_metrics
+from app.services.sgl_metrics import sgl_metrics, puissant_azimuth
 
 DISCLAIMER = (
     "Documento cartografico preliminar: os vertices devem ser avaliados conforme "
@@ -45,6 +45,7 @@ class Parcel:
     normal_altitudes: list[float | None] = field(default_factory=list)
     mdt_altitudes: list[float | None] = field(default_factory=list)
     metrics_method: str = 'GEODESIC_PRELIMINARY'
+    azimuth_method: str = "PUISSANT"
 
 
 def prepare_parcels(raw: list[dict]) -> list[Parcel]:
@@ -88,9 +89,14 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
         if all(h is not None and math.isfinite(float(h)) for h in altitudes):
             sgl = sgl_metrics(points, [float(h) for h in altitudes])
         segments = []
+        azimuth_method = "PUISSANT"
         for i, (lon, lat) in enumerate(points):
             next_lon, next_lat = points[(i + 1) % len(points)]
             azimuth, _, distance = geod.inv(lon, lat, next_lon, next_lat)
+            if 0 < distance <= 80000:
+                azimuth = puissant_azimuth(lon, lat, next_lon, next_lat)
+            else:
+                azimuth_method = "GEODESIC_FALLBACK"
             segments.append({
                 "start": names[i],
                 "end": names[(i + 1) % len(points)],
@@ -106,6 +112,7 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
             points=points, names=names, area_ha=sgl['area_ha'] if sgl else abs(area) / 10000,
             perimeter=sgl['perimeter_m'] if sgl else perimeter, segments=segments,
             metrics_method='SGL_GRS80' if sgl else 'GEODESIC_PRELIMINARY',
+            azimuth_method=azimuth_method,
             confrontants=[str(item or "").strip()[:250] for item in confrontants],
             altitudes=[float(item) if item is not None else None for item in altitudes],
             normal_altitudes=[float(item) if item is not None else None for item in normal_altitudes],
@@ -242,7 +249,8 @@ def build_joint_memorial(
         lines.append("")
     if croqui:
         lines.append(
-            ("Coordenadas referenciadas ao SIRGAS 2000; área em SGL e distâncias horizontais conforme MTGIR, azimutes geodésicos GRS80 (Puissant ainda não verificado). " if all(p.metrics_method == "SGL_GRS80" for p in parcels) else "Coordenadas referenciadas ao SIRGAS 2000; medidas geodésicas preliminares GRS80 nas parcelas sem h completa. ") + 
+            ("Coordenadas referenciadas ao SIRGAS 2000; área em SGL e distâncias horizontais conforme MTGIR, " if all(p.metrics_method == "SGL_GRS80" for p in parcels) else "Coordenadas referenciadas ao SIRGAS 2000; medidas geodésicas preliminares GRS80 nas parcelas sem h completa. ") +
+            ("Azimutes pelo formulário de Puissant. " if all(p.azimuth_method=="PUISSANT" for p in parcels) else "Azimutes geodésicos GRS80; há segmentos fora do domínio de Puissant. ") + 
             "A precisão depende da fonte da geometria; a emissão não corresponde "
             "a certificação fundiária."
         )
