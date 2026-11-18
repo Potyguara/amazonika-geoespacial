@@ -32,7 +32,21 @@ def partial_vertex(point,z,params,factor,source):
         elif kind=="NORMAL" and model=="HGEOHNOR2020" and factor_ok and "santana" in datum:
             h=z+factor[0];status="DECLARED_REFERENCE"
             if params["source_sigma_m"] is not None: sigma=hypot(params["source_sigma_m"],factor[1])
-    return {"vertex_id":point["name"],"latitude":point["latitude"],"longitude":point["longitude"],
+    pending=[]
+    if h is None:
+        if z is None: pending.append("Cota MDT indisponível.")
+        if not documented: pending.append("Informe o documento que comprova o referencial vertical do MDT.")
+        if kind not in ("NORMAL","ELLIPSOIDAL"): pending.append("Tipo de altitude original não identificado ou não suportado na conversão parcial.")
+        elif kind=="NORMAL":
+            if model!="HGEOHNOR2020": pending.append("Modelo original não confirmado como hgeoHNOR2020.")
+            if "santana" not in datum: pending.append("Datum vertical compatível com Santana não confirmado.")
+            if not factor_ok: pending.append("Fator IBGE válido e compatível ausente para este vértice.")
+        elif model!="NONE" or not ("sirgas" in datum or "grs80" in datum):
+            pending.append("Referencial elipsoidal SIRGAS 2000/GRS80 não confirmado.")
+    if params["sigma_origin"]!="DECLARED" or params["sigma_e_m"] is None or params["sigma_n_m"] is None:
+        pending.append("Precisão planimétrica individual por eixo ainda não fundamentada.")
+    if sigma is None: pending.append("Sigma h pendente: confira a precisão vertical da fonte e a conversão.")
+    return {"pending_reasons":pending,"vertex_id":point["name"],"latitude":point["latitude"],"longitude":point["longitude"],
             "source_value_m":z,"source_vertical_kind":kind,"source_vertical_datum":source.get("vertical_datum"),
             "h_ellipsoidal_m":h,"sigma_h_m":sigma,"sigma_e_m":params["sigma_e_m"],"sigma_n_m":params["sigma_n_m"],
             "conversion_factor_m":factor[0] if factor_ok else None,"factor_sigma_m":factor[1] if factor_ok else None,
