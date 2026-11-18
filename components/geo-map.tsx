@@ -326,6 +326,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     // qualquer vínculo com peça ou TOPCON anteriormente restaurados.
     sourceRef.current.clear();
     vertexLabelSourceRef.current.clear();
+    ++metricsRevision.current;
     setPolygons([]);
     setSelectedPolygonIds([]);
     setImportedMetadata(null);
@@ -417,6 +418,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   useEffect(() => {
     if (!resetNonce) return;
     sourceRef.current.clear();
+    ++metricsRevision.current;
     setPolygons([]);
     setSelectedPolygonIds([]);
     vertexLabelSourceRef.current.clear();
@@ -508,7 +510,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const polygonFeatures = (): Feature[] =>
     sourceRef.current.getFeatures().filter((feature) => feature.getGeometry() instanceof Polygon) as Feature[];
 
+  const metricsRevision = useRef(0);
   const syncPolygonRegistry = () => {
+    const revision = ++metricsRevision.current;
     const current = polygonFeatures();
     const registry = current.map((feature) => {
       const geometry = feature.getGeometry() as Polygon;
@@ -549,6 +553,27 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       };
     });
     setPolygons(registry);
+    if(registry.length){
+      const inputs=current.map(feature=>({
+        geometry:new GeoJSON().writeGeometryObject(feature.getGeometry()!,{
+          featureProjection:"EPSG:3857",dataProjection:"EPSG:4326",decimals:9}),
+        vertex_names:feature.get("vertexNames"),
+        altitudes_m:((feature.get("altitudes") as string[]|undefined)??[]).map(v=>v?.trim()?Number(v.replace(",",".")):null)
+      }));
+      void fetch(getApiUrl()+"/technical-pieces/parcel-metrics",{
+        method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({parcels:inputs})
+      }).then(async response=>{
+        if(!response.ok)throw Error("Cálculo técnico indisponível.");
+        const body=await response.json();
+        if(revision!==metricsRevision.current||body.parcels?.length!==registry.length)return;
+        setPolygons(old=>old.map(p=>{
+          const index=registry.findIndex(r=>r.id===p.id);
+          const result=body.parcels[index];
+          return result?{...p,areaHa:result.area_ha,perimeterM:result.perimeter_m}:p;
+        }));
+      }).catch(()=>{if(revision===metricsRevision.current)setDocumentError("Medidas esféricas preliminares: cálculo técnico do servidor indisponível.");});
+    }
     setSelectedPolygonIds((old) => {
       const retained = old.filter((id) => registry.some((item) => item.id === id));
       if (retained.length) return retained;
@@ -2334,6 +2359,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
   const clear = () => {
     sourceRef.current.clear();
+    ++metricsRevision.current;
     setPolygons([]);
     setSelectedPolygonIds([]);
     vertexLabelSourceRef.current.clear();
