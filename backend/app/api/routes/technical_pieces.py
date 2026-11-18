@@ -1578,3 +1578,25 @@ def finalize_ps1(piece_id: UUID, payload: PS1FinalizeInput, request: Request,
                 user_agent=request.headers.get("user-agent"))
     db.commit()
     return result
+
+
+@router.get("/{piece_id}/ps1/raster/tiles/{digest}/{z}/{x}/{y}.png")
+def ps1_raster_tile(piece_id: UUID, digest: str, z: int, x: int, y: int,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    piece = _owned(piece_id, db, user)
+    asset = (((piece.snapshot or {}).get("ps1") or {}).get("assets") or {}).get("ps1_ortho")
+    if not isinstance(asset, dict) or asset.get("sha256") != digest:
+        raise HTTPException(404, "Ortomosaico PS1 não vinculado à peça.")
+    try:
+        mercator_tile_bounds(z, x, y)
+        path = stored_file_path(user.id, piece.id, "ps1_ortho", digest)
+        if not path.is_file():
+            raise HTTPException(404, "Ortomosaico não encontrado.")
+        png = (render_png_tile(path, z, x, y, mode="pb1_color")
+               if tile_intersects_footprint(asset.get("metadata") or {}, z, x, y)
+               else transparent_png_tile())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
