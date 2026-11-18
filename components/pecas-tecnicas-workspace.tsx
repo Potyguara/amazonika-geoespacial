@@ -540,7 +540,8 @@ export function PecasTecnicasWorkspace({
       ]]}
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
-  const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;latitude:number;longitude:number;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null}>;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
+  const [pb1AppliedSignature,setPb1AppliedSignature]=useState("");
+  const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;latitude:number;longitude:number;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null;pending_reasons?:string[];conversion_factor_m?:number|null}>;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
   useEffect(()=>{
     let active=true;setPb1Partial(null);
     if(loadedPieceId)fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/pb1/process-partial",{credentials:"include",cache:"no-store"}).then(r=>r.ok?r.json():null).then(body=>{if(active&&body?.preview){setPb1Partial(body.preview);
@@ -550,7 +551,7 @@ export function PecasTecnicasWorkspace({
     return ()=>{active=false;};
   },[loadedPieceId]);
   const processPb1Partial=async(finish=false)=>{
-    setPb1Busy(true);setPb1Notice("");
+    setPb1Busy(true);setPb1Notice("");setPb1AppliedSignature("");
     try{
       if(!pb1Dtm||!pb1Draft.length)throw new Error("Vincule o MDT numérico e digitalize os vértices.");
       if(finish&&!pb1Closure.valid)throw new Error(pb1Closure.message);
@@ -1728,16 +1729,17 @@ export function PecasTecnicasWorkspace({
           const northern=vertices.reduce((best,v,i)=>Number(v.latitude)>Number(vertices[best].latitude)||(Number(v.latitude)===Number(vertices[best].latitude)&&Number(v.longitude)<Number(vertices[best].longitude))?i:best,0);
           return [...vertices.slice(northern),...vertices.slice(0,northern)];
         })()}]);
-      await onSavePiece("",{...draftForSave(),pb1_closure:{start:pb1Start,confirmed:true,signature:pb1Signature},stage:0,premium_step:4});
+      await onSavePiece("",{...draftForSave(),pb1_closure:{start:pb1Start,confirmed:true,signature:pb1Signature},stage:0,premium_step:3});
       if(finish){setPb1ConfirmedSignature(pb1Signature);setPb1ClosureConfirmed(true);}
       onDataChange("plantHeading","PLANTA PRELIMINAR PB1 — NÃO CERTIFICADA");
       onDataChange("memorialHeading","MEMORIAL PRELIMINAR PB1 — NÃO CERTIFICADO");
       setEditableMemorial("");setMemorialSaved(false);setMemorialDirty(false);
       setPdfBlob(null);setPdfUrl(null);lastPdfKey.current="";
-      setPa2Mode(false);setStage(0);setPremiumStep(4);
-      setSavedPieceNotice("Parcela PB1 preliminar aplicada com "+newVertices.length+" vértices V.");
+      setPb1AppliedSignature(pb1Signature);
+      setPb1Notice("Parcela salva com "+newVertices.length+" vértices V. Confira abaixo os resultados e as pendências antes de avançar.");
     }catch(error){
       setTopconError(error instanceof Error?error.message:"Não foi possível aplicar PB1.");
+      setPb1Notice(error instanceof Error?error.message:"Não foi possível aplicar PB1.");
     }
   };
   const importPs4AccuracyControls = async (file:File) => {
@@ -3698,13 +3700,15 @@ export function PecasTecnicasWorkspace({
                               <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
                               <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
                               
-                              {pb1Partial&&<div className="pecas-note">
-                                <strong>{pb1Partial.points.length} vértices processados · resultados preliminares</strong>{pb1Partial.points.some(p=>p.h_ellipsoidal_m===null)&&<p className="pecas-warning">h pendente: confira o tipo de altitude original, o datum, o modelo e a referência documental do MDT. Para HN, importe também o retorno IBGE compatível.</p>}
+                              {pb1Partial&&<div className="pecas-note" role="status" aria-live="polite">
+                                <strong>{pb1AppliedSignature===pb1Signature?"Parcela aplicada e salva · ":""}{pb1Partial.points.length} vértices processados</strong><p>Alturas h calculadas: {pb1Partial.points.filter(p=>p.h_ellipsoidal_m!=null).length}/{pb1Partial.points.length} · Fatores IBGE disponíveis: {pb1Partial.points.filter(p=>p.conversion_factor_m!=null).length}/{pb1Partial.points.length} · Precisão completa declarada: {pb1Partial.sigma_origin==="DECLARED"?pb1Partial.points.filter(p=>p.sigma_e_m!=null&&p.sigma_n_m!=null&&p.sigma_h_m!=null).length:0}/{pb1Partial.points.length}</p>{pb1Partial.points.some(p=>p.h_ellipsoidal_m===null)&&<p className="pecas-warning">h pendente: confira o tipo de altitude original, o datum, o modelo e a referência documental do MDT. Para HN, importe também o retorno IBGE compatível.</p>}
                                 <p>Precisão horizontal: {pb1Partial.horizontal_sigma_m?.toFixed(3)??"Pendente"} m · {pb1Partial.sigma_origin==="PEC_REFERENCE_ISOTROPIC_ESTIMATE"?"Estimativa de referência PEC (isotropia presumida)":pb1Partial.sigma_origin==="DECLARED"?"Parâmetros declarados":"Sem parâmetros disponíveis"}</p>
-                                <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Vértice</th><th>MDT</th><th>h</th><th>σE</th><th>σN</th><th>σh</th></tr></thead><tbody>{pb1Partial.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td>{[p.source_value_m,p.h_ellipsoidal_m,p.sigma_e_m,p.sigma_n_m,p.sigma_h_m].map((v,i)=><td key={i}>{v?.toFixed(3)??"—"}</td>)}</tr>)}</tbody></table></div>
+                                <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Vértice</th><th>MDT</th><th>h</th><th>σE</th><th>σN</th><th>σh</th><th>Pendências</th></tr></thead><tbody>{pb1Partial.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td>{[p.source_value_m,p.h_ellipsoidal_m,p.sigma_e_m,p.sigma_n_m,p.sigma_h_m].map((v,i)=><td key={i}>{v?.toFixed(3)??"—"}</td>)}<td style={{whiteSpace:"normal",minWidth:180}}>{p.pending_reasons?.join(" ")||"Revisão técnica do RT"}</td></tr>)}</tbody></table></div>
                               </div>}
                               <button type="button" className="pecas-primary" disabled={!pb1Closure.valid||!pb1Dtm||actionBusy||pb1Busy}
-                                onClick={()=>void processPb1Partial(true)}>{pb1Busy?"Processando…":"Concluir construção e aplicar à parcela"}</button>
+                                onClick={()=>void processPb1Partial(true)}>{pb1Busy?"Processando…":pb1AppliedSignature===pb1Signature?"Reprocessar e atualizar parcela":"Concluir construção e aplicar à parcela"}</button>
+                              {pb1AppliedSignature===pb1Signature&&<button type="button" className="pecas-secondary" disabled={pb1Busy} onClick={()=>{setPa2Mode(false);setStage(0);setPremiumStep(4);}}>Avançar para conferência espacial (prévia)</button>}
+                              {pb1Notice&&<p role="status" style={{whiteSpace:"normal"}}>{pb1Notice}</p>
                               <p className="pecas-note">Pendências de precisão e altimetria não impedem a peça preliminar; a ODS definitiva permanece bloqueada.</p>
                             </div>
                           </details>
