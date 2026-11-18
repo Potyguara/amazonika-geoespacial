@@ -1554,7 +1554,24 @@ export function PecasTecnicasWorkspace({
   };
   const importTopcon = async (file: File) => {
     setTopconError("");
-    setTopconPreview(null);
+    setSigmaImportFeedback("");
+    setFloatingFeedback(null);
+    setActionFeedback("");
+    setActionError("");
+    setSavedPieceNotice("");
+    setTopconLoading(true);
+    try {
+      const payload = new FormData();
+      payload.append("file", file);
+      const response = await fetch(`${getApiUrl()}/technical-pieces/import-topcon`, {
+        method: "POST", credentials: "include", body: payload,
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(typeof result?.detail === "string"
+          ? result.detail : "Relatório TOPCON não pôde ser interpretado.");
+      }
+      const preview = result as TopconPreview;
     setPa2Mode(false); setConstructionSkipped(false);setConstructionRequested(false);
     setPa2Result(null); setPa2Witnesses([]); setMapHint(null);
     setPa2InsertAfter(""); setPa2ConfirmedCrs(false);
@@ -1578,19 +1595,12 @@ export function PecasTecnicasWorkspace({
     setVerticalCalculated(null);
     setSigefParcelReview(null);
     setSigefValidatedSignature("");
-    setTopconLoading(true);
-    try {
-      const payload = new FormData();
-      payload.append("file", file);
-      const response = await fetch(`${getApiUrl()}/technical-pieces/import-topcon`, {
-        method: "POST", credentials: "include", body: payload,
-      });
-      const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(typeof result?.detail === "string"
-          ? result.detail : "Relatório TOPCON não pôde ser interpretado.");
-      }
-      setTopconPreview(result as TopconPreview);
+      setPs1Points([]);
+      setPs1Notice("");
+      setTopconPreview(preview);
+      const candidates=preview.points.filter(p=>p.point_role!=="CONTROL");
+      const complete=candidates.filter(p=>[p.sigma_n_m,p.sigma_e_m,p.sigma_u_m].every(v=>typeof v==="number"&&Number.isFinite(v)&&v>0)).length;
+      setWorkflowNotice(`${preview.point_count} pontos importados · ${complete}/${candidates.length} pontos GNSS com os três sigmas individuais. Selecione os vértices do divisor na próxima etapa.`);
     } catch (error) {
       setTopconError(error instanceof Error ? error.message : "Falha ao ler relatório TOPCON.");
     } finally {
@@ -2057,7 +2067,7 @@ export function PecasTecnicasWorkspace({
           color: actionError ? "#942d19" : "#12513b", fontWeight: 600 }}>
         {actionError || actionFeedback}
         <button type="button" aria-label="Dispensar mensagem" onClick={() => {
-          setActionFeedback(""); setActionError("");
+          setActionFeedback(""); setActionError(""); setSigmaImportFeedback("");
         }} style={{ marginLeft: 12 }}>Fechar</button>
       </div>}
       <main className="pecas-main" id="geo96-main">
@@ -2101,8 +2111,12 @@ export function PecasTecnicasWorkspace({
                 {topconError&&<p role="alert" className="pecas-warning">{topconError}</p>}
                 {topconPreview&&<div className="geo96-next-step" role="status">
                   {topconPreview.point_count} pontos identificados no arquivo {topconPreview.filename}.
-                  {topconBoundary.length} marcos de limite selecionados.
+                  {" "}{topconBoundary.length} marcos de limite selecionados.
                 </div>}
+                {topconPreview&&<div className="pecas-table-wrap"><table className="pecas-table">
+                  <thead><tr><th>Ponto</th><th>Função</th><th>h reportada (m)</th><th>σ Latitude (m)</th><th>σ Longitude (m)</th><th>σ h (m)</th></tr></thead>
+                  <tbody>{topconPreview.points.map(p=><tr key={p.name}><td>{p.name}</td><td>{p.point_role==="CONTROL"?"Controle":"A classificar"}</td>{[p.ellipsoidal_height_reported_m,p.sigma_n_m,p.sigma_e_m,p.sigma_u_m].map((v,i)=><td key={i}>{typeof v==="number"&&Number.isFinite(v)?v.toLocaleString("pt-BR",{minimumFractionDigits:3,maximumFractionDigits:3}):"—"}</td>)}</tr>)}</tbody>
+                </table><p className="pecas-note">Valores originais reportados. A base não integra automaticamente o perímetro. Confirme datum e época antes da exportação.</p></div>}
               </>}
               {premiumStep===1 && <>
                 <h4>Vértices GNSS que compõem o imóvel</h4>
