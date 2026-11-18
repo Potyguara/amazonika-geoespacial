@@ -3322,7 +3322,7 @@ export function PecasTecnicasWorkspace({
                     ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
                     : "Construção salva e prévia atualizada");
                 });
-              }}>{actionBusy ? "Salvando..." : (constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1")
+              }}>{actionBusy ? "Salvando..." : (constructionMethod === "PS4" || constructionMethod === "PB1")
                 ? "Concluir traçado PRELIMINAR e voltar à peça"
                 : "Concluir, salvar e voltar à peça"}</button>}
             {(constructionMethod === "PS4" || constructionMethod === "PB1") && <button type="button" className="pecas-secondary"
