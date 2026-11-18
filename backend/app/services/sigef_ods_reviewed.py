@@ -101,10 +101,6 @@ def _write_perimeter(sheet, parcel: dict) -> None:
         if len(cells) < 12:
             raise ValueError("Modelo SIGEF exige 12 colunas por vértice.")
         name = _required_text(vertex.get("sigef_vertex_code"), "código do vértice")
-        if vertex.get("sigef_method") == "PB1":
-            raise ValueError(
-                f"{name}: exportação PB1 definitiva ainda exige validação persistida pelo servidor e aprovação RT."
-            )
         if vertex.get("sigef_method") == "PS4":
             calculation = vertex.get("derived_calculation") or {}
             if calculation.get("accuracy_verified") is not True:
@@ -142,7 +138,7 @@ def _write_perimeter(sheet, parcel: dict) -> None:
         sheet.insert(template_index + index, row)
 
 
-def build_reviewed_sigef_ods(payload: dict, *, approved_ps1_vertices: list[dict] | None = None) -> bytes:
+def build_reviewed_sigef_ods(payload: dict, *, approved_ps1_vertices: list[dict] | None = None, approved_pb1_vertices: list[dict] | None = None) -> bytes:
     """Exportação estruturada, sem validar certificação nem obter dados faltantes."""
     identity = payload.get("identification") or {}
     parcels = payload.get("parcels") or []
@@ -156,6 +152,14 @@ def build_reviewed_sigef_ods(payload: dict, *, approved_ps1_vertices: list[dict]
             raise ValueError(f"Parcela {index}: dados inválidos.")
         vertices = parcel.get("vertices") or []
         for vertex in vertices:
+            if vertex.get("sigef_method") == "PB1":
+                if not any(
+                    saved.get("height_reference_confirmed") is True
+                    and (saved.get("derived_calculation") or {}).get("accuracy_verified") is True
+                    and same_vertex(saved, vertex)
+                    for saved in (approved_pb1_vertices or [])
+                ):
+                    raise ValueError("PB1 sem aprovação técnica persistida ou com dados alterados; ODS bloqueada.")
             if vertex.get("sigef_method") == "PS1":
                 # Only the authenticated route may supply server-persisted approvals.
                 # Never accept an approval flag sent in a parcel payload.
