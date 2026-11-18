@@ -815,9 +815,13 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     const features = new GeoJSON().writeFeaturesObject(polygonFeatures(), {
       featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
     });
+    const ps1Consolidated = topconDraft.boundary.some(p => p.sigef_method === "PS1" && p.derived_calculation?.accuracy_verified === true);
+    const approvedSelection = ps1Consolidated
+      ? [...new Set(topconDraft.boundary.map(p => "TOPCON-PARCEL-" + p.parcel_number.replace(/[^a-zA-Z0-9_-]/g, "")))]
+      : selectedPolygonIds;
     const snapshot = {
       features,
-      selected_ids: selectedPolygonIds,
+      selected_ids: approvedSelection,
       imported_sigef_metadata: importedMetadata,
       legal_metadata: legalMetadata,
       data: {
