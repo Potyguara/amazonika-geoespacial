@@ -134,6 +134,19 @@ class ReviewedSigefOdsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "PS1 sem aprovação"):
             build_reviewed_sigef_ods(case, approved_ps1_vertices=[v])
 
+    def test_pb1_requires_server_approval_and_exact_values(self):
+        case, approved = self.ps1_case()
+        v = case["parcels"][0]["vertices"][1]
+        v["sigef_method"] = "PB1"
+        approved["sigef_method"] = "PB1"
+        with self.assertRaisesRegex(ValueError, "PB1 sem aprovação"):
+            build_reviewed_sigef_ods(case)
+        blob = build_reviewed_sigef_ods(case, approved_pb1_vertices=[approved])
+        self.assertIn("TEST-V-0001", parse_sigef_ods(blob)["features"][0]["properties"]["vertexNames"])
+        v["sigma_h_m"] = .31
+        with self.assertRaisesRegex(ValueError, "PB1 sem aprovação"):
+            build_reviewed_sigef_ods(case, approved_pb1_vertices=[approved])
+
     def test_blocks_internal_overlap(self):
         case = payload()
         case["parcels"][1]["vertices"] = [
