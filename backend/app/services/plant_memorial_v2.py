@@ -18,6 +18,7 @@ from reportlab.pdfgen import canvas
 from shapely.geometry import Polygon, shape
 
 from app.services.plant_memorial import _logo_path, load_document_template
+from app.services.sgl_metrics import sgl_metrics
 
 DISCLAIMER = (
     "Documento cartografico preliminar: os vertices devem ser avaliados conforme "
@@ -43,6 +44,7 @@ class Parcel:
     altitudes: list[float | None]
     normal_altitudes: list[float | None] = field(default_factory=list)
     mdt_altitudes: list[float | None] = field(default_factory=list)
+    metrics_method: str = 'GEODESIC_PRELIMINARY'
 
 
 def prepare_parcels(raw: list[dict]) -> list[Parcel]:
@@ -82,6 +84,9 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
         if (len(confrontants) != len(points) or len(altitudes) != len(points)
                 or len(normal_altitudes) != len(points)):
             raise ValueError(f"Área {index + 1}: confrontantes/altitudes não correspondem aos vértices.")
+        sgl = None
+        if all(h is not None and math.isfinite(float(h)) for h in altitudes):
+            sgl = sgl_metrics(points, [float(h) for h in altitudes])
         segments = []
         for i, (lon, lat) in enumerate(points):
             next_lon, next_lat = points[(i + 1) % len(points)]
@@ -90,7 +95,7 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
                 "start": names[i],
                 "end": names[(i + 1) % len(points)],
                 "azimuth": azimuth % 360,
-                "distance": distance,
+                "distance": sgl["distances_m"][i] if sgl else distance,
                 "lon": lon,
                 "lat": lat,
                 "next_lon": next_lon,
@@ -98,8 +103,9 @@ def prepare_parcels(raw: list[dict]) -> list[Parcel]:
             })
         output.append(Parcel(
             name=str(data.get("name") or f"Polígono {index + 1}").strip()[:120],
-            points=points, names=names, area_ha=abs(area) / 10000,
-            perimeter=perimeter, segments=segments,
+            points=points, names=names, area_ha=sgl['area_ha'] if sgl else abs(area) / 10000,
+            perimeter=sgl['perimeter_m'] if sgl else perimeter, segments=segments,
+            metrics_method='SGL_GRS80' if sgl else 'GEODESIC_PRELIMINARY',
             confrontants=[str(item or "").strip()[:250] for item in confrontants],
             altitudes=[float(item) if item is not None else None for item in altitudes],
             normal_altitudes=[float(item) if item is not None else None for item in normal_altitudes],
@@ -204,12 +210,12 @@ def build_joint_memorial(
                     story += " "
                 if confrontant:
                     story += (
-                        f"Linha ideal; deste, segue confrontando com {confrontant}, "
+                        f"deste, segue confrontando com {confrontant}, "
                         "com os seguintes azimutes e distâncias: "
                     )
                 else:
                     story += (
-                        "Linha ideal; deste, segue por trecho cujo confrontante não "
+                        "deste, segue por trecho cujo confrontante não "
                         "foi informado, com os seguintes azimutes e distâncias: "
                     )
             next_is_start = i == len(parcel.segments) - 1
@@ -236,8 +242,7 @@ def build_joint_memorial(
         lines.append("")
     if croqui:
         lines.append(
-            "Coordenadas referenciadas ao SIRGAS 2000; azimutes e distâncias "
-            "geodésicos calculados sobre o elipsóide GRS80. "
+            ("Coordenadas referenciadas ao SIRGAS 2000; área em SGL e distâncias horizontais conforme MTGIR, azimutes geodésicos GRS80 (Puissant ainda não verificado). " if all(p.metrics_method == "SGL_GRS80" for p in parcels) else "Coordenadas referenciadas ao SIRGAS 2000; medidas geodésicas preliminares GRS80 nas parcelas sem h completa. ") + 
             "A precisão depende da fonte da geometria; a emissão não corresponde "
             "a certificação fundiária."
         )
