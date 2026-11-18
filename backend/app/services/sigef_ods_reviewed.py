@@ -141,7 +141,7 @@ def _write_perimeter(sheet, parcel: dict) -> None:
         sheet.insert(template_index + index, row)
 
 
-def build_reviewed_sigef_ods(payload: dict) -> bytes:
+def build_reviewed_sigef_ods(payload: dict, *, approved_ps1_vertices: list[dict] | None = None) -> bytes:
     """Exportação estruturada, sem validar certificação nem obter dados faltantes."""
     identity = payload.get("identification") or {}
     parcels = payload.get("parcels") or []
@@ -155,6 +155,20 @@ def build_reviewed_sigef_ods(payload: dict) -> bytes:
             raise ValueError(f"Parcela {index}: dados inválidos.")
         vertices = parcel.get("vertices") or []
         for vertex in vertices:
+            if vertex.get("sigef_method") == "PS1":
+                # Only the authenticated route may supply server-persisted approvals.
+                # Never accept an approval flag sent in a parcel payload.
+                keys = ("sigef_vertex_code", "longitude", "latitude",
+                        "ellipsoidal_height_m", "sigma_lon_m", "sigma_lat_m",
+                        "sigma_h_m", "sigef_method", "boundary_type",
+                        "confrontant", "confrontant_cns", "confrontant_registration")
+                if not any(
+                    saved.get("height_reference_confirmed") is True
+                    and (saved.get("derived_calculation") or {}).get("accuracy_verified") is True
+                    and all(saved.get(k) == vertex.get(k) for k in keys)
+                    for saved in (approved_ps1_vertices or [])
+                ):
+                    raise ValueError("PS1 sem aprovação técnica persistida ou com dados alterados; ODS bloqueada.")
             if vertex.get("sigef_method") == "PS4" and (
                 (vertex.get("derived_calculation") or {}).get("accuracy_verified") is not True
             ):
