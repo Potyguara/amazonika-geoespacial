@@ -211,7 +211,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     pointLayerRef.current = map.getLayers().item(7) as VectorLayer<VectorSource>;
     mapRef.current = map;
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
-      if ((methodRef.current === "PS4" || (methodRef.current === "PB1" || methodRef.current === "PS1") || methodRef.current === "PS1") && ps4ClickRef.current) {
+      if ((methodRef.current === "PS4" || methodRef.current === "PB1" || methodRef.current === "PS1") && ps4ClickRef.current) {
         const [longitude, latitude] = toLonLat(event.coordinate);
         // Vetorização provisória pode usar o recorte próprio ou a cena INPE.
         // O PDF do RT continua obrigatório para aprovação, não para desenhar.
