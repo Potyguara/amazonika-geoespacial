@@ -816,7 +816,8 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
     });
     const ps1Consolidated = topconDraft.boundary.some(p => p.sigef_method === "PS1" && p.derived_calculation?.accuracy_verified === true);
-    const approvedSelection = ps1Consolidated
+    const pb1Consolidated = Boolean(topconDraft.pb1_closure?.confirmed && topconDraft.pb1_draft?.length);
+    const approvedSelection = ps1Consolidated || pb1Consolidated
       ? [...new Set(topconDraft.boundary.map(p => "TOPCON-PARCEL-" + p.parcel_number.replace(/[^a-zA-Z0-9_-]/g, "")))]
       : selectedPolygonIds;
     const snapshot = {
