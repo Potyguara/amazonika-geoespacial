@@ -197,7 +197,7 @@ export type TopconDraft = {
     name: string; latitude: number; longitude: number; scene_id: string; created_at: string;
   }>;
   construction?: {
-    method: "PA1" | "PA2" | "PT8" | "PS4" | "PB1";
+    method: "PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1";
     pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
     witnesses: string[];
     distance: string;
@@ -393,7 +393,20 @@ export function PecasTecnicasWorkspace({
   const [pa2Mode, setPa2Mode] = useState(false);
   const [constructionSkipped,setConstructionSkipped] = useState(false);
   const [constructionRequested,setConstructionRequested] = useState(false);
-  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4" | "PB1">("PS4");
+  const [constructionMethod, setConstructionMethod] = useState<"PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1">("PS4");
+  const [ps1Id,setPs1Id]=useState<string|null>(null);
+  const [ps1Assets,setPs1Assets]=useState<Record<string,{sha256:string;metadata?:{wgs84_extent?:{type:string;coordinates:number[][][]}}}>>({});
+  const [ps1Points,setPs1Points]=useState<Array<{name:string;longitude:number;latitude:number;factor?:number;factor_sigma?:number}>>([]);
+  const [ps1Form,setPs1Form]=useState({start:"",category:"ARTIFICIAL",vertical_kind:"ELLIPSOIDAL",vertical_reference:"",report_reference:"",gsd_m:"",pec_reference:"",checkpoints:"",reviewed:false});
+  const [ps1Busy,setPs1Busy]=useState(false);
+  const [ps1Notice,setPs1Notice]=useState("");
+  useEffect(()=>{
+    setPs1Id(loadedPieceId??null);setPs1Assets({});setPs1Points([]);
+    if(!loadedPieceId)return;
+    let active=true;
+    fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/ps1/assets",{credentials:"include"}).then(r=>r.ok?r.json():null).then(body=>{if(active&&body?.assets)setPs1Assets(body.assets);}).catch(()=>{});
+    return()=>{active=false;};
+  },[loadedPieceId]);
   const [ps4Draft, setPs4Draft] = useState<NonNullable<TopconDraft["ps4_draft"]>>([]);
   const [pb1IbgeOutput,setPb1IbgeOutput]=useState("");
   const [pb1IbgeFilename,setPb1IbgeFilename]=useState("");
@@ -1006,7 +1019,7 @@ export function PecasTecnicasWorkspace({
     setSigefValidatedSignature("");
     setPa2Mode(false);
     setConstructionMethod(d.construction?.method === "PT8" ? "PT8" :
-      d.construction?.method === "PB1" ? "PB1" : "PS4");
+      d.construction?.method === "PB1" ? "PB1" : d.construction?.method === "PS1" ? "PS1" : "PS4");
     setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
     setPa2Witnesses(d.construction?.witnesses ?? []);
     setConstructionDistance(d.construction?.distance ?? "");
@@ -1044,9 +1057,56 @@ export function PecasTecnicasWorkspace({
     },
   });
 
-  const hasAdditionalVertices = pb1Draft.length>0 || ps4Draft.length>0 ||
+  const uploadPs1=async(kind:string,file:File)=>{
+    setPs1Busy(true);setPs1Notice("");
+    try{
+      const id=ps1Id||await onSavePiece(editableMemorial.trim(),draftForSave());
+      setPs1Id(id);
+      const form=new FormData();form.append("file",file);
+      const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/ps1/files/"+kind,{method:"POST",credentials:"include",body:form});
+      const body=await res.json();
+      if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Falha no arquivo PS1.");
+      setPs1Assets(old=>({...old,[kind]:body.asset}));
+      if(kind==="ps1_ortho")setPs1Points([]);
+    }catch(e){setPs1Notice(e instanceof Error?e.message:"Falha no upload.");}
+    finally{setPs1Busy(false);}
+  };
+  const finalizePs1=async()=>{
+    setPs1Busy(true);setPs1Notice("");
+    try{
+      if(!ps1Id||!ps1Points.length||!ps1Form.start||!ps1Form.reviewed)throw new Error("Importe os arquivos, escolha o trecho, marque os V e confirme a revisão.");
+      const lines=ps1Form.checkpoints.trim().split(/\r?\n/).filter(Boolean);
+      if(lines.shift()?.trim().toUpperCase()!=="ID;DE;DN;DH")throw new Error("CSV esperado: ID;DE;DN;DH");
+      const checkpoints=lines.map(line=>{
+        const [id,...values]=line.split(";").map(x=>x.trim());
+        const nums=values.map(x=>x?Number(x.replace(",",".")):NaN);
+        if(!id||nums.length!==3||nums.some(x=>!Number.isFinite(x)))throw new Error("CSV de resíduos inválido.");
+        return {id,delta_e_m:nums[0],delta_n_m:nums[1],delta_h_m:nums[2],used_for_control:false};
+      });
+      await onSavePiece(editableMemorial.trim(),draftForSave());
+      const res=await fetch(getApiUrl()+"/technical-pieces/"+ps1Id+"/ps1/finalize",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        ...ps1Form,gsd_m:Number(ps1Form.gsd_m),checkpoints,vertices:ps1Points.map(p=>({...p,code:p.name})),
+        rt_reviewed:true,gsd_compatible:true,pec_compatible:true,independent_sample_representative:true,
+        report_matches_assets_and_residuals:true,datum_and_vertical_accuracy_checked:true,sirgas2000_and_boundaries_checked:true
+      })});
+      const body=await res.json();
+      if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:JSON.stringify(body.detail));
+      const merged:TopconBoundaryPoint[]=body.vertices.map((p:TopconBoundaryPoint)=>{
+        if(p.sigef_method!=="PS1")return p;
+        const utm=lonLatToSirgasUtm(p.longitude!,p.latitude!);
+        return {...p,easting_m:utm.easting_m,northing_m:utm.northing_m,
+          elevation_reported_m:null,sigma_e_m:p.sigma_lon_m,sigma_n_m:p.sigma_lat_m,sigma_u_m:p.sigma_h_m,
+          confrontant_cns:p.confrontant_cns??"",confrontant_registration:p.confrontant_registration??""};
+      });
+      setTopconBoundary(merged);onAdoptTopconParcels(groupTopconParcels(merged,data.title));
+      setPa2Mode(false);setStage(1);setPremiumStep(5);
+      setSavedPieceNotice("Vértices PS1 calculados e incorporados. Confira a parcela.");
+    }catch(e){setPs1Notice(e instanceof Error?e.message:"Falha na conclusão PS1.");}
+    finally{setPs1Busy(false);}
+  };
+  const hasAdditionalVertices = ps1Points.length>0 || pb1Draft.length>0 || ps4Draft.length>0 ||
     topconBoundary.some(p=>Boolean(p.derived_calculation)) ||
-    polygons.some(p=>p.vertexDetails?.some(d=>["PB1","PS4","PA1","PA2","PT8"].includes(String(d.sigef_method??""))));
+    polygons.some(p=>p.vertexDetails?.some(d=>["PS1","PB1","PS4","PA1","PA2","PT8"].includes(String(d.sigef_method??""))));
   const openAdditionalVertices = () => {
     setConstructionSkipped(false);setConstructionRequested(true);
     if(pb1Draft.length) setConstructionMethod("PB1");
@@ -1146,6 +1206,7 @@ export function PecasTecnicasWorkspace({
         body: JSON.stringify({
           identification: makeSigefIdentity(),
           parcels: current,
+          piece_id: ps1Id||loadedPieceId||undefined,
           neighbors: [],
         }),
       });
@@ -3227,8 +3288,8 @@ export function PecasTecnicasWorkspace({
           </button>}
         </div>
       </footer>
-      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4" || constructionMethod === "PB1") && (
-        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-redesigned-dialog" : undefined}
+      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1") && (
+        <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1" ? "ps4-redesigned-dialog" : undefined}
           style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
             border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
             flexDirection: "column", padding: 16, boxShadow: "0 10px 50px #0005" }}>
@@ -3238,7 +3299,7 @@ export function PecasTecnicasWorkspace({
               <strong>Espaço de trabalho — Construção de vértices</strong>
               <p style={{ margin: 0, fontSize: 12 }}>Planta de apoio · PA1 Paralela · PA2 Interseção · PT8 Alinhamento · PS4 Sensores orbitais · PB1 Base oficial</p>
             </div>
-            <button type="button" className="pecas-secondary"
+            {constructionMethod==="PS1"?<button type="button" className="pecas-primary" disabled={ps1Busy} onClick={()=>void finalizePs1()}>{ps1Busy?"Processando...":"Concluir, validar e salvar"}</button>:<button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => {
                 if ((constructionMethod === "PS4" && !ps4Ready) || (constructionMethod === "PB1" && !pb1Ready)) {
@@ -3261,9 +3322,9 @@ export function PecasTecnicasWorkspace({
                     ? "Prévia PS4 fechada e rascunho salvo — pendente de acurácia orbital"
                     : "Construção salva e prévia atualizada");
                 });
-              }}>{actionBusy ? "Salvando..." : (constructionMethod === "PS4" || constructionMethod === "PB1")
+              }}>{actionBusy ? "Salvando..." : (constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1")
                 ? "Concluir traçado PRELIMINAR e voltar à peça"
-                : "Concluir, salvar e voltar à peça"}</button>
+                : "Concluir, salvar e voltar à peça"}</button>}
             {(constructionMethod === "PS4" || constructionMethod === "PB1") && <button type="button" className="pecas-secondary"
               disabled={actionBusy}
               onClick={() => void runAction(async () => {
@@ -3373,7 +3434,7 @@ export function PecasTecnicasWorkspace({
             style={{ display: "flex", alignItems: "center", gap: 8,
               flexWrap: "wrap", paddingBottom: 12, borderBottom: "1px solid #b8cfc5",
               marginBottom: 12 }}>
-            {(["PA1", "PA2", "PT8", "PS4", "PB1"] as const).map(method => <button
+            {(["PA1", "PA2", "PT8", "PS4", "PB1", "PS1"] as const).map(method => <button
               key={method} type="button"
               disabled={method === "PA1" || method === "PA2"}
               title={method === "PA1" || method === "PA2"
@@ -3389,7 +3450,7 @@ export function PecasTecnicasWorkspace({
               }}>
               {method} — {method === "PA1" ? "Paralela"
                 : method === "PA2" ? "Interseção/apoio"
-                : method === "PS4" ? "Sensores orbitais" : method === "PB1" ? "Base cartográfica oficial" : "Alinhamento"}
+                : method === "PS4" ? "Sensores orbitais" : method === "PB1" ? "Base cartográfica oficial" : method==="PS1"?"Aerofotogrametria":"Alinhamento"}
             </button>)}
             <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
               Outros métodos:
@@ -3397,7 +3458,6 @@ export function PecasTecnicasWorkspace({
                 aria-label="Métodos dependentes de fontes georreferenciadas"
                 onChange={e=>{if(e.target.value==="PB1")setConstructionMethod("PB1");}}>
                 <option value="">Selecione uma fonte</option>
-                <option value="PS1" disabled>PS1 — Aerofotogrametria (requer projeto fotogramétrico)</option>
                 <option value="PS2" disabled>PS2 — Radar aerotransportado (requer validação)</option>
 
                 <option value="PB1">PB1 — Base cartográfica oficial (ORIXP + MDT)</option>
@@ -3423,16 +3483,16 @@ export function PecasTecnicasWorkspace({
                   não a V automaticamente.</p>}
             </details>
           </div>
-          <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
-            gridTemplateColumns: constructionMethod === "PS4" || constructionMethod === "PB1" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
+          <div className={constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1" ? "ps4-main-grid" : undefined} style={{ flex: 1, minHeight: 0, display: "grid",
+            gridTemplateColumns: constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1" ? "minmax(390px, 42%) minmax(0, 1fr)" : "minmax(325px, 37%) minmax(0, 1fr)", gap: 12 }}>
             
-            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
+            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1" ? "ps4-flow-scroll" : undefined} style={{ overflowY: "auto", minHeight: 0, paddingRight: 8 }}>
                       <div className="pecas-card" aria-label="Construção assistida de vértices virtuais PA2">
                         <h4>Construção de vértices — PA1, PA2, PT8 e PS4</h4>
                         <p>PA1, PA2 e PT8 exigem conversão altimétrica prévia. Método PT8 gera
                           vértices M/P conforme a tabela oficial de compatibilidade; PA1/PA2
                           permitem vértice V, sujeito à conferência técnica.</p>
-                        {!verticalCalculated && constructionMethod !== "PS4" && constructionMethod !== "PB1" && <p className="pecas-warning">
+                        {!verticalCalculated && constructionMethod !== "PS4" && constructionMethod !== "PB1" && constructionMethod !== "PS1" && <p className="pecas-warning">
                           Conclua primeiro o cálculo das altitudes normais/ortométricas dos marcos
                           de apoio para habilitar a construção dos vértices.</p>}
                         <p>Após calcular as altitudes físicas, selecione o método adequado.
@@ -3455,17 +3515,31 @@ export function PecasTecnicasWorkspace({
                         {pa2Mode && <label className="pecas-field">
                           <span>Método de posicionamento</span>
                           <select value={constructionMethod} onChange={e => {
-                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4" | "PB1");
+                            setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1");
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
                             <option value="PA1" disabled>PA1 — Não disponível nesta versão</option>
                             <option value="PA2" disabled>PA2 — Não disponível nesta versão</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
+                            <option value="PS1">PS1 — Aerofotogrametria</option>
                             <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
                             <option value="PB1">PB1 — Base cartográfica com precisão conhecida</option>
                           </select>
                         </label>}
+                        {constructionMethod==="PS1"&&<section style={{display:"grid",gap:12}}>
+                          <h4>PS1 · Aerofotogrametria</h4>
+                          {([["ps1_ortho","Ortomosaico GeoTIFF"],["ps1_dtm","MDT numérico"],["ps1_report","Relatório de acurácia PDF"]] as const).map(([kind,label])=><label key={kind} className="pecas-field"><span>{label} {ps1Assets[kind]?"· Anexado":""}</span><input type="file" disabled={ps1Busy} accept={kind==="ps1_report"?".pdf":".tif,.tiff"} onChange={e=>{const f=e.target.files?.[0];if(f)void uploadPs1(kind,f);}}/></label>)}
+                          <label className="pecas-field"><span>Resíduos independentes (CSV: ID;DE;DN;DH em metros)</span><input type="file" accept=".csv,.txt" onChange={async e=>{const f=e.target.files?.[0];if(f){const checkpoints=await f.text();setPs1Form(old=>({...old,checkpoints}));}}}/><small>{ps1Form.checkpoints?"Resíduos importados":"Importe o CSV do relatório"}</small></label>
+                          <label className="pecas-field"><span>Trecho após o vértice</span><select value={ps1Form.start} onChange={e=>setPs1Form(old=>({...old,start:e.target.value}))}><option value="">Selecione</option>{topconBoundary.map(p=><option key={p.name} value={p.sigef_vertex_code}>{p.sigef_vertex_code}</option>)}</select></label>
+                          <label className="pecas-field"><span>Categoria</span><select value={ps1Form.category} onChange={e=>setPs1Form(old=>({...old,category:e.target.value}))}><option value="ARTIFICIAL">Artificial</option><option value="NATURAL">Natural</option></select></label>
+                          <label className="pecas-field"><span>Referencial do MDT</span><select value={ps1Form.vertical_kind} onChange={e=>setPs1Form(old=>({...old,vertical_kind:e.target.value}))}><option value="ELLIPSOIDAL">Elipsoidal</option><option value="NORMAL">Normal</option></select></label>
+                          {(["vertical_reference","report_reference","gsd_m","pec_reference"] as const).map((key,i)=><label className="pecas-field" key={key}><span>{["Referência vertical","Página / referência do relatório","GSD (m)","Referência PEC/PCD"][i]}</span><input value={ps1Form[key]} onChange={e=>setPs1Form(old=>({...old,[key]:e.target.value}))}/></label>)}
+                          <h4>Vértices marcados · {ps1Points.length}</h4><p>Clique nas feições do ortomosaico. Os sigmas e as cotas serão calculados na conclusão.</p>
+                          {ps1Points.map((p,i)=><div key={i} style={{border:"1px solid #cbd9cf",padding:8,borderRadius:8,display:"grid",gap:5}}><input aria-label="Código do vértice" value={p.name} onChange={e=>setPs1Points(old=>old.map((v,j)=>j===i?{...v,name:e.target.value}:v))}/><small>{p.longitude.toFixed(8)}, {p.latitude.toFixed(8)}</small>{ps1Form.vertical_kind==="NORMAL"&&<><label>Fator IBGE (m)<input type="number" step="any" value={p.factor??""} onChange={e=>setPs1Points(old=>old.map((v,j)=>j===i?{...v,factor:e.target.value===""?undefined:Number(e.target.value)}:v))}/></label><label>Incerteza do fator (m)<input type="number" step="any" value={p.factor_sigma??""} onChange={e=>setPs1Points(old=>old.map((v,j)=>j===i?{...v,factor_sigma:e.target.value===""?undefined:Number(e.target.value)}:v))}/></label></>}<button type="button" className="pecas-secondary" onClick={()=>setPs1Points(old=>old.filter((_,j)=>j!==i))}>Remover</button></div>)}
+                          <label className="pecas-check"><input type="checkbox" checked={ps1Form.reviewed} onChange={e=>setPs1Form(old=>({...old,reviewed:e.target.checked}))}/>Confirmo como RT a compatibilidade do GSD e PEC/PCD, independência e representatividade dos pontos, correspondência do relatório, datum e precisão vertical, SIRGAS2000 e identificação dos limites.</label>
+                          {ps1Notice&&<p role="alert" className="pecas-warning">{ps1Notice}</p>}
+                        </section>}
                         {pa2Mode && constructionMethod === "PB1" && <section aria-label="Vetorização PB1 base cartográfica oficial" style={{display:"grid",gap:12}}>
                           <div className="ps4-redesign-intro">
                             <div><small className="ps4-eyebrow">PB1 · BASE CARTOGRÁFICA COM PRECISÃO CONHECIDA</small>
@@ -4150,7 +4224,7 @@ export function PecasTecnicasWorkspace({
                             </div>
                           </details>
                         </section>}
-                        {pa2Mode && constructionMethod !== "PS4" && constructionMethod !== "PB1" && <>
+                        {pa2Mode && constructionMethod !== "PS4" && constructionMethod !== "PB1" && constructionMethod !== "PS1" && <>
                           {constructionMethod === "PA2" && <label className="pecas-field">
                             <span>Procedimento de construção PA2</span>
                             <select value={pa2Variant} onChange={(event) => {
@@ -4269,7 +4343,7 @@ export function PecasTecnicasWorkspace({
 
 
             </div>
-            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
+            <div className={constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1" ? "ps4-map-column" : undefined} style={{ overflow: "auto", minHeight: 0 }}>
               <div className="pecas-card">
                   <h4>Mapa ampliado — {constructionMethod}</h4>
                   <Pa2WitnessMap
@@ -4297,15 +4371,22 @@ export function PecasTecnicasWorkspace({
                         footprint:pb1Dtm.metadata?.wgs84_extent}:null}
                     ps4SceneId={ps4SceneId}
                     ps4ReportAttached={ps4ReportAttached}
-                    ps4Raster={loadedPieceId && ps4RasterAsset?.kind === "raster"
+                    ps4Raster={constructionMethod==="PS1" ? (ps1Id&&ps1Assets.ps1_ortho?{pieceId:ps1Id,sha256:ps1Assets.ps1_ortho.sha256,footprint:ps1Assets.ps1_ortho.metadata?.wgs84_extent}:null) : loadedPieceId && ps4RasterAsset?.kind === "raster"
                       ? {pieceId:loadedPieceId, sha256:ps4RasterAsset.sha256,
                          footprint:ps4RasterAsset.metadata?.wgs84_extent}
                       : null}
-                    ps4Points={constructionMethod==="PB1"?pb1Draft:ps4Draft}
-                    ps4Candidate={constructionMethod==="PB1"?pb1Candidate:ps4Candidate}
+                    ps4Points={constructionMethod==="PS1"?ps1Points:constructionMethod==="PB1"?pb1Draft:ps4Draft}
+                    ps4Candidate={constructionMethod==="PS1"?null:constructionMethod==="PB1"?pb1Candidate:ps4Candidate}
                     ps4CheckCapture={constructionMethod==="PB1"?false:ps4CheckCapture}
-                    ps4ClosureGeometry={constructionMethod==="PB1"?(pb1Ready?pb1Closure.geometry:null):ps4PreviewGeometry}
+                    ps4ClosureGeometry={constructionMethod==="PS1"?null:constructionMethod==="PB1"?(pb1Ready?pb1Closure.geometry:null):ps4PreviewGeometry}
                     onPs4Click={point => {
+                       if(constructionMethod==="PS1"){
+                         if(!ps1Assets.ps1_ortho||ps1Busy)return;
+                         const prefix=(rtProfile?.incra_code??"").trim().toUpperCase();
+                         if(!/^[A-Z0-9]{3,12}$/.test(prefix)){setPs1Notice("Informe o código INCRA no perfil profissional.");return;}
+                         setPs1Points(old=>{let n=1;const used=new Set([...old.map(p=>p.name),...topconBoundary.map(p=>p.sigef_vertex_code)]);while(used.has(prefix+"-V-"+String(n).padStart(4,"0")))n++;return [...old,{...point,name:prefix+"-V-"+String(n).padStart(4,"0")}];});
+                         return;
+                       }
                        if(constructionMethod==="PB1"){
                          if(!pb1Raster){setPb1Notice("Importe o ORIXP georreferenciado antes de capturar V.");return;}
                          setPb1Candidate(point);
@@ -4353,7 +4434,7 @@ export function PecasTecnicasWorkspace({
                       }
                       pickPa2Witness(name);
                     }} />
-                  {constructionMethod !== "PS4" && constructionMethod !== "PB1" ? <>
+                  {constructionMethod !== "PS4" && constructionMethod !== "PB1" && constructionMethod !== "PS1" ? <>
                     <button type="button" className="pecas-secondary"
                       onClick={() => { setPa2Witnesses([]); setPa2Result(null); setPa2Error(""); }}>
                       Limpar testemunhos selecionados
