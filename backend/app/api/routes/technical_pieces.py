@@ -301,6 +301,14 @@ def _validated_snapshot(
 ) -> dict:
     """Preserva anexos confiáveis e recalcula os resultados a cada gravação."""
     snapshot = dict(incoming)
+    # PS1: somente anexos e aprovação produzidos pelo servidor são confiáveis.
+    prior = (piece.snapshot or {}) if piece else {}
+    previous_ps1 = prior.get("ps1") or {}
+    snapshot["ps1"] = {"assets": previous_ps1.get("assets", {})}
+    if ((snapshot.get("topcon") or {}).get("boundary") ==
+            (prior.get("topcon") or {}).get("boundary") and
+            snapshot.get("features") == prior.get("features") and previous_ps1.get("approval")):
+        snapshot["ps1"] = previous_ps1
     # PB1 utiliza ativos privados independentes do PS4. Cliente não pode
     # substituir metadados confiáveis do upload nem forjar aprovação.
     old_pb1 = ((piece.snapshot or {}).get("pb1") or {}) if piece else {}
@@ -1437,3 +1445,92 @@ def ps4_download_official_xml(
         filename=f"INPE_{provenance.get('item_id', 'CBERS')}_METADADOS.xml",
         headers={"Cache-Control": "private, no-store"},
     )
+
+
+# PS1: ciclo independente de arquivos e consolidação.
+@router.post("/{piece_id}/ps1/files/{kind}")
+def upload_ps1_file(
+    piece_id: UUID, kind: str, file: UploadFile = File(...),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    piece = _owned(piece_id, db, user)
+    if kind not in ("ps1_ortho", "ps1_dtm", "ps1_report"):
+        raise HTTPException(422, "Tipo de arquivo PS1 inválido.")
+    suffixes = (".pdf",) if kind == "ps1_report" else (".tif", ".tiff")
+    if not (file.filename or "").lower().endswith(suffixes):
+        raise HTTPException(422, "Formato de arquivo PS1 inválido.")
+    try:
+        asset = store_uploaded_asset(file.file, user.id, piece.id, kind)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    snapshot = dict(piece.snapshot or {})
+    assets = dict((snapshot.get("ps1") or {}).get("assets") or {})
+    assets[kind] = asset
+    snapshot["ps1"] = {"assets": assets}
+    piece.snapshot = snapshot
+    db.commit()
+    return {"asset": asset}
+
+
+@router.get("/{piece_id}/ps1/assets")
+def get_ps1_assets(piece_id: UUID, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    piece = _owned(piece_id, db, user)
+    return {"assets": ((piece.snapshot or {}).get("ps1") or {}).get("assets", {})}
+
+
+class PS1FinalizeInput(BaseModel):
+    start: str
+    vertices: list[dict] = Field(min_length=1, max_length=4997)
+    checkpoints: list[dict] = Field(min_length=1, max_length=5000)
+    category: str
+    vertical_kind: str
+    vertical_reference: str = Field(min_length=5, max_length=500)
+    report_reference: str = Field(min_length=5, max_length=500)
+    rt_reviewed: bool = False
+
+
+@router.post("/{piece_id}/ps1/finalize")
+def finalize_ps1(piece_id: UUID, payload: PS1FinalizeInput, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Calcula e persiste o resultado técnico, sem representar certificação SIGEF."""
+    from app.services.ps1_consolidation import consolidate_ps1
+    from app.services.pb1_dtm_sampling import sample_pb1_dtm
+    from shapely.geometry import Point, shape
+    piece = _owned(piece_id, db, user)
+    snapshot = dict(piece.snapshot or {})
+    assets = (snapshot.get("ps1") or {}).get("assets", {})
+    profile = user.professional_profile_json or {}
+    if not payload.rt_reviewed or not profile.get("crea") or not profile.get("art"):
+        raise HTTPException(422, "Confirme revisão técnica e informe CREA e ART.")
+    for kind in ("ps1_ortho", "ps1_dtm", "ps1_report"):
+        if not exists_matching(user.id, piece.id, assets.get(kind) or {}):
+            raise HTTPException(422, "Arquivo PS1 ausente ou alterado: " + kind)
+    try:
+        footprint = shape(assets["ps1_ortho"]["metadata"]["wgs84_extent"])
+        for vertex in payload.vertices:
+            if not footprint.covers(Point(vertex["longitude"], vertex["latitude"])):
+                raise ValueError("Vértice fora do ortomosaico PS1.")
+        dtm = assets["ps1_dtm"]
+        path = stored_file_path(user.id, piece.id, "ps1_dtm", dtm["sha256"])
+        nodata = dtm["metadata"]["bands"][0].get("no_data_value")
+        topcon = dict(snapshot.get("topcon") or {})
+        result = consolidate_ps1(topcon.get("boundary") or [], payload.start,
+                    payload.vertices, payload.checkpoints, payload.category,
+                    payload.vertical_kind, lambda lon, lat: sample_pb1_dtm(path, lon, lat, nodata))
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    # Resultado permanece em revisão: a suficiência da amostra, GSD,
+    # correspondência do relatório e datum precisam de validação adicional.
+    snapshot["ps1"] = {"assets": assets, "calculation": result,
+                      "submission": payload.model_dump()}
+    piece.snapshot = snapshot
+    write_audit(db, action="PS1_CALCULATED", user_id=user.id,
+                entity_type="technical_piece", entity_id=str(piece.id),
+                details={"count": len(result["generated"]), "art": str(profile["art"])},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"))
+    db.commit()
+    return result
