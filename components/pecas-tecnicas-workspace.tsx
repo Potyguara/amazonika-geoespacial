@@ -191,7 +191,7 @@ export type TopconDraft = {
   ps4_ortho_report?: {scene_id:string;reference:string;rms_m:number|null;reviewed_by_rt:boolean};
   official_overlap?: {signature:string;status:string;complete:boolean;count:number};
   ps4_quality?: Ps4Quality & {source:string;filename:string;scene_id:string};
-  pb1_draft?: Array<{name:string;latitude:number;longitude:number;source_elevation_m:number|null;raster_sha256:string;created_at:string}>;
+  pb1_draft?: Array<{name:string;sigef_vertex_code?:string;latitude:number;longitude:number;source_elevation_m:number|null;raster_sha256:string;created_at:string}>;
   pb1_closure?: {start:string;confirmed:boolean;signature?:string};
   pb1_source?: Pb1Source;
   ps4_draft?: Array<{
@@ -647,7 +647,7 @@ export function PecasTecnicasWorkspace({
       const prefix=(rtProfile?.incra_code??"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
       const code=prefix.length>=3&&prefix.length<=6?prefix:"VIRTUAL";
       const taken=new Set([...topconBoundary.map(p=>p.sigef_vertex_code||p.name),
-        ...ps4Draft.map(p=>p.name),...pb1Draft.map(p=>p.name)].map(v=>v.toUpperCase()));
+        ...ps4Draft.map(p=>p.name),...pb1Draft.flatMap(p=>[p.name,p.sigef_vertex_code??p.name])].map(v=>v.toUpperCase()));
       let i=1;while(taken.has(`${code}-V-${String(i).padStart(4,"0")}`))i++;
       const name=`${code}-V-${String(i).padStart(4,"0")}`;
       let elevation:number|null=null;
@@ -660,7 +660,7 @@ export function PecasTecnicasWorkspace({
         elevation=Number(body.source_elevation_m);
         if(!Number.isFinite(elevation))throw new Error("Valor MDT inválido");
       }
-      setPb1Draft(old=>[...old,{name,...pb1Candidate,source_elevation_m:elevation,
+      setPb1Draft(old=>[...old,{name,sigef_vertex_code:name,...pb1Candidate,source_elevation_m:elevation,
         raster_sha256:pb1Raster?.sha256??pb1Dtm.sha256,
         created_at:new Date().toISOString()}]);
       setPb1ClosureConfirmed(false);
@@ -1683,9 +1683,9 @@ export function PecasTecnicasWorkspace({
         const utm=lonLatToSirgasUtm(v.longitude,v.latitude);
         if(utm.zone!==zone.zone||utm.hemisphere!==zone.hemisphere)
           throw new Error("Vértice PB1 em zona UTM diferente: "+v.name);
-        const r=processed?.points.find(p=>p.vertex_id===v.name && p.latitude===v.latitude && p.longitude===v.longitude);
+        const r=processed?.points.find(p=>p.vertex_id===v.name && Math.abs(p.latitude-v.latitude)<=5.1e-10 && Math.abs(p.longitude-v.longitude)<=5.1e-10);
         return {
-          ...initial,name:v.name,sigef_vertex_code:v.name,point_role:"BOUNDARY" as const,
+          ...initial,name:v.name,sigef_vertex_code:v.sigef_vertex_code?.trim().toUpperCase()||v.name,point_role:"BOUNDARY" as const,
           longitude:v.longitude,latitude:v.latitude,
           easting_m:utm.easting_m,northing_m:utm.northing_m,
           elevation_reported_m:null,ellipsoidal_height_reported_m:null,ellipsoidal_height_m:r?.h_ellipsoidal_m??null,
@@ -1708,6 +1708,8 @@ export function PecasTecnicasWorkspace({
           },
         };
       });
+      const codes=[...topconBoundary.map(p=>p.sigef_vertex_code||p.name),...newVertices.map(p=>p.sigef_vertex_code||p.name)].map(c=>c.trim().toUpperCase());
+      if(new Set(codes).size!==codes.length)throw new Error("Existem códigos SIGEF duplicados. Corrija a numeração sem alterar os IDs IBGE.");
       const originalMarcos=topconBoundary.map(p=>{
         const vertical=verticalCalculated?.find(r=>r.name===p.name);
         const original=topconPreview?.points.find(x=>x.name===p.name);
@@ -3667,7 +3669,7 @@ export function PecasTecnicasWorkspace({
                               <div className="ps4-v-table-wrap"><table className="ps4-v-table">
                                 <thead><tr><th>Ordem</th><th>Vértice</th><th>Latitude</th><th>Longitude</th><th>Cota MDT original (m)</th><th>Ação</th></tr></thead>
                                 <tbody>{pb1Draft.map((v,i)=><tr key={v.name}>
-                                  <td>{i+1}</td><td className="ps4-v-code">{v.name}</td>
+                                  <td>{i+1}</td><td className="ps4-v-code"><input aria-label={"Código SIGEF do vértice "+v.name} value={v.sigef_vertex_code??v.name} onChange={e=>{const code=e.target.value.toUpperCase();setPb1Draft(old=>old.map((p,j)=>j===i?{...p,sigef_vertex_code:code}:p));setPb1ClosureConfirmed(false);}}/><small>ID IBGE: {v.name}</small></td>
                                   <td className="ps4-v-coord">{v.latitude.toFixed(8)}</td>
                                   <td className="ps4-v-coord">{v.longitude.toFixed(8)}</td>
                                   <td>{v.source_elevation_m===null?"Pendente":v.source_elevation_m.toFixed(3)}</td>
@@ -3697,7 +3699,7 @@ export function PecasTecnicasWorkspace({
                               <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
                               
                               {pb1Partial&&<div className="pecas-note">
-                                <strong>{pb1Partial.points.length} vértices processados · resultados preliminares</strong>
+                                <strong>{pb1Partial.points.length} vértices processados · resultados preliminares</strong>{pb1Partial.points.some(p=>p.h_ellipsoidal_m===null)&&<p className="pecas-warning">h pendente: confira o tipo de altitude original, o datum, o modelo e a referência documental do MDT. Para HN, importe também o retorno IBGE compatível.</p>}
                                 <p>Precisão horizontal: {pb1Partial.horizontal_sigma_m?.toFixed(3)??"Pendente"} m · {pb1Partial.sigma_origin==="PEC_REFERENCE_ISOTROPIC_ESTIMATE"?"Estimativa de referência PEC (isotropia presumida)":pb1Partial.sigma_origin==="DECLARED"?"Parâmetros declarados":"Sem parâmetros disponíveis"}</p>
                                 <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Vértice</th><th>MDT</th><th>h</th><th>σE</th><th>σN</th><th>σh</th></tr></thead><tbody>{pb1Partial.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td>{[p.source_value_m,p.h_ellipsoidal_m,p.sigma_e_m,p.sigma_n_m,p.sigma_h_m].map((v,i)=><td key={i}>{v?.toFixed(3)??"—"}</td>)}</tr>)}</tbody></table></div>
                               </div>}
