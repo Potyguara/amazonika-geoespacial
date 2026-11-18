@@ -200,6 +200,7 @@ def convert_topcon_vertical(
 
 
 class ReviewedSigefOdsInput(BaseModel):
+    piece_id: UUID | None = None
     identification: dict = Field(default_factory=dict)
     parcels: list[dict] = Field(default_factory=list, max_length=50)
     neighbors: list[dict] = Field(default_factory=list, max_length=200)
@@ -249,11 +250,24 @@ def download_sigef_model(
 @router.post("/sigef/reviewed-ods")
 def export_reviewed_sigef_ods(
     payload: ReviewedSigefOdsInput,
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Exporta ODS para conferência técnica, não certificação oficial."""
+    approved = []
+    if payload.piece_id is not None:
+        piece = _owned(payload.piece_id, db, user)
+        state = (piece.snapshot or {}).get("ps1") or {}
+        approval = state.get("approval") or {}
+        assets = state.get("assets") or {}
+        if approval.get("status") == "APPROVED_BY_RT" and all(
+            approval.get("hashes", {}).get(k) == (assets.get(k) or {}).get("sha256")
+            and exists_matching(user.id, piece.id, assets.get(k) or {})
+            for k in ("ps1_ortho", "ps1_dtm", "ps1_report")
+        ):
+            approved = (state.get("calculation") or {}).get("generated") or []
     try:
-        data = build_reviewed_sigef_ods(payload.model_dump())
+        data = build_reviewed_sigef_ods(payload.model_dump(), approved_ps1_vertices=approved)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return Response(
@@ -307,7 +321,7 @@ def _validated_snapshot(
     snapshot["ps1"] = {"assets": previous_ps1.get("assets", {})}
     if ((snapshot.get("topcon") or {}).get("boundary") ==
             (prior.get("topcon") or {}).get("boundary") and
-            snapshot.get("features") == prior.get("features") and previous_ps1.get("approval")):
+            snapshot.get("features") == prior.get("features") and previous_ps1.get("calculation")):
         snapshot["ps1"] = previous_ps1
     # PB1 utiliza ativos privados independentes do PS4. Cliente não pode
     # substituir metadados confiáveis do upload nem forjar aprovação.
