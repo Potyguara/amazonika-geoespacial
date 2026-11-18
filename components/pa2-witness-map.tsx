@@ -29,7 +29,7 @@ type Props = {
   selected: string[];
   intersection?: { latitude: number | null; longitude: number | null } | null;
   onPick: (name: string) => void;
-  method?: "PA1" | "PA2" | "PT8" | "PS4" | "PB1";
+  method?: "PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1";
   ps4Points?: Array<{ name: string; latitude: number; longitude: number }>;
   ps4Candidate?: { latitude: number; longitude: number } | null;
   ps4ClosureGeometry?: { type: "Polygon"; coordinates: number[][][] } | null;
@@ -211,23 +211,23 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     pointLayerRef.current = map.getLayers().item(7) as VectorLayer<VectorSource>;
     mapRef.current = map;
     const handler = (event: { pixel: number[]; coordinate: number[] }) => {
-      if ((methodRef.current === "PS4" || methodRef.current === "PB1") && ps4ClickRef.current) {
+      if ((methodRef.current === "PS4" || (methodRef.current === "PB1" || methodRef.current === "PS1") || methodRef.current === "PS1") && ps4ClickRef.current) {
         const [longitude, latitude] = toLonLat(event.coordinate);
         // Vetorização provisória pode usar o recorte próprio ou a cena INPE.
         // O PDF do RT continua obrigatório para aprovação, não para desenhar.
         // Para PB1, o pixel precisa vir exclusivamente do ORIXP RGB,
         // mesmo que a camada cinza seja exibida por cima.
         const privateRasterVisible = Boolean(rasterRef.current?.getVisible());
-        const imageLayer = methodRef.current === "PB1"
+        const imageLayer = (methodRef.current === "PB1" || methodRef.current === "PS1")
           ? rasterRef.current : privateRasterVisible ? rasterRef.current : cbersRef.current;
         const pixel = imageLayer?.getData(event.pixel);
         const alpha = pixel
           ? ("getUint8" in pixel ? pixel.getUint8(3) : pixel[3])
           : 0;
-        if (methodRef.current === "PB1" && !imageLayer?.getVisible()) {
+        if ((methodRef.current === "PB1" || methodRef.current === "PS1") && !imageLayer?.getVisible()) {
           setPs4MapWarning("ORIXP Color está desligado. Ative a camada para marcar o próximo V; o MDT sozinho não serve de imagem de restituição.");
         } else if (!pixel || typeof alpha !== "number" || alpha <= 0) {
-          setPs4MapWarning(methodRef.current === "PB1"
+          setPs4MapWarning((methodRef.current === "PB1" || methodRef.current === "PS1")
             ? "Sem pixel RGB válido nesta posição. Confira a cobertura do ORIXP, o carregamento do tile e o zoom."
             : "Aguarde carregar um pixel válido da imagem visível antes de marcar V provisório.");
         } else if (privateRasterVisible && (!rasterReadyRef.current || !footprintRef.current)) {
@@ -463,7 +463,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     const layer = rasterRef.current;
     layer?.setVisible(false);
     const raster = method === "PB1" ? pb1Raster : ps4Raster;
-    if (!["PS4", "PB1"].includes(method) || !raster?.pieceId || !raster?.sha256) {
+    if (!["PS4", "PB1", "PS1"].includes(method) || !raster?.pieceId || !raster?.sha256) {
       setRasterMapStatus("Ortoimagem privada não selecionada; digitalização PS4 bloqueada.");
       return;
     }
@@ -483,10 +483,10 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     if (!layer) return;
     const source = new XYZ({
       url: getApiUrl() + "/technical-pieces/" + raster.pieceId +
-        (method === "PB1" ? "/pb1/raster/tiles/pb1_color/" : "/ps4/raster/tiles/") + raster.sha256 + "/{z}/{x}/{y}.png",
+        (method === "PS1" ? "/ps1/raster/tiles/" : method === "PB1" ? "/pb1/raster/tiles/pb1_color/" : "/ps4/raster/tiles/") + raster.sha256 + "/{z}/{x}/{y}.png",
       crossOrigin: "use-credentials",
       minZoom: 0, maxZoom: 19,
-      attributions: (method === "PB1" ? "Base cartográfica PB1 · RGB" : "Ortoimagem PS4") + " · SHA256 " + raster.sha256.slice(0, 12),
+      attributions: (method === "PS1" ? "Ortomosaico PS1" : method === "PB1" ? "Base cartográfica PB1 · RGB" : "Ortoimagem PS4") + " · SHA256 " + raster.sha256.slice(0, 12),
     });
     const loaded = () => {
       rasterReadyRef.current = true;
@@ -544,7 +544,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
      pb1ColorOpacity,pb1DtmOpacity,pb1PerimeterVisible,pb1GnssVisible,pb1VerticesVisible]);
 
   useEffect(() => {
-    if (method === "PS4" || method === "PB1") setCbersEnabled(false);
+    if (method === "PS4" || method === "PB1" || method === "PS1") setCbersEnabled(false);
     else setPs4MapWarning("");
   }, [method, ps4Raster?.sha256]);
 
@@ -662,7 +662,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       border: "1px solid #9ca3af", overflow: "hidden" }} aria-label={method === "PS4" ? "Mapa de restituição experimental de vértices PS4" : "Mapa de construção de vértices"} />
     {baseError && <p role="status">{baseError}</p>}
     {cbersError && <p role="status" style={{ fontSize: 12 }}>{cbersError}</p>}
-    {(method === "PS4" || method === "PB1") && <p role="status" style={{ fontSize: 12, fontWeight: 700 }}>{rasterMapStatus}</p>}
+    {(method === "PS4" || method === "PB1" || method === "PS1") && <p role="status" style={{ fontSize: 12, fontWeight: 700 }}>{rasterMapStatus}</p>}
     {ps4MapWarning && <p role="alert" style={{ fontSize: 12, color: "#9f1239" }}>{ps4MapWarning}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
     <p style={{ fontSize: 12, marginTop: 8 }}>
