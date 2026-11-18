@@ -397,7 +397,7 @@ export function PecasTecnicasWorkspace({
   const [ps1Id,setPs1Id]=useState<string|null>(null);
   const [ps1Assets,setPs1Assets]=useState<Record<string,{sha256:string;metadata?:{wgs84_extent?:{type:string;coordinates:number[][][]}}}>>({});
   const [ps1Points,setPs1Points]=useState<Array<{name:string;longitude:number;latitude:number;factor?:number;factor_sigma?:number}>>([]);
-  const [ps1Form,setPs1Form]=useState({start:"",category:"ARTIFICIAL",vertical_kind:"ELLIPSOIDAL",vertical_reference:"",report_reference:"",gsd_m:"",pec_reference:"",checkpoints:"",reviewed:false});
+  const [ps1Form,setPs1Form]=useState({start:"",category:"ARTIFICIAL",vertical_kind:"ELLIPSOIDAL",vertical_reference:"",report_reference:"",gsd_m:"",pec_reference:"",checkpoints:"",ibge_output:"",reviewed:false});
   const [ps1Busy,setPs1Busy]=useState(false);
   const [ps1Notice,setPs1Notice]=useState("");
   useEffect(()=>{
@@ -1099,6 +1099,7 @@ export function PecasTecnicasWorkspace({
           confrontant_cns:p.confrontant_cns??"",confrontant_registration:p.confrontant_registration??""};
       });
       setTopconBoundary(merged);onAdoptTopconParcels(groupTopconParcels(merged,data.title));
+      await onSavePiece(editableMemorial.trim(),{...draftForSave(),boundary:merged,stage:1,premium_step:5});
       setPa2Mode(false);setStage(1);setPremiumStep(5);
       setSavedPieceNotice("Vértices PS1 calculados e incorporados. Confira a parcela.");
     }catch(e){setPs1Notice(e instanceof Error?e.message:"Falha na conclusão PS1.");}
@@ -3536,7 +3537,8 @@ export function PecasTecnicasWorkspace({
                           <label className="pecas-field"><span>Referencial do MDT</span><select value={ps1Form.vertical_kind} onChange={e=>setPs1Form(old=>({...old,vertical_kind:e.target.value}))}><option value="ELLIPSOIDAL">Elipsoidal</option><option value="NORMAL">Normal</option></select></label>
                           {(["vertical_reference","report_reference","gsd_m","pec_reference"] as const).map((key,i)=><label className="pecas-field" key={key}><span>{["Referência vertical","Página / referência do relatório","GSD (m)","Referência PEC/PCD"][i]}</span><input value={ps1Form[key]} onChange={e=>setPs1Form(old=>({...old,[key]:e.target.value}))}/></label>)}
                           <h4>Vértices marcados · {ps1Points.length}</h4><p>Clique nas feições do ortomosaico. Os sigmas e as cotas serão calculados na conclusão.</p>
-                          {ps1Points.map((p,i)=><div key={i} style={{border:"1px solid #cbd9cf",padding:8,borderRadius:8,display:"grid",gap:5}}><input aria-label="Código do vértice" value={p.name} onChange={e=>setPs1Points(old=>old.map((v,j)=>j===i?{...v,name:e.target.value}:v))}/><small>{p.longitude.toFixed(8)}, {p.latitude.toFixed(8)}</small>{ps1Form.vertical_kind==="NORMAL"&&<><label>Fator IBGE (m)<input type="number" step="any" value={p.factor??""} onChange={e=>setPs1Points(old=>old.map((v,j)=>j===i?{...v,factor:e.target.value===""?undefined:Number(e.target.value)}:v))}/></label><label>Incerteza do fator (m)<input type="number" step="any" value={p.factor_sigma??""} onChange={e=>setPs1Points(old=>old.map((v,j)=>j===i?{...v,factor_sigma:e.target.value===""?undefined:Number(e.target.value)}:v))}/></label></>}<button type="button" className="pecas-secondary" onClick={()=>setPs1Points(old=>old.filter((_,j)=>j!==i))}>Remover</button></div>)}
+                          {ps1Points.map((p,i)=><div key={i} style={{border:"1px solid #cbd9cf",padding:8,borderRadius:8,display:"grid",gap:5}}><input aria-label="Código do vértice" value={p.name} onChange={e=>setPs1Points(old=>old.map((v,j)=>j===i?{...v,name:e.target.value}:v))}/><small>{p.longitude.toFixed(8)}, {p.latitude.toFixed(8)}</small><button type="button" className="pecas-secondary" onClick={()=>setPs1Points(old=>old.filter((_,j)=>j!==i))}>Remover</button></div>)}
+                          {ps1Form.vertical_kind==="NORMAL"&&<div className="pecas-card"><h4>Conversão vertical IBGE em lote</h4><button type="button" className="pecas-secondary" disabled={!ps1Points.length} onClick={()=>downloadBlob(new Blob([ps1Points.map(p=>[p.name,p.latitude.toFixed(8),p.longitude.toFixed(8)].join(" ")).join("\n")+"\n"],{type:"text/plain"}),"PS1_hgeoHNOR2020_entrada.txt")}>Gerar lista de coordenadas IBGE</button><label className="pecas-field"><span>Retorno do hgeoHNOR2020 (TXT)</span><input type="file" accept=".txt" onChange={async e=>{const f=e.target.files?.[0];if(f){const ibge_output=await f.text();setPs1Form(old=>({...old,ibge_output}));}}}/></label><small>{ps1Form.ibge_output?"Fatores importados; correspondência conferida no servidor.":"Importe o retorno oficial para todos os V."}</small></div>}
                           <label className="pecas-check"><input type="checkbox" checked={ps1Form.reviewed} onChange={e=>setPs1Form(old=>({...old,reviewed:e.target.checked}))}/>Confirmo como RT a compatibilidade do GSD e PEC/PCD, independência e representatividade dos pontos, correspondência do relatório, datum e precisão vertical, SIRGAS2000 e identificação dos limites.</label>
                           {ps1Notice&&<p role="alert" className="pecas-warning">{ps1Notice}</p>}
                         </section>}
