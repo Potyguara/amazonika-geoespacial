@@ -6706,3 +6706,10 @@ input {
 @media(max-width:1100px){
  .pecas-workspace .geo97-map-aside > *{position:static;}
 }
+
+/* GEO115 — side-by-side divider ordering and live map. */
+.pecas-workspace .geo115-order-layout{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(320px,1fr);width:100%;max-width:none;gap:20px;align-items:start;}
+.pecas-workspace .geo115-order-layout .geo97-focused-card{width:100%;max-width:none;min-width:0;}
+.pecas-workspace .geo115-order-layout .pecas-table td{white-space:nowrap;}
+.pecas-workspace .geo115-boundary-map{min-width:0;}
+@media(max-width:1150px){.pecas-workspace .geo115-order-layout{grid-template-columns:minmax(0,1fr);}}
