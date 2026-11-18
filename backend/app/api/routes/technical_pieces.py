@@ -26,6 +26,7 @@ from app.services.topcon_import import parse_topcon_report, MAX_BYTES
 from app.services.topcon_perimeter_review import review_topcon_perimeter
 from app.services.sigef_parcel_review import review_sigef_parcels
 from app.services.sigef_ods_reviewed import build_reviewed_sigef_ods
+from app.services.ps1_persistence import same_perimeter
 from app.services.sigef_ods import _template_path
 from app.services.sigef_ods_working import build_working_sigef_ods
 from app.services.vertical_datum import convert_altitudes
@@ -265,7 +266,12 @@ def export_reviewed_sigef_ods(
             and exists_matching(user.id, piece.id, assets.get(k) or {})
             for k in ("ps1_ortho", "ps1_dtm", "ps1_report")
         ):
-            approved = (state.get("calculation") or {}).get("generated") or []
+            calculation = state.get("calculation") or {}
+            expected = calculation.get("vertices") or []
+            ps1_parcels = [p for p in payload.parcels if any(
+                v.get("sigef_method") == "PS1" for v in (p.get("vertices") or []))]
+            if len(ps1_parcels) == 1 and same_perimeter(expected, ps1_parcels[0]["vertices"]):
+                approved = calculation.get("generated") or []
     try:
         data = build_reviewed_sigef_ods(payload.model_dump(), approved_ps1_vertices=approved)
     except ValueError as exc:
@@ -328,15 +334,7 @@ def _validated_snapshot(
     elif previous_ps1.get("approval") and previous_ps1.get("calculation"):
         expected = previous_ps1["calculation"].get("vertices") or []
         actual = (snapshot.get("topcon") or {}).get("boundary") or []
-        keys = ("sigef_vertex_code", "longitude", "latitude", "sigef_method",
-                "ellipsoidal_height_m", "sigma_lon_m", "sigma_lat_m", "sigma_h_m",
-                "height_reference_confirmed", "boundary_type", "confrontant",
-                "confrontant_cns", "confrontant_registration")
-        if len(expected) == len(actual) and expected and all(
-            all((a.get(k) or "") == (b.get(k) or "") if k in
-                ("confrontant_cns", "confrontant_registration") else a.get(k) == b.get(k)
-                for k in keys) for a, b in zip(expected, actual)
-        ):
+        if same_perimeter(expected, actual):
             snapshot["ps1"] = previous_ps1
     # PB1 utiliza ativos privados independentes do PS4. Cliente não pode
     # substituir metadados confiáveis do upload nem forjar aprovação.
