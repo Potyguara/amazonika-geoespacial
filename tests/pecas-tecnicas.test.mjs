@@ -34,7 +34,7 @@ test("opções avançadas são enviadas ao gerador e modificam os elementos", as
   assert.match(map, /plant_elements: plantElements/);
   assert.match(api, /class PlantElements\(BaseModel\)/);
   assert.match(pdf, /if enabled\("grid"\)/);
-  assert.match(pdf, /if enabled\("coordinates"\)/);
+  assert.match(pdf, /show_coordinates=enabled\("coordinates"\)/);
   assert.match(pdf, /if enabled\("vertex_labels"\)/);
 });
 
@@ -87,7 +87,7 @@ test("quadro de assinaturas e azimutes compactos estão na prancha", async () =>
 
 test("memorial editado é gravado no backend pelo botão próprio", async () => {
   const workspace = await read("components/pecas-tecnicas-workspace.tsx");
-  assert.match(workspace, /await onSavePiece\(editableMemorial\)/);
+  assert.match(workspace, /await onSavePiece\(editableMemorial,\s*draftForSave\(\)\)/);
   assert.match(workspace, /onSaveMemorial\(editableMemorial\)/);
   assert.match(workspace, /memorialDirty \|\| memorialSaved/);
 });
