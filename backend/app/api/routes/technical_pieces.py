@@ -323,6 +323,21 @@ def _validated_snapshot(
             (prior.get("topcon") or {}).get("boundary") and
             snapshot.get("features") == prior.get("features") and previous_ps1.get("calculation")):
         snapshot["ps1"] = previous_ps1
+    # A primeira adoção da poligonal calculada pode alterar features e boundary
+    # sem alterar os atributos técnicos aprovados. Compare o perímetro inteiro.
+    elif previous_ps1.get("approval") and previous_ps1.get("calculation"):
+        expected = previous_ps1["calculation"].get("vertices") or []
+        actual = (snapshot.get("topcon") or {}).get("boundary") or []
+        keys = ("sigef_vertex_code", "longitude", "latitude", "sigef_method",
+                "ellipsoidal_height_m", "sigma_lon_m", "sigma_lat_m", "sigma_h_m",
+                "height_reference_confirmed", "boundary_type", "confrontant",
+                "confrontant_cns", "confrontant_registration")
+        if len(expected) == len(actual) and expected and all(
+            all((a.get(k) or "") == (b.get(k) or "") if k in
+                ("confrontant_cns", "confrontant_registration") else a.get(k) == b.get(k)
+                for k in keys) for a, b in zip(expected, actual)
+        ):
+            snapshot["ps1"] = previous_ps1
     # PB1 utiliza ativos privados independentes do PS4. Cliente não pode
     # substituir metadados confiáveis do upload nem forjar aprovação.
     old_pb1 = ((piece.snapshot or {}).get("pb1") or {}) if piece else {}
@@ -1501,6 +1516,7 @@ class PS1FinalizeInput(BaseModel):
     vertical_kind: str
     vertical_reference: str = Field(min_length=5, max_length=500)
     report_reference: str = Field(min_length=5, max_length=500)
+    ibge_output: str = Field(default="", max_length=1000000)
     rt_reviewed: bool = False
     gsd_m: float = Field(gt=0, allow_inf_nan=False)
     pec_reference: str = Field(min_length=5, max_length=500)
@@ -1552,8 +1568,15 @@ def finalize_ps1(piece_id: UUID, payload: PS1FinalizeInput, request: Request,
             raise ValueError("Categoria incompatível com o código de limite; use o critério mais restritivo.")
         if not boundary_type.startswith(("LA", "LN")) or not initial.get("confrontant"):
             raise ValueError("Confirme limite e confrontante do trecho antes de concluir.")
+        vertices = [dict(v) for v in payload.vertices]
+        if payload.vertical_kind == "NORMAL":
+            from app.services.pb1_ibge import parse_ibge_output
+            points = [{"name": v["code"], "longitude": v["longitude"], "latitude": v["latitude"]} for v in vertices]
+            factors = parse_ibge_output(payload.ibge_output, points)
+            for vertex in vertices:
+                vertex["factor"], vertex["factor_sigma"] = factors[vertex["code"]]
         result = consolidate_ps1(source_boundary, payload.start,
-                    payload.vertices, payload.checkpoints, payload.category,
+                    vertices, payload.checkpoints, payload.category,
                     payload.vertical_kind, lambda lon, lat: sample_pb1_dtm(path, lon, lat, nodata))
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(422, str(exc)) from exc
