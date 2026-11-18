@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
 import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
 import { Pa2WitnessMap } from "@/components/pa2-witness-map";
+import { BoundaryOrderMap } from "@/components/boundary-order-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { Ps4EvidencePanel } from "@/components/ps4-evidence-panel";
 import { Ps4RasterDiagnosticCard } from "@/components/ps4-raster-diagnostic-card";
@@ -2090,7 +2091,7 @@ export function PecasTecnicasWorkspace({
             onClose();
           }} />}
         {stage === 0 && !showAllTasks && premiumStep !== 4 && (
-          <div className="pecas-data-layout geo97-focus-layout">
+          <div className={`pecas-data-layout geo97-focus-layout ${premiumStep===1?"geo115-order-layout":""}`}>
             <div className="pecas-card geo96-main-card geo97-focused-card">
               <div className="geo96-section-heading">
                 <small>PASSO {premiumStep+1} DE {premiumSteps.length} · FLUXO GUIADO</small>
@@ -2157,13 +2158,13 @@ export function PecasTecnicasWorkspace({
                         <td>{p.sigma_hz_m!=null?p.sigma_hz_m.toFixed(3)+" m":"Não fornecida"}</td>
                         <td>{selected&&<span className="geo97-order-actions">
                           <button type="button" aria-label={"Subir "+p.name}
-                            disabled={i===0} onClick={()=>setTopconBoundary(old=>{
+                            disabled={i===0} onClick={()=>{setTopconReview(null);setSigefParcelReview(null);setSigefValidatedSignature("");setTopconBoundary(old=>{
                               const next=[...old];[next[i-1],next[i]]=[next[i],next[i-1]];return next;
-                            })}>↑</button>
+                            });}}>↑</button>
                           <button type="button" aria-label={"Descer "+p.name}
-                            disabled={i===topconBoundary.length-1} onClick={()=>setTopconBoundary(old=>{
+                            disabled={i===topconBoundary.length-1} onClick={()=>{setTopconReview(null);setSigefParcelReview(null);setSigefValidatedSignature("");setTopconBoundary(old=>{
                               const next=[...old];[next[i+1],next[i]]=[next[i],next[i+1]];return next;
-                            })}>↓</button></span>}</td>
+                            });}}>↓</button></span>}</td>
                       </tr>;
                     })}</tbody></table></div>}
                 <p className="geo96-next-step">{topconBoundary.length} marcos na sequência.
@@ -2241,6 +2242,7 @@ export function PecasTecnicasWorkspace({
               {premiumStep===1&&<details className="pecas-advanced"><summary>Editar precisões dos marcos GNSS</summary><label className="pecas-field"><span>Importar precisões individuais ajustadas (CSV)</span><input type="file" accept=".csv,.txt" onChange={e=>{const file=e.currentTarget.files?.[0];if(file)void importAdjustedSigmas(file);e.currentTarget.value="";}}/></label><p className="pecas-note">ID;SIGMA_E;SIGMA_N;SIGMA_H (m). RMS de linhas de base não substitui precisões individuais.</p><div className="pecas-table-wrap"><table className="pecas-table"><thead><tr><th>Marco</th><th>σE (m)</th><th>σN (m)</th><th>σh (m)</th></tr></thead><tbody>{topconBoundary.map((p,i)=><tr key={p.name}><td style={{whiteSpace:"nowrap"}}>{p.sigef_vertex_code||p.name}</td>{(["sigma_lon_m","sigma_lat_m","sigma_h_m"] as const).map(k=><td key={k}><input style={{minWidth:72,width:"100%"}} aria-label={p.name+" "+k} type="number" min="0" step="any" value={p[k]??""} onChange={e=>updateBoundaryPoint(i,{[k]:e.target.value===""?null:Number(e.target.value)})}/></td>)}</tr>)}</tbody></table></div></details>}
               <details className="pecas-advanced"><summary>Ferramentas legadas (transição)</summary><button type="button" className="pecas-secondary" onClick={()=>setShowAllTasks(true)}>Abrir ferramentas anteriores</button></details>
             </div>
+            {premiumStep===1&&topconPreview&&<div className="geo97-map-aside"><BoundaryOrderMap points={topconPreview.points} ordered={topconBoundary}/></div>}
             {premiumStep===3&&<div className="geo97-map-aside">
               <SituationMapPreview
                 geometry={displaySituationGeometry}
