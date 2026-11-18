@@ -1142,6 +1142,9 @@ export function PecasTecnicasWorkspace({
   };
   const [reviewedOdsError, setReviewedOdsError] = useState("");
   const [reviewedOdsNotice, setReviewedOdsNotice] = useState("");
+  const [pb1Review,setPb1Review]=useState({category:"",position_reference:"",inaccessible_reason:"",rt_reviewed:false});
+  useEffect(()=>setPb1Review({category:"",position_reference:"",inaccessible_reason:"",rt_reviewed:false}),[loadedPieceId]);
+
   const makeSigefIdentity = () => ({
     holder_name: data.owner, holder_document: data.cpf,
     property_name: data.title, service_nature: "Particular",
@@ -1194,6 +1197,27 @@ export function PecasTecnicasWorkspace({
     // and a second confirmation click are optional; mandatory SIGEF columns are not.
     let current:ReturnType<typeof parcelsForOds>;
     try{current=parcelsForOds();}catch(e){setReviewedOdsError(e instanceof Error?e.message:"Parcela inválida.");return;}
+    const pb1Parcels=current.filter(p=>p.vertices.some(v=>v.sigef_method==="PB1"));
+    if(pb1Parcels.length){
+      if(pb1Parcels.length!==1||!pb1Review.rt_reviewed||!pb1Review.category||pb1Review.position_reference.trim().length<12){
+        setReviewedOdsError("PB1: informe a categoria, a fonte de posicionamento e a revisão técnica do perímetro.");return;
+      }
+      if(!pb1Partial||pb1Partial.sigma_origin!=="DECLARED"){
+        setReviewedOdsError("PB1: conclua a construção com os sigmas documentados, sem estimativa PEC não confirmada.");return;
+      }
+      for(const p of pb1Parcels)for(const v of p.vertices){
+        if(v.sigef_method!=="PB1")continue;
+        const row=pb1Partial.points.find(r=>r.vertex_id===v.name&&Math.abs(r.latitude-v.latitude)<5.1e-10&&Math.abs(r.longitude-v.longitude)<5.1e-10);
+        if(!row||row.h_ellipsoidal_m==null||row.sigma_e_m==null||row.sigma_n_m==null||row.sigma_h_m==null){
+          setReviewedOdsError("PB1: cálculo documentado incompleto para "+v.sigef_vertex_code);return;
+        }
+        // RT confirmation is submitted explicitly; the server compares every value
+        // against its own persisted calculation and verifies the full perimeter.
+        v.ellipsoidal_height_m=row.h_ellipsoidal_m;
+        v.sigma_lon_m=row.sigma_e_m;v.sigma_lat_m=row.sigma_n_m;v.sigma_h_m=row.sigma_h_m;
+        v.height_reference_confirmed=true;
+      }
+    }
     const incomplete = current.flatMap(p=>p.vertices).filter(point =>
       ![point.sigma_lon_m, point.sigma_lat_m, point.sigma_h_m]
         .every(value => typeof value === "number" && Number.isFinite(value) && value > 0));
@@ -1211,13 +1235,23 @@ export function PecasTecnicasWorkspace({
     setReviewedOdsError("");
     setReviewedOdsNotice("");
     try {
+      let exportPieceId=ps1Id||loadedPieceId||undefined;
+      if(pb1Parcels.length){
+        exportPieceId=await onSavePiece(editableMemorial.trim(),draftForSave());
+        const approval=await fetch(getApiUrl()+"/technical-pieces/"+exportPieceId+"/pb1/approve",{
+          method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({...pb1Review,vertices:pb1Parcels[0].vertices})
+        });
+        const body=await approval.json().catch(()=>null);
+        if(!approval.ok)throw new Error(typeof body?.detail==="string"?body.detail:"Revisão técnica PB1 não concluída.");
+      }
       const response = await fetch(`${getApiUrl()}/technical-pieces/sigef/reviewed-ods`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           identification: makeSigefIdentity(),
           parcels: current,
-          piece_id: ps1Id||loadedPieceId||undefined,
+          piece_id: exportPieceId,
           neighbors: [],
         }),
       });
@@ -1653,7 +1687,7 @@ export function PecasTecnicasWorkspace({
           easting_m:utm.easting_m,northing_m:utm.northing_m,
           elevation_reported_m:null,ellipsoidal_height_reported_m:null,ellipsoidal_height_m:r?.h_ellipsoidal_m??null,
           sigma_e_m:null,sigma_n_m:null,sigma_u_m:null,sigma_hz_m:null,
-          sigma_lon_m:null,sigma_lat_m:null,sigma_h_m:null,
+          sigma_lon_m:processed?.sigma_origin==="DECLARED"?r?.sigma_e_m??null:null,sigma_lat_m:processed?.sigma_origin==="DECLARED"?r?.sigma_n_m??null:null,sigma_h_m:processed?.sigma_origin==="DECLARED"?r?.sigma_h_m??null:null,
           sigma_reference_confirmed:false,height_reference_confirmed:false,
           sigma_suggestion_e_m:r?.sigma_e_m??null,sigma_suggestion_n_m:r?.sigma_n_m??null,sigma_suggestion_h_m:r?.sigma_h_m??null,
           derived_physical_altitude_m:r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?r.source_value_m:null,derived_physical_model:r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?"HN":null,
@@ -3204,7 +3238,14 @@ export function PecasTecnicasWorkspace({
             <section className="pecas-card"><h4>ODS SIGEF — revisão da parcela consolidada</h4>
               <p>Validação local da mesma geometria utilizada na planta e no memorial. A certificação é realizada pelo SIGEF.</p>
               {polygons.filter(p=>selectedIds.includes(p.id)).map(p=><p key={p.id}><strong>{p.name}</strong> · {p.vertices.length} vértices</p>)}
-              {polygons.filter(p=>selectedIds.includes(p.id)).some(p=>p.vertexDetails?.some(d=>d.sigef_method==="PB1"))&&<p className="pecas-warning">PB1: exportação definitiva depende de aprovação técnica persistida e comprovação de precisão e altimetria.</p>}
+              {polygons.filter(p=>selectedIds.includes(p.id)).some(p=>p.vertexDetails?.some(d=>d.sigef_method==="PB1"))&&<div className="pecas-card">
+                <h4>Revisão técnica PB1</h4>
+                <p className="pecas-note">A aprovação e a geração da ODS utilizam o cálculo registrado no servidor. O fundo de mapa genérico não comprova a exatidão da base.</p>
+                <label className="pecas-field"><span>Categoria do limite</span><select value={pb1Review.category} onChange={e=>setPb1Review(o=>({...o,category:e.target.value,rt_reviewed:false}))}><option value="">Selecione</option><option value="ARTIFICIAL">Artificial · 0,50 m</option><option value="NATURAL">Natural · 3,00 m</option><option value="INACCESSIBLE">Inacessível · 7,50 m</option></select></label>
+                {pb1Review.category==="INACCESSIBLE"&&<label className="pecas-field"><span>Justificativa técnica da inacessibilidade</span><textarea value={pb1Review.inaccessible_reason} onChange={e=>setPb1Review(o=>({...o,inaccessible_reason:e.target.value,rt_reviewed:false}))}/></label>}
+                <label className="pecas-field"><span>Fonte efetivamente utilizada para posicionar os V (produto, órgão, folha ou documento)</span><textarea value={pb1Review.position_reference} onChange={e=>setPb1Review(o=>({...o,position_reference:e.target.value,rt_reviewed:false}))}/></label>
+                <label className="pecas-check"><input type="checkbox" checked={pb1Review.rt_reviewed} onChange={e=>setPb1Review(o=>({...o,rt_reviewed:e.target.checked}))}/>Confirmo, como responsável técnico, a identificação dos limites, os extremos determinados diretamente, o referencial SIRGAS2000, a documentação de exatidão da fonte realmente utilizada, as alturas e os sigmas calculados. Conferi os códigos dos V e a ausência de duplicidades. A aprovação não equivale à certificação SIGEF.</label>
+              </div>}
               <button type="button" className="pecas-secondary" disabled={sigefParcelBusy} onClick={()=>void validateSigefParcel()}>{sigefParcelBusy?"Validando…":"Pré-validar identificação e geometria"}</button>
               <details className="pecas-advanced"><summary>Pendências técnicas por vértice</summary>
                 {polygons.filter(p=>selectedIds.includes(p.id)).map(p=><div key={p.id} className="pecas-table-wrap"><table className="pecas-table"><thead><tr><th>Vértice</th><th>h</th><th>σE</th><th>σN</th><th>σh</th><th>Pendências</th></tr></thead><tbody>{p.vertices.map((code,i)=>{
