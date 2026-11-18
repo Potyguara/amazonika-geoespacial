@@ -3329,7 +3329,7 @@ export function PecasTecnicasWorkspace({
                 if (constructionMethod === "PS4" && !ps4Ready) {
                   setPs4Status({kind:"error",message:ps4Closure.valid
                     ? "Ainda falta confirmar o segmento e o fechamento da prévia (etapa 2)."
-                    : "Não é possível concluir: " + (constructionMethod === "PB1" ? pb1Closure : ps4Closure).message +
+                    : "Não é possível concluir: " + ps4Closure.message +
                       " Use Salvar rascunho sem fechar, ou complete a etapa 2."});
                   return;
                 }
