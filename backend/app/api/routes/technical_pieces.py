@@ -256,6 +256,7 @@ def export_reviewed_sigef_ods(
 ):
     """Exporta ODS para conferência técnica, não certificação oficial."""
     approved = []
+    approved_pb1 = []
     if payload.piece_id is not None:
         piece = _owned(payload.piece_id, db, user)
         state = (piece.snapshot or {}).get("ps1") or {}
@@ -272,8 +273,18 @@ def export_reviewed_sigef_ods(
                 v.get("sigef_method") == "PS1" for v in (p.get("vertices") or []))]
             if len(ps1_parcels) == 1 and same_perimeter(expected, ps1_parcels[0]["vertices"]):
                 approved = calculation.get("generated") or []
+        pb = (piece.snapshot or {}).get("pb1") or {}
+        decision = pb.get("approval") or {}
+        attached = pb.get("assets") or {}
+        hashes = decision.get("hashes") or {}
+        if (decision.get("status") == "APPROVED_BY_RT" and "pb1_dtm" in hashes
+                and hashes == {k:v["sha256"] for k,v in attached.items() if k in ("pb1_dtm","pb1_color")}
+                and all(exists_matching(user.id,piece.id,attached[k]) for k in hashes)):
+            parcels_pb1 = [p for p in payload.parcels if any(v.get("sigef_method")=="PB1" for v in p.get("vertices",[]))]
+            if len(parcels_pb1)==1 and same_perimeter(decision.get("vertices"),parcels_pb1[0]["vertices"]):
+                approved_pb1 = decision.get("generated") or []
     try:
-        data = build_reviewed_sigef_ods(payload.model_dump(), approved_ps1_vertices=approved)
+        data = build_reviewed_sigef_ods(payload.model_dump(), approved_ps1_vertices=approved, approved_pb1_vertices=approved_pb1)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return Response(
@@ -371,13 +382,17 @@ def _validated_snapshot(
         snapshot["pb1"]["ibge_factors"] = record
     # Only server-calculated results survive; invalidate on any source or geometry change.
     prior_snapshot = (piece.snapshot or {}) if piece else {}
-    relevant_pb1 = ("pb1_draft", "pb1_closure", "pb1_source", "boundary")
+    relevant_pb1 = ("pb1_draft", "pb1_source", "boundary")
     if piece and all((snapshot.get("topcon") or {}).get(k) ==
                      (prior_snapshot.get("topcon") or {}).get(k) for k in relevant_pb1):
         if old_pb1.get("partial_preview"):
             snapshot["pb1"]["partial_preview"] = old_pb1["partial_preview"]
         if old_pb1.get("technical_preview"):
             snapshot["pb1"]["technical_preview"] = old_pb1["technical_preview"]
+        if (old_pb1.get("approval") and snapshot.get("features") == prior_snapshot.get("features")
+                and (snapshot.get("topcon") or {}).get("pb1_closure") == (prior_snapshot.get("topcon") or {}).get("pb1_closure")):
+            snapshot["pb1"]["approval"] = old_pb1["approval"]
+            snapshot["pb1"]["review_status"] = "APPROVED_BY_RT"
     previous = (piece.snapshot or {}).get("ps4", {}) if piece else {}
     same_checkpoint_geometry = bool(
         piece is not None and
@@ -884,6 +899,8 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
         "color_sha256":color["sha256"] if color else None,"dtm_sha256":dtm["sha256"],
         "calculated_at":datetime.now(timezone.utc).isoformat(),
         "notice":"Estimativas preliminares; não constituem exatidão comprovada nem aprovação RT."}
+    pb.pop("approval", None)
+    pb["review_status"] = "PRELIMINARY"
     pb["partial_preview"]=result
     snapshot["pb1"]=pb
     piece.snapshot=snapshot
@@ -918,6 +935,8 @@ def save_pb1_ibge_factors(piece_id: UUID, payload: PB1IbgeFactorsInput,
         "raw": payload.ibge_output, "status":"FACTORS_ONLY", "imported_at":datetime.now(timezone.utc).isoformat()}
     pb = dict(snapshot.get("pb1") or {})
     pb.pop("partial_preview",None)
+    pb.pop("approval", None)
+    pb["review_status"] = "PRELIMINARY"
     pb["ibge_factors"] = record
     snapshot["pb1"] = pb
     piece.snapshot = snapshot
@@ -1623,3 +1642,59 @@ def ps1_raster_tile(piece_id: UUID, digest: str, z: int, x: int, y: int,
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
     return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+class PB1ApproveInput(BaseModel):
+    vertices: list[dict] = Field(min_length=3, max_length=5000)
+    category: str
+    inaccessible_reason: str = Field(default="", max_length=2000)
+    position_reference: str = Field(min_length=12, max_length=2000)
+    rt_reviewed: bool = False
+
+
+@router.post("/{piece_id}/pb1/approve")
+def approve_pb1(piece_id: UUID, payload: PB1ApproveInput, request: Request,
+                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Registra revisão humana de dados documentados calculados no servidor."""
+    from app.services.pb1_approval import validate_pb1_vertices, validate_pb1_perimeter
+    piece = _owned(piece_id, db, user)
+    snapshot = dict(piece.snapshot or {})
+    top = snapshot.get("topcon") or {}
+    pb = dict(snapshot.get("pb1") or {})
+    assets = pb.get("assets") or {}
+    profile = user.professional_profile_json or {}
+    if not payload.rt_reviewed or not all(str(profile.get(k) or "").strip() for k in ("crea","art","incra_code")):
+        raise HTTPException(422,"Confirme a revisão RT e informe CREA, ART e código INCRA no perfil.")
+    source = top.get("pb1_source") or {}
+    if not all(str(source.get(k) or "").strip() for k in ("product","accuracy_reference","vertical_reference")):
+        raise HTTPException(422,"Documente produto, exatidão posicional e referencial vertical da base.")
+    if not payload.position_reference.strip() or not (top.get("pb1_closure") or {}).get("confirmed"):
+        raise HTTPException(422,"Confirme a fonte de posicionamento e o fechamento PB1.")
+    hashes = {k:v["sha256"] for k,v in assets.items() if k in ("pb1_dtm","pb1_color")}
+    if "pb1_dtm" not in hashes or not all(exists_matching(user.id,piece.id,assets[k]) for k in hashes):
+        raise HTTPException(422,"MDT ou outro raster vinculado ausente/alterado.")
+    preview = pb.get("partial_preview") or {}
+    if preview.get("dtm_sha256") != hashes["pb1_dtm"] or preview.get("color_sha256") != hashes.get("pb1_color"):
+        raise HTTPException(422,"Recalcule o PB1 com os dados e rasters atuais.")
+    try:
+        validate_pb1_perimeter(payload.vertices,top)
+        generated = validate_pb1_vertices(payload.vertices,top.get("pb1_draft") or [],preview,
+            str(profile["incra_code"]).strip().upper(),payload.category,payload.inaccessible_reason)
+    except (ValueError,TypeError,KeyError) as exc:
+        raise HTTPException(422,str(exc)) from exc
+    decision = {"status":"APPROVED_BY_RT","vertices":payload.vertices,"generated":generated,
+        "hashes":hashes,"category":payload.category,"position_reference":payload.position_reference,
+        "inaccessible_reason":payload.inaccessible_reason,"user_id":str(user.id),
+        "crea":str(profile["crea"]),"art":str(profile["art"]),
+        "approved_at":datetime.now(timezone.utc).isoformat()}
+    pb["approval"]=decision
+    pb["review_status"]="APPROVED_BY_RT"
+    snapshot["pb1"]=pb
+    piece.snapshot=snapshot
+    write_audit(db, action="PB1_RT_APPROVED", user_id=user.id,
+        entity_type="technical_piece",entity_id=str(piece.id),
+        details={"count":len(generated),"art":str(profile["art"]),"category":payload.category},
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"))
+    db.commit()
+    return {"status":"APPROVED_BY_RT","count":len(generated)}
