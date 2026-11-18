@@ -3708,7 +3708,7 @@ export function PecasTecnicasWorkspace({
                               <button type="button" className="pecas-primary" disabled={!pb1Closure.valid||!pb1Dtm||actionBusy||pb1Busy}
                                 onClick={()=>void processPb1Partial(true)}>{pb1Busy?"Processando…":pb1AppliedSignature===pb1Signature?"Reprocessar e atualizar parcela":"Concluir construção e aplicar à parcela"}</button>
                               {pb1AppliedSignature===pb1Signature&&<button type="button" className="pecas-secondary" disabled={pb1Busy} onClick={()=>{setPa2Mode(false);setStage(0);setPremiumStep(4);}}>Avançar para conferência espacial (prévia)</button>}
-                              {pb1Notice&&<p role="status" style={{whiteSpace:"normal"}}>{pb1Notice}</p>
+                              {pb1Notice&&<p role="status" style={{whiteSpace:"normal"}}>{pb1Notice}</p>}
                               <p className="pecas-note">Pendências de precisão e altimetria não impedem a peça preliminar; a ODS definitiva permanece bloqueada.</p>
                             </div>
                           </details>
