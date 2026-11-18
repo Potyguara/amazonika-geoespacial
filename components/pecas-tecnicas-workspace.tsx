@@ -630,7 +630,7 @@ export function PecasTecnicasWorkspace({
     finally{setPb1Busy(false);}
   };
   const pb1AddPoint=async()=>{
-    if(!pb1Candidate||!pb1Raster||!pb1PieceId)return;
+    if(!pb1Candidate||!pb1Dtm||!pb1PieceId)return;
     setPb1Busy(true);setPb1Notice("");
     try{
       const prefix=(rtProfile?.incra_code??"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
@@ -650,7 +650,7 @@ export function PecasTecnicasWorkspace({
         if(!Number.isFinite(elevation))throw new Error("Valor MDT inválido");
       }
       setPb1Draft(old=>[...old,{name,...pb1Candidate,source_elevation_m:elevation,
-        raster_sha256:pb1Raster.sha256,
+        raster_sha256:pb1Raster?.sha256??pb1Dtm.sha256,
         created_at:new Date().toISOString()}]);
       setPb1ClosureConfirmed(false);
       setPb1Candidate(null);
@@ -874,7 +874,7 @@ export function PecasTecnicasWorkspace({
             latitude: point.latitude,
             longitude: point.longitude,
             ellipsoidal_height_m: point.ellipsoidal_height_m,
-            height_reference_confirmed: Boolean(verticalConfirmed[point.name]),
+            height_reference_confirmed: Boolean(verticalConfirmed[point.name] || point.height_reference_confirmed),
             conversion_factor_m: verticalFactors[point.name] ?? "",
             factor_uncertainty_m: verticalFactorUncertainty[point.name] ?? null,
             factor_origin: verticalOrigin,
@@ -887,6 +887,7 @@ export function PecasTecnicasWorkspace({
       if (result?.status !== "READY") throw new Error(
         (result?.errors ?? []).join("; ") || "Dados altimétricos incompletos.");
       setVerticalCalculated(result.points);
+      setTopconBoundary(old=>old.map(p=>{const v=result.points.find((x:{name:string})=>x.name===p.name);return v?{...p,height_reference_confirmed:true,derived_physical_altitude_m:v.normal_height_m??v.orthometric_height_m??null,derived_physical_model:v.normal_height_m!=null?"HN" as const:v.orthometric_height_m!=null?"H" as const:null}:p;}));
     } catch (error) {
       setVerticalError(error instanceof Error ? error.message : "Falha na conversão.");
     } finally {
@@ -1624,8 +1625,8 @@ export function PecasTecnicasWorkspace({
   const adoptPb1WorkingParcel=(finish=false)=>{
     setTopconError("");setWorkflowNotice("");
     try{
-      if(!(finish?pb1Closure.valid:pb1Ready)||!pb1Closure.geometry||!pb1Raster)
-        throw new Error("Feche o perímetro PB1 e confirme o ORIXP vinculado.");
+      if(!(finish?pb1Closure.valid:pb1Ready)||!pb1Closure.geometry||!pb1Dtm)
+        throw new Error("Feche o perímetro PB1 e vincule o MDT numérico.");
       if(new Set(topconBoundary.map(p=>p.parcel_number)).size!==1)
         throw new Error("Trabalhe em uma única parcela de cada vez.");
 
@@ -2201,7 +2202,8 @@ export function PecasTecnicasWorkspace({
                       <td>{result?.normal_height_m?.toFixed(3)??"Pendente"}</td>
                     </tr>;
                   })}</tbody></table></div>
-                <button type="button" className="pecas-primary" disabled={verticalLoading}
+                <label className="pecas-check"><input type="checkbox" checked={topconBoundary.length>0&&topconBoundary.every(p=>Boolean(verticalConfirmed[p.name]||p.height_reference_confirmed))} onChange={e=>{const checked=e.target.checked;setVerticalConfirmed(Object.fromEntries(topconBoundary.map(p=>[p.name,checked])));setTopconBoundary(old=>old.map(p=>({...p,height_reference_confirmed:checked})));setVerticalCalculated(null);setVerticalError("");setSigefValidatedSignature("");}}/>Confirmo que as alturas h da tabela são elipsoidais em SIRGAS2000, conforme o processamento GNSS e a conferência de referencial.</label>
+                <button type="button" className="pecas-primary" disabled={verticalLoading||!topconBoundary.length||!topconBoundary.every(p=>Boolean(verticalConfirmed[p.name]||p.height_reference_confirmed))}
                   onClick={()=>void calculateVertical()}>
                   {verticalLoading?"Calculando…":"Calcular altitudes normais"}
                 </button>
@@ -3492,7 +3494,7 @@ export function PecasTecnicasWorkspace({
                   linha de apoio (dois marcos e clique projetado) ou interseção
                   geométrica (dois alinhamentos). O resultado precisa de revisão.</p>
                 : constructionMethod === "PB1"
-                ? <p>Importe a ortoimagem oficial ORIXP e o MDT da folha, digitalize somente sobre o RGB e obtenha as cotas originais no MDT. ODS depende de precisão e datum vertical validados.</p>
+                ? <p>Importe o MDT numérico obrigatório e, se disponível, o ORIXP RGB. Digitalize a feição e obtenha as cotas no MDT. ODS depende de precisão e datum vertical validados.</p>
                 : constructionMethod === "PS4"
                 ? <p>Ative a cena CBERS-4A no mapa, clique sucessivamente ao longo da feição natural,
                   confirme cada ponto e atribua código V. Sem RMS da ortorretificação, os pontos
@@ -3564,7 +3566,7 @@ export function PecasTecnicasWorkspace({
                           <div className="ps4-redesign-intro">
                             <div><small className="ps4-eyebrow">PB1 · BASE CARTOGRÁFICA COM PRECISÃO CONHECIDA</small>
                               <h4>Vetorização na base oficial</h4>
-                              <p style={{margin:0}}>Fonte ORIXP RGB para posição; MDT numérico para cota original. Independente do PS4.</p>
+                              <p style={{margin:0}}>MDT numérico obrigatório para cotas; RGB facultativo. Posição preliminar sujeita à revisão da fonte.</p>
                             </div>
                             <span className="ps4-step-state">Rascunho técnico</span>
                           </div>
@@ -3574,22 +3576,22 @@ export function PecasTecnicasWorkspace({
                                 <small>Mosaico previamente montado em SIG e recortado; até 256 MiB por arquivo</small></span>
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
-                              <label className="pecas-field"><span>MDT Color / ORIXP · mosaico RGB recortado (GeoTIFF)</span>
+                              <label className="pecas-field"><span>MDT Color / ORIXP · GeoTIFF facultativo</span>
                                 <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
                                   const file=e.target.files?.[0];if(file)void pb1Upload("pb1_color",file);
                                   e.target.value="";
                                 }}/></label>
                               <div className="pecas-note">{pb1Raster
                                 ?`RGB vinculado: ${pb1Raster.metadata?.width??"?"} × ${pb1Raster.metadata?.height??"?"} · SHA ${pb1Raster.sha256.slice(0,16)}…`
-                                :"Nenhum ORIXP anexado; cliques PB1 permanecem bloqueados."}</div>
-                              <label className="pecas-field"><span>MDT cinza · mosaico numérico recortado (GeoTIFF)</span>
+                                :"Nenhum RGB anexado. Traçado preliminar disponível com MDT; fonte planimétrica exige conferência."}</div>
+                              <label className="pecas-field"><span>MDT cinza · GeoTIFF numérico obrigatório</span>
                                 <input type="file" accept=".tif,.tiff" disabled={pb1Busy} onChange={e=>{
                                   const file=e.target.files?.[0];if(file)void pb1Upload("pb1_dtm",file);
                                   e.target.value="";
                                 }}/></label>
                               <div className="pecas-note">{pb1Dtm
                                 ?`MDT vinculado: ${pb1Dtm.metadata?.width??"?"} × ${pb1Dtm.metadata?.height??"?"} · SHA ${pb1Dtm.sha256.slice(0,16)}…`
-                                :"Sem MDT: é possível visualizar a fonte, mas a cota original dos V ficará pendente."}</div>
+                                :"Sem MDT: a criação de vértices permanece bloqueada."}</div>
                               <p className="pecas-note">O sistema não exige que o nome do arquivo corresponda
                                 ao código INOM/MI. A localização é verificada pelas coordenadas reais do GeoTIFF,
                                 e não pelo nome da folha.</p>
@@ -3599,11 +3601,11 @@ export function PecasTecnicasWorkspace({
                           <details className="ps4-flow-card" open>
                             <summary className="ps4-flow-summary"><span className="ps4-step-no">2</span>
                               <span className="ps4-step-heading"><strong>Digitalizar os vértices V</strong>
-                                <small>Clique somente sobre o recorte ORIXP oficial</small></span>
+                                <small>Selecione a feição; a cota será amostrada no MDT</small></span>
                               <span className="ps4-step-state">{pb1Draft.length} V</span><span className="ps4-step-caret">⌄</span>
                             </summary>
                             <div className="ps4-flow-body">
-                              {!pb1Raster&&<p className="ps4-analysis-note">Importe o ORIXP RGB para habilitar a vetorização PB1.</p>}
+                              {!pb1Dtm&&<p className="ps4-analysis-note">Importe o MDT numérico para habilitar a criação de V.</p>}
                               {pb1Candidate&&<div className="pecas-card">
                                 <strong>Ponto selecionado na fonte oficial</strong>
                                 <p>Latitude {pb1Candidate.latitude.toFixed(8)}° · longitude {pb1Candidate.longitude.toFixed(8)}°</p>
@@ -3642,13 +3644,13 @@ export function PecasTecnicasWorkspace({
                               </label>
                               <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
                               <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
-                              <button type="button" className="pecas-secondary" disabled={pb1Busy||!pb1Raster||!pb1Draft.length} onClick={()=>void processPb1Partial()}>Processar dados disponíveis automaticamente</button>
+                              <button type="button" className="pecas-secondary" disabled={pb1Busy||!pb1Dtm||!pb1Draft.length} onClick={()=>void processPb1Partial()}>Processar dados disponíveis automaticamente</button>
                               {pb1Partial&&<div className="pecas-note">
                                 <strong>{pb1Partial.points.length} vértices processados · resultados preliminares</strong>
                                 <p>Precisão horizontal: {pb1Partial.horizontal_sigma_m?.toFixed(3)??"Pendente"} m · {pb1Partial.sigma_origin==="PEC_REFERENCE_ISOTROPIC_ESTIMATE"?"Estimativa de referência PEC (isotropia presumida)":pb1Partial.sigma_origin==="DECLARED"?"Parâmetros declarados":"Sem parâmetros disponíveis"}</p>
                                 <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Vértice</th><th>MDT</th><th>h</th><th>σE</th><th>σN</th><th>σh</th></tr></thead><tbody>{pb1Partial.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td>{[p.source_value_m,p.h_ellipsoidal_m,p.sigma_e_m,p.sigma_n_m,p.sigma_h_m].map((v,i)=><td key={i}>{v?.toFixed(3)??"—"}</td>)}</tr>)}</tbody></table></div>
                               </div>}
-                              <button type="button" className="pecas-primary" disabled={!pb1Closure.valid||!pb1Raster||actionBusy}
+                              <button type="button" className="pecas-primary" disabled={!pb1Closure.valid||!pb1Dtm||actionBusy||pb1Busy}
                                 onClick={()=>adoptPb1WorkingParcel(true)}>Concluir construção e aplicar à parcela</button>
                               <p className="pecas-note">Pendências de precisão e altimetria não impedem a peça preliminar; a ODS definitiva permanece bloqueada.</p>
                             </div>
@@ -4408,9 +4410,9 @@ export function PecasTecnicasWorkspace({
                          return;
                        }
                        if(constructionMethod==="PB1"){
-                         if(!pb1Raster){setPb1Notice("Importe o ORIXP georreferenciado antes de capturar V.");return;}
+                         if(!pb1Dtm){setPb1Notice("Importe o MDT cinza numérico antes de capturar V.");return;}
                          setPb1Candidate(point);
-                         setPb1Notice("Ponto capturado no ORIXP. Confirme a inclusão e a amostragem MDT na coluna esquerda.");
+                         setPb1Notice("Ponto selecionado. Confirme a inclusão e a amostragem no MDT.");
                          return;
                        }
                        if (ps4CheckCapture) {
