@@ -217,18 +217,27 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         // O PDF do RT continua obrigatório para aprovação, não para desenhar.
         // Para PB1, o pixel precisa vir exclusivamente do ORIXP RGB,
         // mesmo que a camada cinza seja exibida por cima.
+        if(methodRef.current==="PB1"){
+          // The server samples the mandatory numeric MDT and rejects NoData.
+          // Without attached RGB, positioning remains a provisional visual trace.
+          if(Number.isFinite(longitude)&&Number.isFinite(latitude)){
+            setPs4MapWarning("");
+            ps4ClickRef.current({longitude,latitude});
+          }
+          return;
+        }
         const privateRasterVisible = Boolean(rasterRef.current?.getVisible());
-        const imageLayer = (methodRef.current === "PB1" || methodRef.current === "PS1")
+        const imageLayer = methodRef.current === "PS1"
           ? rasterRef.current : privateRasterVisible ? rasterRef.current : cbersRef.current;
         const pixel = imageLayer?.getData(event.pixel);
         const alpha = pixel
           ? ("getUint8" in pixel ? pixel.getUint8(3) : pixel[3])
           : 0;
-        if ((methodRef.current === "PB1" || methodRef.current === "PS1") && !imageLayer?.getVisible()) {
-          setPs4MapWarning("ORIXP Color está desligado. Ative a camada para marcar o próximo V; o MDT sozinho não serve de imagem de restituição.");
+        if (methodRef.current === "PS1" && !imageLayer?.getVisible()) {
+          setPs4MapWarning("Ative o ortomosaico PS1 para marcar o próximo V.");
         } else if (!pixel || typeof alpha !== "number" || alpha <= 0) {
-          setPs4MapWarning((methodRef.current === "PB1" || methodRef.current === "PS1")
-            ? "Sem pixel RGB válido nesta posição. Confira a cobertura do ORIXP, o carregamento do tile e o zoom."
+          setPs4MapWarning(methodRef.current === "PS1"
+            ? "Sem pixel RGB válido nesta posição. Confira a cobertura do ortomosaico, o carregamento do tile e o zoom."
             : "Aguarde carregar um pixel válido da imagem visível antes de marcar V provisório.");
         } else if (privateRasterVisible && (!rasterReadyRef.current || !footprintRef.current)) {
           setPs4MapWarning("Importe e carregue o GeoTIFF da peça antes de marcar V; imagens externas não são evidência PS4.");
@@ -595,7 +604,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       </select></label>
       {method === "PB1" && <span style={{fontSize:12,fontWeight:700,color:"#18543f"}}>
         {pb1Raster ? "ORIXP oficial privado · SHA-256 " + pb1Raster.sha256.slice(0,12) + "…"
-          : "Importe o recorte ORIXP RGB para habilitar marcação PB1."}
+          : "ORIXP RGB facultativo. Sem RGB, o traçado é provisório e depende de comprovação da fonte planimétrica."}
       </span>}
       {method === "PS4" && <span style={{fontSize:12,fontWeight:700,color:"#18543f"}}>
         {ps4Raster ? "GeoTIFF real vinculado à peça · SHA-256 " + ps4Raster.sha256.slice(0,12) + "…"
@@ -631,8 +640,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       {!pb1ColorVisible && pb1Raster && <p role="alert" style={{
         margin:0,padding:"9px 10px",border:"1px solid #e8b59f",
         borderRadius:8,background:"#fff4ee",color:"#873d20",fontWeight:700,fontSize:12
-      }}>A camada ORIXP está desativada. Você pode visualizar o MDT,
-      mas a criação de novos vértices está bloqueada até reativar o ORIXP.</p>}
+      }}>A camada ORIXP está desativada. O traçado permanece preliminar e a cota será amostrada no MDT.</p>}
       <div style={{display:"flex",flexWrap:"wrap",gap:"10px 18px"}}>
         <label><input type="checkbox" checked={pb1ColorVisible} onChange={e=>setPb1ColorVisible(e.target.checked)}
           disabled={!pb1Raster}/> ORIXP Color</label>
@@ -653,7 +661,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
         </label>
       </div>
       <small>O MDT numérico é exibido com contraste cinza e NoData transparente.
-        Os cliques de V exigem a camada ORIXP visível e pixel válido, mesmo quando o MDT estiver sobreposto.</small>
+        A cota numérica válida no MDT é obrigatória. A imagem de fundo não comprova exatidão PB1.</small>
     </section>}
     {method === "PS4" && ps4CheckCapture && <p role="status" style={{background:"#fff3cf",color:"#7c4c06",padding:"9px 12px",borderRadius:8,fontWeight:750,fontSize:12}}>
       Modo checagem: marcadores GNSS temporariamente ocultos. Clique na feição real identificável na imagem, não na posição presumida do marco.
@@ -666,7 +674,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
     {ps4MapWarning && <p role="alert" style={{ fontSize: 12, color: "#9f1239" }}>{ps4MapWarning}</p>}
     {basemap === "google" && <p style={{ fontSize: 11 }}>Google Maps {googleAttribution}</p>}
     <p style={{ fontSize: 12, marginTop: 8 }}>
-      {method === "PB1" ? "PB1: somente pixels da imagem oficial ORIXP anexada podem originar pontos V. A qualidade da base e a altitude elipsoidal ainda precisam de validação."
+      {method === "PB1" ? "PB1: traçado preliminar com amostragem no MDT obrigatório. A fonte planimétrica e o datum vertical exigem revisão."
         : method === "PS4"
         ? "PS4: clique somente sobre a ortoimagem GeoTIFF anexada e coberta pelo relatório; os pontos permanecem preliminares até validação da precisão e do RT."
         : "Clique nos marcos para definir o alinhamento. Um clique no terreno indica posição aproximada, lado ou sentido; não é uma medição topográfica. Use o zoom para escolher visualmente o local."}
