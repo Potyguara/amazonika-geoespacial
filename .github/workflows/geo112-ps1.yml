@@ -21,6 +21,7 @@ jobs:
           python -m unittest discover -s tests -p test_sigef_ods_reviewed.py -v
           python -m unittest discover -s tests -p 'test_topcon*.py' -v
           python -m unittest discover -s tests -p 'test_pb1*.py' -v
+          python -m unittest discover -s tests -p 'test_sgl_metrics.py' -v
   frontend:
     runs-on: ubuntu-latest
     permissions:
