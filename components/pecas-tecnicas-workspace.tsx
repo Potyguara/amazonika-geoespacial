@@ -2128,8 +2128,10 @@ export function PecasTecnicasWorkspace({
                 {topconPreview&&<div className="pecas-table-wrap"><table className="pecas-table">
                   <thead><tr><th>Incluir</th><th>Ordem</th><th>Ponto TOPCON</th>
                     <th>Código SIGEF</th><th>Precisão GNSS</th><th>Reordenar</th></tr></thead>
-                  <tbody>{topconPreview.points.filter(p=>p.point_role!=="CONTROL")
-                    .map(p=>{
+                  <tbody>{[
+                    ...topconBoundary.filter(p=>topconPreview.points.some(source=>source.name===p.name&&source.point_role!=="CONTROL")),
+                    ...topconPreview.points.filter(p=>p.point_role!=="CONTROL"&&!topconBoundary.some(selected=>selected.name===p.name)),
+                  ].map(p=>{
                       const i=topconBoundary.findIndex(item=>item.name===p.name);
                       const selected=i>=0?topconBoundary[i]:null;
                       return <tr key={p.name}>
