@@ -1502,6 +1502,14 @@ class PS1FinalizeInput(BaseModel):
     vertical_reference: str = Field(min_length=5, max_length=500)
     report_reference: str = Field(min_length=5, max_length=500)
     rt_reviewed: bool = False
+    gsd_m: float = Field(gt=0, allow_inf_nan=False)
+    pec_reference: str = Field(min_length=5, max_length=500)
+    gsd_compatible: bool = False
+    pec_compatible: bool = False
+    independent_sample_representative: bool = False
+    report_matches_assets_and_residuals: bool = False
+    datum_and_vertical_accuracy_checked: bool = False
+    sirgas2000_and_boundaries_checked: bool = False
 
 
 @router.post("/{piece_id}/ps1/finalize")
@@ -1517,6 +1525,12 @@ def finalize_ps1(piece_id: UUID, payload: PS1FinalizeInput, request: Request,
     profile = user.professional_profile_json or {}
     if not payload.rt_reviewed or not profile.get("crea") or not profile.get("art"):
         raise HTTPException(422, "Confirme revisão técnica e informe CREA e ART.")
+    if not all((payload.gsd_compatible, payload.pec_compatible,
+                payload.independent_sample_representative,
+                payload.report_matches_assets_and_residuals,
+                payload.datum_and_vertical_accuracy_checked,
+                payload.sirgas2000_and_boundaries_checked)):
+        raise HTTPException(422, "Revisão PS1 incompleta: GSD, PEC, amostra, relatório, datum e limites.")
     for kind in ("ps1_ortho", "ps1_dtm", "ps1_report"):
         if not exists_matching(user.id, piece.id, assets.get(kind) or {}):
             raise HTTPException(422, "Arquivo PS1 ausente ou alterado: " + kind)
@@ -1529,19 +1543,35 @@ def finalize_ps1(piece_id: UUID, payload: PS1FinalizeInput, request: Request,
         path = stored_file_path(user.id, piece.id, "ps1_dtm", dtm["sha256"])
         nodata = dtm["metadata"]["bands"][0].get("no_data_value")
         topcon = dict(snapshot.get("topcon") or {})
-        result = consolidate_ps1(topcon.get("boundary") or [], payload.start,
+        source_boundary = topcon.get("boundary") or []
+        initial = next((p for p in source_boundary if p.get("sigef_vertex_code") == payload.start), {})
+        boundary_type = str(initial.get("boundary_type") or "")
+        if (boundary_type.startswith("LA") and payload.category != "ARTIFICIAL") or (
+            boundary_type.startswith("LN") and payload.category not in ("NATURAL", "ARTIFICIAL")
+        ):
+            raise ValueError("Categoria incompatível com o código de limite; use o critério mais restritivo.")
+        if not boundary_type.startswith(("LA", "LN")) or not initial.get("confrontant"):
+            raise ValueError("Confirme limite e confrontante do trecho antes de concluir.")
+        result = consolidate_ps1(source_boundary, payload.start,
                     payload.vertices, payload.checkpoints, payload.category,
                     payload.vertical_kind, lambda lon, lat: sample_pb1_dtm(path, lon, lat, nodata))
     except (ValueError, TypeError, KeyError) as exc:
         raise HTTPException(422, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
-    # Resultado permanece em revisão: a suficiência da amostra, GSD,
-    # correspondência do relatório e datum precisam de validação adicional.
+    # Aprovação humana explícita, não certificação automática de PEC.
+    for v in result["generated"]:
+        v["height_reference_confirmed"] = True
+        v["sigma_reference_confirmed"] = True
+        v["derived_calculation"].update(status="APPROVED_BY_RT", accuracy_verified=True)
+    approval = {"status": "APPROVED_BY_RT", "user_id": str(user.id),
+                "approved_at": datetime.now(timezone.utc).isoformat(),
+                "crea": str(profile["crea"]), "art": str(profile["art"]),
+                "hashes": {k: assets[k]["sha256"] for k in ("ps1_ortho", "ps1_dtm", "ps1_report")}}
     snapshot["ps1"] = {"assets": assets, "calculation": result,
-                      "submission": payload.model_dump()}
+                      "submission": payload.model_dump(), "approval": approval}
     piece.snapshot = snapshot
-    write_audit(db, action="PS1_CALCULATED", user_id=user.id,
+    write_audit(db, action="PS1_RT_APPROVED", user_id=user.id,
                 entity_type="technical_piece", entity_id=str(piece.id),
                 details={"count": len(result["generated"]), "art": str(profile["art"])},
                 ip_address=request.client.host if request.client else None,
