@@ -20,7 +20,7 @@ def build_pb1_report(title, piece_id, snapshot, paths):
     vertices = top.get("pb1_draft") or []
     if not vertices:
         raise ValueError("Nenhum vértice PB1 salvo.")
-    preview = pb.get("technical_preview") or {}
+    preview = pb.get("partial_preview") or pb.get("technical_preview") or {}
     assets = pb.get("assets") or {}
     calculated = {p["vertex_id"]:p for p in preview.get("points",[]) if p.get("vertex_id")}
     if preview.get("color_sha256") != (assets.get("pb1_color") or {}).get("sha256") or preview.get("dtm_sha256") != (assets.get("pb1_dtm") or {}).get("sha256"):
@@ -60,6 +60,17 @@ def build_pb1_report(title, piece_id, snapshot, paths):
     p("Digitalização manual sobre ORIXP georreferenciado; leitura da cota do MDT numérico. Coordenadas geográficas preservadas. A cota original não comprova o datum.")
     p("Quando há conversão válida: h = HN + eta (altura normal) ou h = H + N (ortométrica). Se a origem for elipsoidal, h = Z. Propagação sob independência: sigma_h = sqrt(sigma_MDT² + sigma_fator²). Precisão horizontal declarada: sqrt(sigma_E² + sigma_N²).")
     p("Distâncias e azimutes do trecho abaixo: solução geodésica inversa no elipsoide GRS80 (pyproj.Geod.inv), não distância plana UTM.")
+    model=preview.get("local_height_model") if calculated else None
+    if model:
+        p("Ajustamento vertical local exploratório","Heading3")
+        p("C_i = h_GNSS,i - Z_MDT,i; C = média(C_i); h_V = Z_MDT,V + C. HN estimada = h_V - eta quando houver fator IBGE compatível. O modelo não identifica o datum original.")
+        p("Validação cruzada: para cada referência i, e_i = C_i - média dos demais C. RMSE_LOO = raiz da média dos quadrados de e_i. Não é validação independente nem sigma h aprovado.")
+        p("Amostra: "+str(model["count"])+" | Correção média: "+num(model["offset_m"])+" m | Desvio padrão amostral: "+num(model["sample_std_m"])+" m | RMSE_LOO: "+num(model["rmse_loo_m"])+" m")
+        controls=[["Marco","h GNSS","Cota MDT","Correção","Resíduo LOO"]]
+        for r in model["controls"]:
+            controls.append([r["name"],num(r["h_gnss_m"]),num(r["mdt_m"]),num(r["correction_m"]),num(r["loo_residual_m"])])
+        table(controls,[120,85,85,85,108])
+        p("Sem avaliação planimétrica independente; valores de precisão não aprovados.")
     p("4. Resultados dos vértices","Heading2")
     rows=[["Vértice","Latitude","Longitude","MDT (m)","h (m)","Sigma h"]]
     sigmas=[["Vértice","Tipo de altitude original","Fator (m)","Sigma E","Sigma N"]]
@@ -132,7 +143,7 @@ def build_pb1_report(title, piece_id, snapshot, paths):
             except (OSError,subprocess.SubprocessError,ValueError):
                 p(kind+": miniatura indisponível.")
         p("7. Revisão e responsabilidade técnica","Heading2")
-        p("Resultados disponíveis: "+str(len(calculated))+" conversões na prévia vinculada aos rasters. A exatidão declarada e a referência vertical exigem comprovação documental. Não equivale a aprovação RT ou certificação SIGEF.")
+        p("Resultados disponíveis: "+str(len(calculated))+" conversões na prévia vinculada aos rasters. A exatidão deve ser fundamentada por documentação ou avaliação técnica adequada. Ajustes empíricos sem validação externa permanecem preliminares. Não equivale a aprovação RT ou certificação SIGEF.")
         p("Referência do cálculo: "+val(preview.get("calculated_at")))
         p("Responsável técnico: __________________________________")
         p("Registro profissional / ART: ____________________________")
