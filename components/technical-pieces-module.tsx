@@ -1,4 +1,5 @@
 "use client";
+import {CartographicCatalog} from "@/components/cartographic-catalog";
 
 import { useCallback, useEffect, useState } from "react";
 import { getApiUrl } from "@/lib/api";
@@ -114,6 +115,7 @@ export function TechnicalPiecesModule({ onOpen, revision = 0, onImportTopcon }: 
         <button className="pecas-secondary" type="button" onClick={() => void load()}>Atualizar lista</button>
       </div>
     </header>
+    <details className="pecas-card"><summary>Gerenciar bases cartográficas</summary><CartographicCatalog/></details>
     {loading && <p>Carregando peças salvas…</p>}
     {error && <p className="pecas-warning" role="alert">{error}</p>}
     {!loading && !items.length && <p>Nenhuma peça salva. Inicie uma planta pelo mapa e clique em Salvar peça.</p>}
