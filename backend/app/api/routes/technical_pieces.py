@@ -862,6 +862,7 @@ def pb1_technical_preview(
 
 
 class PB1PartialInput(BaseModel):
+    local_height_estimate: bool = False
     sigma_e_m: float | None = Field(default=None, gt=0)
     sigma_n_m: float | None = Field(default=None, gt=0)
     source_sigma_m: float | None = Field(default=None, gt=0)
@@ -896,6 +897,16 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
             factors = {}
     path = stored_file_path(user.id,piece.id,"pb1_dtm",dtm["sha256"]) if dtm else None
     bands = ((dtm or {}).get("metadata") or {}).get("bands") or [{}]
+    local_model=None
+    if payload.local_height_estimate:
+        from app.services.pb1_local_height import fit_local_height, estimate_local_height
+        from app.services.pb1_diagnostic import compare_mdt_controls
+        try:
+            controls=compare_mdt_controls(top.get("boundary") or [], top.get("vertical_calculated"),
+                lambda lon,lat: sample_pb1_dtm(path,lon,lat,bands[0].get("no_data_value")))
+            local_model=fit_local_height(controls["rows"])
+        except (ValueError,RuntimeError) as exc:
+            raise HTTPException(422,str(exc)) from exc
     rows=[]
     for point in points:
         if point.get("raster_sha256") not in {a["sha256"] for a in (color, dtm) if a}:
@@ -910,8 +921,10 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
         row=partial_vertex(point,z,params,factors.get(point["name"]),source)
         if error or z is None:
             raise HTTPException(422, f"{point['name']}: MDT sem cota válida ({error or 'NoData'}).")
+        if local_model and row.get("h_ellipsoidal_m") is None:
+            row=estimate_local_height(row,local_model,factors.get(point["name"]))
         rows.append(row)
-    result={**params,"points":rows,"status":"PRELIMINARY_RT_REVIEW",
+    result={**params,"local_height_model":local_model,"points":rows,"status":"PRELIMINARY_RT_REVIEW",
         "color_sha256":color["sha256"] if color else None,"dtm_sha256":dtm["sha256"],
         "calculated_at":datetime.now(timezone.utc).isoformat(),
         "notice":"Estimativas preliminares; não constituem exatidão comprovada nem aprovação RT."}
