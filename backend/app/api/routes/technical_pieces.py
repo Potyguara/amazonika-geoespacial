@@ -64,6 +64,27 @@ def _owned(piece_id: UUID, db: Session, user: User) -> TechnicalPiece:
 
 
 
+from app.services.cartographic_catalog import BaseProfile, list_profiles, save_profile
+
+@router.get("/cartographic-catalog")
+def cartographic_catalog(user: User = Depends(get_current_user)):
+    return list_profiles(user.id)
+
+@router.post("/cartographic-catalog")
+def create_cartographic_profile(payload: BaseProfile, user: User = Depends(get_current_user)):
+    try:
+        return save_profile(user.id,payload)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+@router.put("/cartographic-catalog/{profile_id}")
+def edit_cartographic_profile(profile_id: str, payload: BaseProfile, user: User = Depends(get_current_user)):
+    try:
+        return save_profile(user.id,payload,profile_id)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+
 class ParcelMetricsInput(BaseModel):
     parcels: list[dict] = Field(min_length=1, max_length=100)
 
