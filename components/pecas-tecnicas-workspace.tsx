@@ -3409,6 +3409,12 @@ export function PecasTecnicasWorkspace({
                 setPa2Mode(true);
                 setSavedPieceNotice("Rascunho cartográfico salvo. Continue no editor.");
               })}>Salvar rascunho sem fechar</button>}
+            <button type="button" className="pecas-secondary" disabled={actionBusy||pb1Busy||ps1Busy}
+              onClick={()=>void runAction(async()=>{
+                await onSavePiece(editableMemorial.trim(),draftForSave());
+                setPa2Mode(false);setStage(0);setPremiumStep(3);
+                setSavedPieceNotice("Rascunho salvo. Editor fechado sem aprovação técnica.");
+              })}>Fechar e salvar</button>
           </div>
           {(actionError || actionBusy) && <div role={actionError ? "alert" : "status"}
             aria-live="polite" style={{ marginBottom: 8, padding: "10px 12px",
