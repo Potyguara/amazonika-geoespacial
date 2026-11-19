@@ -48,6 +48,17 @@ def build_pb1_report(title, piece_id, snapshot, paths):
     p("1. Origem e parâmetros declarados","Heading2")
     for k,label in [("product","Produto"),("sheet","Folhas INOM/MI"),("scale","Escala"),("pec","PEC"),("accuracy_reference","Documento de exatidão"),("vertical_kind","Tipo de altitude"),("vertical_datum","Datum vertical"),("source_model","Modelo original"),("vertical_reference","Documento vertical")]:
         p(label+": "+val(source.get(k)))
+    profile=source.get("catalog_profile") or {}
+    if profile:
+        p("Referência de catálogo — metadados declarados","Heading3")
+        for k,label in (("name","Base"),("producer","Produtor"),("distributor","Distribuidor"),
+            ("product","Produto de referência"),("horizontal_crs","SRC"),("vertical_datum","Datum informado no catálogo"),
+            ("metadata_id","Identificador"),("reference_sheet","Folha de referência"),("edition","Edição"),
+            ("url","Fonte"),("license","Condições de uso"),("notes","Limitações")):
+            if profile.get(k): p(label+": "+val(profile[k]))
+        p(val(profile.get("report_credit")))
+        p("Crédito cartográfico: "+val(profile.get("map_credit")))
+        p("A folha de referência do catálogo não substitui as folhas do mosaico utilizado.")
     p("2. Insumos e rastreabilidade","Heading2")
     for kind in ("pb1_color","pb1_dtm"):
         a=assets.get(kind) or {}; m=a.get("metadata") or {}
@@ -112,6 +123,7 @@ def build_pb1_report(title, piece_id, snapshot, paths):
                 subprocess.run(cmd+[str(path),str(out)],capture_output=True,check=True,timeout=30)
                 im=Image(BytesIO(out.read_bytes()));im._restrictSize(470,320)
                 p(kind+" — recorte original, contraste apenas ilustrativo")
+                if profile.get("map_credit"): p(profile["map_credit"])
                 story.append(im);story.append(Spacer(1,8))
                 # GDAL output geotransform gives the actual thumbnail pixel locations.
                 try:
