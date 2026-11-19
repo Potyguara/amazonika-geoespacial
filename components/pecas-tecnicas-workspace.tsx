@@ -541,7 +541,8 @@ export function PecasTecnicasWorkspace({
     : ps4Closure.valid ? (ps4Closure.geometry ?? null) : null;
 
   const [pb1AppliedSignature,setPb1AppliedSignature]=useState("");
-  const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;latitude:number;longitude:number;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null;pending_reasons?:string[];conversion_factor_m?:number|null}>;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
+  const [pb1LocalHeight,setPb1LocalHeight]=useState(false);
+  const [pb1Partial,setPb1Partial]=useState<{points:Array<{vertex_id:string;latitude:number;longitude:number;source_value_m:number|null;h_ellipsoidal_m:number|null;sigma_e_m:number|null;sigma_n_m:number|null;sigma_h_m:number|null;pending_reasons?:string[];conversion_factor_m?:number|null;normal_height_m?:number|null;status?:string}>;local_height_model?:{count:number;offset_m:number;rmse_loo_m:number}|null;sigma_origin:string;horizontal_sigma_m:number|null}|null>(null);
   useEffect(()=>{
     let active=true;setPb1Partial(null);
     if(loadedPieceId)fetch(getApiUrl()+"/technical-pieces/"+loadedPieceId+"/pb1/process-partial",{credentials:"include",cache:"no-store"}).then(r=>r.ok?r.json():null).then(body=>{if(active&&body?.preview){setPb1Partial(body.preview);
@@ -561,7 +562,7 @@ export function PecasTecnicasWorkspace({
         const body=await res.json();
         if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Retorno IBGE inválido.");
       }
-      const payload:Record<string,number>={};
+      const payload:Record<string,number|boolean>={local_height_estimate:pb1LocalHeight};
       for(const key of ["sigma_e_m","sigma_n_m","source_sigma_m"] as const){
         const raw=pb1Technical[key].trim();
         if(raw){const value=Number(raw.replace(",","."));if(!Number.isFinite(value)||value<=0)throw new Error("Sigma inválido: "+key);payload[key]=value;}
@@ -1694,7 +1695,7 @@ export function PecasTecnicasWorkspace({
           sigma_lon_m:processed?.sigma_origin==="DECLARED"?r?.sigma_e_m??null:null,sigma_lat_m:processed?.sigma_origin==="DECLARED"?r?.sigma_n_m??null:null,sigma_h_m:processed?.sigma_origin==="DECLARED"?r?.sigma_h_m??null:null,
           sigma_reference_confirmed:false,height_reference_confirmed:false,
           sigma_suggestion_e_m:r?.sigma_e_m??null,sigma_suggestion_n_m:r?.sigma_n_m??null,sigma_suggestion_h_m:r?.sigma_h_m??null,
-          derived_physical_altitude_m:r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?r.source_value_m:null,derived_physical_model:r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?"HN":null,
+          derived_physical_altitude_m:r?.status==="LOCAL_ESTIMATE_UNVALIDATED"?r.normal_height_m??null:r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?r.source_value_m:null,derived_physical_model:r?.status==="LOCAL_ESTIMATE_UNVALIDATED"?(r.normal_height_m!=null?"HN":null):r?.h_ellipsoidal_m!=null&&pb1Source.vertical_kind==="NORMAL"?"HN":null,
           sigef_method:"PB1",boundary_type:initial.boundary_type||"LN1",boundary_detail:initial.boundary_type?initial.boundary_detail:"",
           derived_calculation:{
             method:"PB1",status:"PRELIMINAR",accuracy_verified:false,
@@ -1704,7 +1705,7 @@ export function PecasTecnicasWorkspace({
             source_elevation_m:r?.source_value_m??v.source_elevation_m,
             preliminary_h_m:r?.h_ellipsoidal_m??null,
             source_vertical_datum:pb1Source.vertical_datum||"NAO_VERIFICADO",
-            altitude_source:r?.h_ellipsoidal_m!=null?"MDT_CONVERSAO_PRELIMINAR":"MDT_ORIGINAL_NAO_CONVERTIDO",
+            altitude_source:r?.status==="LOCAL_ESTIMATE_UNVALIDATED"?"MDT_AJUSTE_LOCAL_EXPLORATORIO":r?.h_ellipsoidal_m!=null?"MDT_CONVERSAO_PRELIMINAR":"MDT_ORIGINAL_NAO_CONVERTIDO",
             note:"Valores preliminares; precisão e referencial sujeitos à revisão. PB1 não liberado à ODS.",
           },
         };
@@ -3706,8 +3707,10 @@ export function PecasTecnicasWorkspace({
                               <p className="pecas-note">Marco final consecutivo: <strong>{pb1End||"—"}</strong></p>
                               <p role="status">{pb1Closure.message.replace(/PS4/g,"PB1")}</p>
                               
+                              <label style={{display:"flex",alignItems:"flex-start",gap:8,whiteSpace:"normal"}}><input type="checkbox" checked={pb1LocalHeight} onChange={e=>{setPb1LocalHeight(e.target.checked);setPb1AppliedSignature("");}}/> <span>Estimar h por ajuste local MDT × GNSS quando o datum não for comprovado (prévia; mínimo de quatro marcos).</span></label>
                               {pb1Partial&&<div className="pecas-note" role="status" aria-live="polite">
                                 <strong>{pb1AppliedSignature===pb1Signature?"Parcela aplicada e salva · ":""}{pb1Partial.points.length} vértices processados</strong><p>Alturas h calculadas: {pb1Partial.points.filter(p=>p.h_ellipsoidal_m!=null).length}/{pb1Partial.points.length} · Fatores IBGE disponíveis: {pb1Partial.points.filter(p=>p.conversion_factor_m!=null).length}/{pb1Partial.points.length} · Precisão completa declarada: {pb1Partial.sigma_origin==="DECLARED"?pb1Partial.points.filter(p=>p.sigma_e_m!=null&&p.sigma_n_m!=null&&p.sigma_h_m!=null).length:0}/{pb1Partial.points.length}</p>{pb1Partial.points.some(p=>p.h_ellipsoidal_m===null)&&<p className="pecas-warning">h pendente: confira o tipo de altitude original, o datum, o modelo e a referência documental do MDT. Para HN, importe também o retorno IBGE compatível.</p>}
+                                {pb1Partial.local_height_model&&<p>Modelo local exploratório: {pb1Partial.local_height_model.count} marcos · correção média {pb1Partial.local_height_model.offset_m.toFixed(3)} m · RMSE de validação cruzada {pb1Partial.local_height_model.rmse_loo_m.toFixed(3)} m. Não comprova datum ou PEC.</p>}
                                 <p>Precisão horizontal: {pb1Partial.horizontal_sigma_m?.toFixed(3)??"Pendente"} m · {pb1Partial.sigma_origin==="PEC_REFERENCE_ISOTROPIC_ESTIMATE"?"Estimativa de referência PEC (isotropia presumida)":pb1Partial.sigma_origin==="DECLARED"?"Parâmetros declarados":"Sem parâmetros disponíveis"}</p>
                                 <div className="ps4-v-table-wrap"><table className="ps4-v-table"><thead><tr><th>Vértice</th><th>MDT</th><th>h</th><th>σE</th><th>σN</th><th>σh</th><th>Pendências</th></tr></thead><tbody>{pb1Partial.points.map(p=><tr key={p.vertex_id}><td>{p.vertex_id}</td>{[p.source_value_m,p.h_ellipsoidal_m,p.sigma_e_m,p.sigma_n_m,p.sigma_h_m].map((v,i)=><td key={i}>{v?.toFixed(3)??"—"}</td>)}<td style={{whiteSpace:"normal",minWidth:180}}>{p.pending_reasons?.join(" ")||"Revisão técnica do RT"}</td></tr>)}</tbody></table></div>
                               </div>}
