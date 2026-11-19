@@ -1,4 +1,5 @@
 "use client";
+import {CartographicCatalog,type CartographicProfile} from "@/components/cartographic-catalog";
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
@@ -153,7 +154,7 @@ type TopconPreview = {
   ready_for_sigef: false;
 };
 
-type Pb1Source = {sheet:string;product:string;accuracy_reference:string;vertical_datum:string;
+type Pb1Source = {catalog_profile?:CartographicProfile;sheet:string;product:string;accuracy_reference:string;vertical_datum:string;
   scale?:string;pec?:string;vertical_kind?:string;source_model?:string;vertical_reference?:string};
 const PB1_SCALE_OPTIONS=["10000","25000","50000","100000","Outra"];
 const PB1_PEC_OPTIONS=["PEC A","PEC B","PEC C","PEC-PCD A","PEC-PCD B","PEC-PCD C","PEC-PCD D","Outra"];
@@ -3727,6 +3728,11 @@ export function PecasTecnicasWorkspace({
                                 <small>Origem cartográfica e precisão documentada</small></span>
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
+                              <CartographicCatalog selectedId={pb1Source.catalog_profile?.id??""} onSelect={p=>{
+                                setPb1Source(old=>({...old,catalog_profile:p,product:p.name+" — "+p.product,scale:p.scale,
+                                  pec:"",accuracy_reference:"",vertical_datum:"",vertical_kind:"",source_model:"",vertical_reference:""}));
+                                setPb1TechnicalResult(null);setPb1Partial(null);setPb1AppliedSignature("");
+                              }}/>
                               <Pb1SheetLookup geometry={pb1LookupGeometry} autoLookup
                                 onSheetsFound={sheets=>{
                                   const intersecting=sheets.filter(row=>row.area_overlap);
