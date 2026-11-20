@@ -61,7 +61,7 @@ export function CartographicCatalog({onSelect,selectedId}:{onSelect?:(p:Cartogra
    </div>
    <label className="pecas-field" style={{minWidth:0,marginBottom:8}}>
      <span>Base disponível</span>
-     <select aria-label="Selecionar base cartográfica" value={current?.id??""} onChange={e=>{setId(e.target.value);setEditing(false);setError("");}} style={{width:"100%",maxWidth:"100%",minWidth:0,textOverflow:"ellipsis"}}>
+     <select aria-label="Selecionar base cartográfica" value={current?.id??""} onChange={e=>{const next=items.find(p=>p.id===e.target.value);setId(e.target.value);setEditing(false);setError("");if(next&&onSelect){onSelect(next);setNotice("Base aplicada à peça; parâmetros técnicos específicos do raster continuam sujeitos à verificação.");}}} style={{width:"100%",maxWidth:"100%",minWidth:0,textOverflow:"ellipsis"}}>
        <option value="">Selecione uma base</option>
        {items.map(p=><option key={p.id} value={p.id}>{p.name} · {p.builtin?"Referência do sistema":"Meu cadastro"} · {p.product||"Produto não definido"}</option>)}
      </select>
@@ -74,7 +74,7 @@ export function CartographicCatalog({onSelect,selectedId}:{onSelect?:(p:Cartogra
          <small>{current.builtin?"Referência geral do sistema":"Cadastro particular"} · Revisão {current.revision}</small>
        </div>
        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-         {onSelect&&<button type="button" className="pecas-primary" disabled={busy} onClick={()=>{onSelect(current);setNotice("Base incorporada à peça. Metadados salvos; precisão continua sujeita à comprovação.");}}>Usar na peça</button>}
+         
          {!current.builtin&&<button type="button" className="pecas-secondary" disabled={busy} onClick={()=>begin(current)}>Editar</button>}
          {!current.builtin&&<button type="button" className="pecas-secondary" disabled={busy} style={{color:"#ae4035"}} onClick={()=>void remove()}>Excluir</button>}
        </div>
