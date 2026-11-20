@@ -79,6 +79,31 @@ class PB1RouteTests(TestCase):
         self.assertNotIn("approval",self.piece.snapshot["pb1"])
 
     @patch.object(routes,"exists_matching",return_value=True)
+    def test_working_ods_adds_server_issued_local_height_only_to_informative_sheet(self,*mocks):
+        from io import BytesIO
+        from zipfile import ZipFile
+        self.case["parcels"][0]["vertices"][1]["ellipsoidal_height_m"]=None
+        self.piece.snapshot["pb1"]["partial_preview"]={
+            "dtm_sha256":"b"*64,
+            "points":[{
+                "vertex_id":self.v["name"],"latitude":self.v["latitude"],
+                "longitude":self.v["longitude"],"source_value_m":12.7,
+                "h_ellipsoidal_m":-10.04,"local_height_rmse_loo_m":1.33,
+                "outside_control_hull":False,
+                "status":"LOCAL_ESTIMATE_UNVALIDATED",
+            }],
+        }
+        result=routes.download_working_sigef_ods(
+            routes.ReviewedSigefOdsInput(**self.case),self.db,self.user)
+        with ZipFile(BytesIO(result.body)) as archive:
+            xml=archive.read("content.xml").decode()
+            self.assertIn("ALTURAS_PB1_PRELIMINARES",xml)
+            self.assertIn("ESTIMATIVA_NAO_VALIDADA_NAO_SUBMETER",xml)
+            self.assertIn("TEST-V-0001",xml)
+        parsed=parse_sigef_ods(result.body)
+        self.assertIsNone(parsed["features"][0]["properties"]["sigef_vertex_details"][1]["altitude_m"])
+
+    @patch.object(routes,"exists_matching",return_value=True)
     @patch("app.services.pb1_dtm_sampling.sample_pb1_dtm",side_effect=ValueError("NoData"))
     def test_rejects_nodata(self,*mocks):
         with self.assertRaises(HTTPException) as ctx:
