@@ -13,7 +13,7 @@ from test_sigef_ods_reviewed import vertex,payload
 class PB1WorkingOdsHeightsTests(unittest.TestCase):
     def test_ten_boundary_vertices_six_informative_heights(self):
         case=payload()
-        original=case["parcels"][0]["vertices"]
+        original=[*case["parcels"][0]["vertices"],vertex("TEST-M-0004",-51.4,.39)]
         points=[]
         preliminary=[]
         for i in range(6):
