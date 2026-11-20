@@ -8,8 +8,8 @@ const groups=[
  {title:"Histórico e metadados",fields:[["edition","Edição"],["creation_date","Data de criação"],["metadata_id","ID de metadados"],["coverage","Extensão geográfica / BBOX"],["license","Licença / condições de uso"]]},
  {title:"Qualidade, observações e créditos",fields:[["accuracy_reference","Referência documental de exatidão"],["vertical_reference","Referência documental vertical"],["notes","Observações e limitações"],["report_credit","Texto para relatórios"],["map_credit","Crédito para mapas"]]}
 ] as const;
-const fields=groups.flatMap(g=>g.fields);
-type Field=typeof fields[number][0];
+type Field=(typeof groups)[number]["fields"][number][0];
+const fields=(groups as ReadonlyArray<{title:string;fields:ReadonlyArray<readonly [Field,string]>}>).flatMap(g=>g.fields);
 export type CartographicProfile=Record<Field,string>&{id:string;revision:number;builtin:boolean};
 const empty=()=>Object.fromEntries(fields.map(([k])=>[k,""])) as Record<Field,string>;
 const multiline=new Set<Field>(["notes","report_credit","map_credit","accuracy_reference","vertical_reference","license","coverage"]);
