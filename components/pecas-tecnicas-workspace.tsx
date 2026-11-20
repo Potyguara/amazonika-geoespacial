@@ -990,7 +990,7 @@ export function PecasTecnicasWorkspace({
       const response=await fetch(getApiUrl()+"/technical-pieces/sigef/rascunho-ods",{
         method:"POST",credentials:"include",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({identification:makeSigefIdentity(),parcels}),
+        body:JSON.stringify({identification:makeSigefIdentity(),parcels,piece_id:pb1PieceId||loadedPieceId||undefined}),
       });
       if(!response.ok){
         const info=await response.json().catch(()=>null);
@@ -3349,7 +3349,7 @@ export function PecasTecnicasWorkspace({
               <button type="button" disabled={workingOdsBusy}
                 onClick={() => void downloadWorkingSigefOds()}>
                 <Download size={17}/>
-                {workingOdsBusy?"Gerando ODS...":"ODS de trabalho M + V (não submetível)"}
+                {workingOdsBusy?"Gerando ODS...":"ODS de trabalho M + V (com anexo altimétrico)"}
               </button>
               <button type="button" disabled={blankOdsBusy}
                 onClick={() => void downloadBlankSigefOds()}>
