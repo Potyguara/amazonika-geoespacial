@@ -59,7 +59,9 @@ def audit_pb1_ods(snapshot, vertices, profile=None):
             else:
                 for k in ("latitude","longitude"):
                     v0=v.get(k)
-                    if not isinstance(v0,(int,float)) or not isfinite(v0) or abs(v0-row.get(k,1e20))>5.1e-10 or abs(v0-original.get(k,1e20))>5.1e-10:
+                    target=row.get(k)
+                    start=original.get(k)
+                    if not (isinstance(v0,(int,float)) and isinstance(target,(int,float)) and isinstance(start,(int,float)) and isfinite(v0) and isfinite(target) and isfinite(start)) or abs(v0-target)>5.1e-10 or abs(v0-start)>5.1e-10:
                         reason.append("Coordenadas divergentes do cálculo");break
                 if row.get("status")!="DECLARED_REFERENCE":
                     reason.append("Altura PB1 não validada: "+str(row.get("status") or "sem cálculo"))
