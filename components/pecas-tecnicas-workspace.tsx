@@ -947,6 +947,11 @@ export function PecasTecnicasWorkspace({
     status: string; errors: string[]; warnings: string[];
     parcels: Array<{ number: string; area_ha: number }>;
   } | null>(null);
+  const [pb1OdsAudit,setPb1OdsAudit] = useState<{
+    status:string;vertex_count:number;original_count:number;pb1_count:number;complete_count:number;
+    global_issues:string[];vertices:Array<{name:string;code:string;method:string;ready:boolean;reasons:string[]}>;
+    notice:string;signature:string;
+  }|null>(null);
   const [sigefParcelBusy, setSigefParcelBusy] = useState(false);
   const [sigefValidatedSignature, setSigefValidatedSignature] = useState("");
   const [reviewedOdsBusy, setReviewedOdsBusy] = useState(false);
@@ -1050,6 +1055,7 @@ export function PecasTecnicasWorkspace({
     setPremiumStep(d.premium_step??(d.stage>0?[0,5,7,8,9][d.stage]:(d.pb1_closure?.confirmed||d.ps4_closure?.confirmed)?3:0));
     setTopconReview(null);
     setSigefParcelReview(null);
+    setPb1OdsAudit(null);
     setSigefValidatedSignature("");
     setPa2Mode(false);
     setConstructionMethod(d.construction?.method === "PT8" ? "PT8" :
@@ -1320,6 +1326,20 @@ export function PecasTecnicasWorkspace({
         "A pré-validação cadastral SIGEF não foi concluída.");
       setSigefParcelReview(payload);
       if (payload?.status === "PREVALIDATED") setSigefValidatedSignature(sigefSignature());
+      const selectedParcels=parcelsForOds();
+      const pb1Parcel=selectedParcels.filter(p=>p.vertices.some(v=>v.sigef_method==="PB1"));
+      if(pb1Parcel.length){
+        const id=pb1PieceId||loadedPieceId;
+        if(id&&pb1Parcel.length===1){
+          const auditResponse=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/ods-audit",{
+            method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({vertices:pb1Parcel[0].vertices})
+          });
+          const diagnostic=await auditResponse.json().catch(()=>null);
+          if(!auditResponse.ok)throw new Error(typeof diagnostic?.detail==="string"?diagnostic.detail:"Não foi possível auditar os atributos PB1.");
+          setPb1OdsAudit({...diagnostic,signature:sigefSignature()});
+        }else throw new Error("Salve a peça com uma única parcela PB1 para conferir os atributos da ODS.");
+      }
     } catch (error) {
       setTopconError(error instanceof Error ? error.message : "Erro na revisão cadastral.");
     } finally {
@@ -3291,6 +3311,28 @@ export function PecasTecnicasWorkspace({
                 })}</tbody></table></div>)}
               </details>
               {sigefParcelReview&&<div role="status"><strong>{sigefParcelReview.status==="PREVALIDATED"?"Pré-validação cadastral concluída":"Pendências cadastrais"}</strong>{[...sigefParcelReview.errors,...sigefParcelReview.warnings].map((m,i)=><p key={i}>{m}</p>)}</div>}
+              {pb1OdsAudit&&pb1OdsAudit.signature===sigefSignature()&&
+                <div className="pecas-note" role="status" style={{whiteSpace:"normal"}}>
+                  <strong>Auditoria dos atributos ODS · PB1</strong>
+                  <p>{pb1OdsAudit.complete_count}/{pb1OdsAudit.vertex_count} vértices completos
+                    {" · "}{pb1OdsAudit.original_count} marcos GNSS
+                    {" · "}{pb1OdsAudit.pb1_count} vértices V</p>
+                  <p>{pb1OdsAudit.status==="READY_FOR_RT_REVIEW"
+                    ?"Todos os atributos locais conferidos; falta aprovação RT e validação oficial SIGEF."
+                    :"A ODS definitiva permanece bloqueada até a resolução das pendências abaixo."}</p>
+                  {pb1OdsAudit.global_issues.map((m,i)=><p key={i} style={{color:"#8d4437"}}>{m}</p>)}
+                  <details>
+                    <summary style={{cursor:"pointer",fontWeight:600}}>Verificar cada vértice e sua pendência</summary>
+                    <div className="pecas-table-wrap">
+                      <table className="pecas-table"><thead><tr><th>Vértice</th><th>Método</th><th>Situação</th></tr></thead>
+                      <tbody>{pb1OdsAudit.vertices.map((v,i)=><tr key={i}>
+                        <td>{v.code||v.name}</td><td>{v.method||"—"}</td>
+                        <td style={{whiteSpace:"normal"}}>{v.ready?"Atributos completos":v.reasons.join("; ")}</td>
+                      </tr>)}</tbody></table>
+                    </div>
+                  </details>
+                  <small>{pb1OdsAudit.notice}</small>
+                </div>}
               <button type="button" className="pecas-primary" disabled={reviewedOdsBusy||sigefParcelReview?.status!=="PREVALIDATED"||sigefValidatedSignature!==sigefSignature()} onClick={()=>void downloadReviewedOds()}>{reviewedOdsBusy?"Gerando…":"Gerar ODS revisada"}</button>
               {reviewedOdsError&&<p role="alert" className="pecas-warning">{reviewedOdsError}</p>}
               {reviewedOdsNotice&&<p role="status">{reviewedOdsNotice}</p>}
