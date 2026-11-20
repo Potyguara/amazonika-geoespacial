@@ -255,11 +255,42 @@ class ReviewedSigefOdsInput(BaseModel):
 @router.post("/sigef/rascunho-ods")
 def download_working_sigef_ods(
     payload: ReviewedSigefOdsInput,
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Planilha de trabalho marcada INCOMPLETA; nunca suplanta validação SIGEF."""
+    body = payload.model_dump()
+    preliminary=[]
+    if payload.piece_id:
+        piece=_owned(payload.piece_id,db,user)
+        snap=piece.snapshot or {}
+        pb=snap.get("pb1") or {}
+        preview=pb.get("partial_preview") or {}
+        dtm=(pb.get("assets") or {}).get("pb1_dtm") or {}
+        if preview.get("dtm_sha256")==dtm.get("sha256") and dtm.get("sha256") and exists_matching(user.id,piece.id,dtm):
+            for parcel in payload.parcels:
+                for v in parcel.get("vertices",[]):
+                    if v.get("sigef_method")!="PB1":
+                        continue
+                    matches=[
+                        r for r in preview.get("points",[])
+                        if all(isinstance(v.get(k),(int,float)) and isinstance(r.get(k),(int,float))
+                            and abs(v[k]-r[k])<=5.1e-10 for k in ("longitude","latitude"))
+                    ]
+                    if len(matches)!=1:
+                        continue
+                    row=matches[0]
+                    if row.get("status")=="LOCAL_ESTIMATE_UNVALIDATED" and isinstance(row.get("h_ellipsoidal_m"),(int,float)):
+                        preliminary.append({
+                            "code":v.get("sigef_vertex_code"),"latitude":row["latitude"],"longitude":row["longitude"],
+                            "source_value_m":row.get("source_value_m"),"h_ellipsoidal_m":row["h_ellipsoidal_m"],
+                            "local_height_rmse_loo_m":row.get("local_height_rmse_loo_m"),
+                            "outside_control_hull":row.get("outside_control_hull"),
+                            "status":"ESTIMATIVA_NAO_VALIDADA_NAO_SUBMETER",
+                        })
+    body["preliminary_height_rows"]=preliminary
     try:
-        data = build_working_sigef_ods(payload.model_dump())
+        data = build_working_sigef_ods(body)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     return Response(
