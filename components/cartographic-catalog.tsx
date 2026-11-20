@@ -70,7 +70,7 @@ export function CartographicCatalog({onSelect,selectedId}:{onSelect?:(p:Cartogra
      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
        <div style={{minWidth:0,flex:"1 1 230px"}}>
          <strong>{current.name}</strong>
-         <p style={{margin:"4px 0",fontSize:12}}>{[current.producer,current.scale?"1:"+Number(current.scale).toLocaleString("pt-BR"):"",current.horizontal_crs].filter(Boolean).join(" · ")}</p>
+         <p style={{margin:"4px 0",fontSize:12}}>{[current.producer,current.scale?(current.scale.includes(":")?current.scale:"1:"+Number(current.scale).toLocaleString("pt-BR")):"",current.horizontal_crs].filter(Boolean).join(" · ")}</p>
          <small>{current.builtin?"Referência geral do sistema":"Cadastro particular"} · Revisão {current.revision}</small>
        </div>
        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
