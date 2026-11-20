@@ -167,7 +167,9 @@ function sourceFromCatalog(p:CartographicProfile,old:Pb1Source):Pb1Source {
   // A classe bibliográfica é preservada no perfil, mas não convertida em precisão comprovada.
   const pec=/^PEC [ABC]$/i.test(p.pec.trim())?p.pec.trim().toUpperCase():"";
   return {...old,catalog_profile:p,product:[p.name,p.product].filter(Boolean).join(" — "),
-    scale:/^\d+$/.test(p.scale)?p.scale:"",pec,vertical_kind,source_model,
+    scale:(()=>{const digits=p.scale.replace(/^\\s*1\\s*:\\s*/,"").replace(/[.\\s]/g,"");
+      return /^\\d+$/.test(digits)&&Number(digits)>0&&Number(digits)<=1000000?digits:"";})(),
+    pec,vertical_kind,source_model,
     vertical_datum:p.vertical_datum,vertical_reference:p.vertical_reference,
     accuracy_reference:p.accuracy_reference};
 }
