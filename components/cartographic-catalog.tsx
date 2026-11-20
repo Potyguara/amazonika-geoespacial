@@ -27,7 +27,9 @@ export function CartographicCatalog({onSelect,selectedId}:{onSelect?:(p:Cartogra
  .then(async r=>{if(!r.ok)throw Error("Catálogo indisponível.");return r.json()})
  .then(data=>{if(live)setItems(data)}).catch(e=>{if(live)setError(e.message)});return()=>{live=false};},[]);
  useEffect(()=>{if(selectedId!==undefined)setId(selectedId)},[selectedId]);
- const current=items.find(p=>p.id===id);
+ const template=items.find(p=>p.builtin);
+ const registered=items.filter(p=>!p.builtin);
+ const current=registered.find(p=>p.id===id);
  const begin=(copy?:CartographicProfile)=>{
    setDraft(copy?Object.fromEntries(fields.map(([k])=>[k,copy[k]??""])) as Record<Field,string>:empty());
    setEditId(copy&&!copy.builtin?copy.id:"");setEditing(true);setError("");setNotice("");
@@ -63,9 +65,10 @@ export function CartographicCatalog({onSelect,selectedId}:{onSelect?:(p:Cartogra
      <span>Base disponível</span>
      <select aria-label="Selecionar base cartográfica" value={current?.id??""} onChange={e=>{const next=items.find(p=>p.id===e.target.value);setId(e.target.value);setEditing(false);setError("");if(next&&onSelect){onSelect(next);setNotice("Base aplicada à peça; parâmetros técnicos específicos do raster continuam sujeitos à verificação.");}}} style={{width:"100%",maxWidth:"100%",minWidth:0,textOverflow:"ellipsis"}}>
        <option value="">Selecione uma base</option>
-       {items.map(p=><option key={p.id} value={p.id}>{p.name} · {p.builtin?"Referência do sistema":"Meu cadastro"} · {p.product||"Produto não definido"}</option>)}
+       {registered.map(p=><option key={p.id} value={p.id}>{p.name} · {p.product||"Produto não definido"}</option>)}
      </select>
    </label>
+   {!registered.length&&!editing&&<p style={{fontSize:12}}>Nenhuma base particular cadastrada. Crie uma base ou utilize o modelo do Amapá.</p>}
    {current&&!editing&&<div style={{border:"1px solid #d4e3db",borderRadius:10,padding:12,background:"#f7faf8"}}>
      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
        <div style={{minWidth:0,flex:"1 1 230px"}}>
@@ -87,6 +90,7 @@ export function CartographicCatalog({onSelect,selectedId}:{onSelect?:(p:Cartogra
    </div>}
    {editing&&<div style={{borderTop:"1px solid #d4e3db",marginTop:12,paddingTop:10}}>
      <h4 style={{margin:"0 0 10px"}}>{editId?"Editar base cadastrada":"Cadastrar base"}</h4>
+     {!editId&&template&&<button type="button" className="pecas-secondary" disabled={busy} onClick={()=>begin(template)}>Preencher com modelo do Amapá</button>}
      {groups.map((group,i)=><details key={group.title} open={i===0} style={{marginBottom:8,border:"1px solid #d4e3db",borderRadius:8,padding:"9px 12px"}}>
        <summary style={{cursor:"pointer",fontWeight:600}}>{group.title}</summary>
        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginTop:10}}>
