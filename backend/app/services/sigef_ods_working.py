@@ -108,6 +108,7 @@ def _add_disclaimer_sheet(root):
     for line in (
         "AMAZONIKA - RASCUNHO INCOMPLETO - NAO SUBMETER AO SIGEF",
         "Este arquivo NAO constitui certificacao, prevalidacao nem planilha apta a protocolo.",
+        "ALTURAS_PB1_PRELIMINARES e anexo informativo: nao integra os campos oficiais da ODS.",
         "Coordenadas e nomes sao transcritos da parcela de trabalho.",
         "Sigma e altura h nao medidos permanecem vazios, nunca recebem zeros ficticios.",
         "Altitude normal HN ou HN interpolada NAO substitui altura elipsoidal h.",
@@ -119,6 +120,38 @@ def _add_disclaimer_sheet(root):
         _set_string(cell, line)
     spreadsheet.append(sheet)
 
+
+def _add_pb1_preliminary_sheet(root, records):
+    """Anexo técnico com h experimental; não preenche a coluna h do SIGEF."""
+    if not records:
+        return
+    spreadsheet = root.find(f".//{OFFICE}spreadsheet")
+    if spreadsheet is None:
+        raise ValueError("Modelo ODS sem planilha.")
+    sheet = ET.Element(TABLE + "table", {TABLE + "name": "ALTURAS_PB1_PRELIMINARES"})
+    fields = [
+        ("code", "Vértice V"), ("latitude", "Latitude decimal"),
+        ("longitude", "Longitude decimal"), ("source_value_m", "Cota MDT original (m)"),
+        ("h_ellipsoidal_m", "h experimental (m)"),
+        ("local_height_rmse_loo_m", "RMSE LOO local (m)"),
+        ("outside_control_hull", "Extrapolação"),
+        ("status", "Situação"),
+    ]
+    lines=[dict(zip([x[0] for x in fields],[x[1] for x in fields]))]+records
+    for row_values in lines:
+        row = ET.SubElement(sheet, TABLE + "table-row")
+        for field,_ in fields:
+            cell=ET.SubElement(row, TABLE + "table-cell")
+            raw=row_values.get(field)
+            if raw is None:
+                _set_string(cell, "")
+            elif field=="outside_control_hull":
+                _set_string(cell,"FORA DOS CONTROLES" if raw else "DENTRO DOS CONTROLES")
+            elif field in ("latitude","longitude","source_value_m","h_ellipsoidal_m","local_height_rmse_loo_m") and isinstance(raw,(int,float)) and not isinstance(raw,bool) and isfinite(raw):
+                _set_number(cell,raw)
+            else:
+                _set_string(cell,str(raw)[:250])
+    spreadsheet.append(sheet)
 
 def build_working_sigef_ods(payload: dict) -> bytes:
     identity = payload.get("identification") or {}
@@ -146,6 +179,7 @@ def build_working_sigef_ods(payload: dict) -> bytes:
             current.set(TABLE + "name", f"perimetro_{index + 1}")
             _write_draft_perimeter(current, parcel, index + 1)
         _add_disclaimer_sheet(root)
+        _add_pb1_preliminary_sheet(root, payload.get("preliminary_height_rows") or [])
         content = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         result = BytesIO()
         with ZipFile(result, "w") as target:
