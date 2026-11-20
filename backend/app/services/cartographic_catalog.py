@@ -44,7 +44,7 @@ AMAPA = dict(BaseProfile(
     vertical_datum="Imbituba — SC (carta de referência)",
     format="GeoTIFF",edition="2020-05-20",creation_date="2016-01-01",
     metadata_id="02fcfad1-63f2-f677-3cee-feafea430c46",
-    reference_sheet="NA-22-Y-D-III-4-SO / MI 0201-4-SO",
+    reference_sheet="Articulação Sistemática 1:25.000 (Amapá) — preencher MI/INOM da folha efetivamente utilizada",
     coverage="Folha de referência: W -51.25; S 0.5; E -51.125; N 0.625",
     url="https://app-bdgex.eb.mil.br/metadados",
     notes="Metadados de carta matricial fornecidos pelo usuário. Não comprovam datum, modelo ou PEC de MDT/ORIXP nem abrangência de outras folhas. Conferir produto e folha efetivamente utilizados.",
@@ -87,3 +87,22 @@ def save_profile(user_id,payload,profile_id=None):
             tmp.flush();os.fsync(tmp.fileno())
         os.replace(tmp.name,path)
         return result
+
+def delete_profile(user_id, profile_id):
+    """Exclui apenas cadastro privado; referências globais são imutáveis."""
+    import fcntl
+    if profile_id == AMAPA["id"]:
+        raise ValueError("A referência de sistema não pode ser excluída.")
+    path=_path(user_id)
+    path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with open(path.parent/"write.lock","a") as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        records=json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        remaining=[r for r in records if r.get("id")!=profile_id]
+        if len(remaining)==len(records):
+            raise ValueError("Cadastro não encontrado nesta conta.")
+        with NamedTemporaryFile(dir=path.parent,mode="w",encoding="utf-8",delete=False) as tmp:
+            json.dump(remaining,tmp,ensure_ascii=False)
+            tmp.flush();os.fsync(tmp.fileno())
+        os.replace(tmp.name,path)
+    return {"deleted":profile_id}
