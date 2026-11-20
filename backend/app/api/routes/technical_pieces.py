@@ -1702,6 +1702,19 @@ def ps1_raster_tile(piece_id: UUID, digest: str, z: int, x: int, y: int,
     return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 
+class PB1OdsAuditInput(BaseModel):
+    vertices: list[dict] = Field(min_length=3, max_length=5000)
+
+
+@router.post("/{piece_id}/pb1/ods-audit")
+def audit_pb1_ods_route(piece_id: UUID, payload: PB1OdsAuditInput,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Diagnóstico privado do perímetro atual. Não aprova PB1 nem exporta ODS."""
+    from app.services.pb1_ods_audit import audit_pb1_ods
+    piece = _owned(piece_id,db,user)
+    return audit_pb1_ods(piece.snapshot or {}, payload.vertices, user.professional_profile_json or {})
+
+
 class PB1ApproveInput(BaseModel):
     vertices: list[dict] = Field(min_length=3, max_length=5000)
     category: str
