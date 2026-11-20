@@ -45,7 +45,10 @@ def estimate_local_height(row, model, factor=None):
             "local_height_rmse_loo_m":model["rmse_loo_m"],
             "nearest_control_m":nearest,"outside_control_hull":outside,
             "normal_height_m":h-factor[0] if factor is not None else None}
-    result["pending_reasons"]=[p for p in row.get("pending_reasons",[]) if "Sigma h" not in p]
+    result["pending_reasons"]=[
+        p for p in row.get("pending_reasons",[])
+        if "Precisão planimétrica" in p
+    ]
     result["pending_reasons"]+=["Altura h estimada por ajuste local; falta validação externa e sigma h fundamentado."]
     if outside:
         result["pending_reasons"].append("V fora do envoltório dos controles: extrapolação.")
