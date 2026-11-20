@@ -156,6 +156,22 @@ type TopconPreview = {
 
 type Pb1Source = {catalog_profile?:CartographicProfile;sheet:string;product:string;accuracy_reference:string;vertical_datum:string;
   scale?:string;pec?:string;vertical_kind?:string;source_model?:string;vertical_reference?:string};
+function sourceFromCatalog(p:CartographicProfile,old:Pb1Source):Pb1Source {
+  const kind=p.vertical_kind.toUpperCase();
+  const vertical_kind=kind==="NORMAL"||kind.includes("NORMAL")?"NORMAL":
+    kind==="ORTHOMETRIC"||kind.includes("ORTOMÉTR")||kind.includes("ORTOMETR")?"ORTHOMETRIC":
+    kind==="ELLIPSOIDAL"||kind.includes("ELIPSOID")?"ELLIPSOIDAL":"";
+  const modelText=(p.source_model+" "+p.vertical_kind).toUpperCase();
+  const source_model=vertical_kind==="ELLIPSOIDAL"?"NONE":
+    ["HGEOHNOR2020","MAPGEO2015","MAPGEO2010"].find(m=>modelText.includes(m))??"";
+  // A classe bibliográfica é preservada no perfil, mas não convertida em precisão comprovada.
+  const pec=/^PEC [ABC]$/i.test(p.pec.trim())?p.pec.trim().toUpperCase():"";
+  return {...old,catalog_profile:p,product:[p.name,p.product].filter(Boolean).join(" — "),
+    scale:/^\d+$/.test(p.scale)?p.scale:"",pec,vertical_kind,source_model,
+    vertical_datum:p.vertical_datum,vertical_reference:p.vertical_reference,
+    accuracy_reference:p.accuracy_reference};
+}
+
 const PB1_SCALE_OPTIONS=["10000","25000","50000","100000","Outra"];
 const PB1_PEC_OPTIONS=["PEC A","PEC B","PEC C","PEC-PCD A","PEC-PCD B","PEC-PCD C","PEC-PCD D","Outra"];
 const PB1_DATUM_OPTIONS=["Santana — AP","Imbituba — SC","GRS80 — SIRGAS 2000 (elipsoidal)","Referência local","Outro"];
@@ -3724,15 +3740,23 @@ export function PecasTecnicasWorkspace({
                           </details>
                           <details className="ps4-flow-card">
                             <summary className="ps4-flow-summary"><span className="ps4-step-no">i</span>
-                              <span className="ps4-step-heading"><strong>Dados técnicos da base (avançado)</strong>
-                                <small>Origem cartográfica e precisão documentada</small></span>
+                              <span className="ps4-step-heading"><strong>Base selecionada e folhas</strong>
+                                <small>Reutiliza automaticamente o catálogo; edite apenas diferenças do raster</small></span>
                               <span className="ps4-step-caret">⌄</span></summary>
                             <div className="ps4-flow-body">
                               <CartographicCatalog selectedId={pb1Source.catalog_profile?.id??""} onSelect={p=>{
-                                setPb1Source(old=>({...old,catalog_profile:p,product:p.name+" — "+p.product,scale:p.scale,
-                                  pec:"",accuracy_reference:"",vertical_datum:"",vertical_kind:"",source_model:"",vertical_reference:""}));
+                                setPb1Source(old=>sourceFromCatalog(p,old));
                                 setPb1TechnicalResult(null);setPb1Partial(null);setPb1AppliedSignature("");
                               }}/>
+                              {pb1Source.catalog_profile&&<div className="pecas-note" style={{whiteSpace:"normal",overflowWrap:"anywhere"}}>
+                                <strong>Origem selecionada:</strong> {pb1Source.catalog_profile.producer||pb1Source.catalog_profile.name}
+                                {" · "}1:{Number(pb1Source.scale||25000).toLocaleString("pt-BR")}
+                                {" · "}{pb1Source.catalog_profile.horizontal_crs||"SRC a verificar"}
+                                <p style={{margin:"6px 0 0"}}>Datum informado no cadastro: {pb1Source.vertical_datum||"não informado"}.
+                                Tipo do raster: {pb1Source.vertical_kind||"não confirmado"}.
+                                {pb1Source.catalog_profile.pec?" Classe declarada: "+pb1Source.catalog_profile.pec+".":""}
+                                {" "}Os dados cadastrais são reutilizados; a exatidão do raster depende das evidências técnicas.</p>
+                              </div>}
                               <Pb1SheetLookup geometry={pb1LookupGeometry} autoLookup
                                 onSheetsFound={sheets=>{
                                   const intersecting=sheets.filter(row=>row.area_overlap);
@@ -3740,6 +3764,10 @@ export function PecasTecnicasWorkspace({
                                     .map(row=>row.inom+(row.mi?" · MI "+row.mi:"")).join("; ");
                                   if(list)setPb1Source(old=>({...old,sheet:list}));
                                 }}/>
+                              <p className="pecas-note" style={{whiteSpace:"normal"}}><strong>Folhas da área:</strong> {pb1Source.sheet||"Aguardando identificação automática INOM/MI"}</p>
+                              <details className="pecas-card" style={{padding:12}}>
+                                <summary style={{cursor:"pointer",fontWeight:600}}>Corrigir metadados específicos do raster (se necessário)</summary>
+                                <p style={{fontSize:12}}>O cadastro fornece os valores abaixo. Altere apenas se a folha ou o raster tiver especificação diferente.</p>
                               <label className="pecas-field"><span>Folhas INOM / MI cobertas pelo mosaico (uma ou mais)</span>
                                 <input value={pb1Source.sheet} placeholder="Ex.: 0244-1-NE; 0244-1-NO"
                                   onChange={e=>setPb1Source(o=>({...o,sheet:e.target.value}))}/></label>
@@ -3786,6 +3814,7 @@ export function PecasTecnicasWorkspace({
                                 com SRC incorporado; arquivos .tfw isolados não definem o datum.
                                 Esses campos descrevem a fonte; não constituem validação automática.
                                 O responsável técnico deverá conferir a escala, a exatidão e a compatibilidade com o limite.</p>
+                              </details>
                             </div>
                           </details>
                           <details className="ps4-flow-card" id="pb1-technical-step">
