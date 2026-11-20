@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from types import SimpleNamespace
-from app.services.cartographic_catalog import BaseProfile,list_profiles,save_profile
+from app.services.cartographic_catalog import BaseProfile,list_profiles,save_profile,delete_profile
 
 class CatalogTests(unittest.TestCase):
     def test_catalog_lifecycle(self):
@@ -19,6 +19,14 @@ class CatalogTests(unittest.TestCase):
             revised=save_profile("user-a",BaseProfile(name="Revisada"),p["id"])
             self.assertEqual(revised["revision"],2)
             self.assertEqual(len(list_profiles("user-a")),2)
+            self.assertTrue(list_profiles("user-a")[0]["reference_sheet"].startswith("Articulação Sistemática"))
+            with self.assertRaises(ValueError):
+                delete_profile("user-a",seed["id"])
+            with self.assertRaises(ValueError):
+                delete_profile("user-b",p["id"])
+            deleted=delete_profile("user-a",p["id"])
+            self.assertEqual(deleted["deleted"],p["id"])
+            self.assertEqual(len(list_profiles("user-a")),1)
             with self.assertRaises(ValueError):
                 save_profile("user-b",BaseProfile(name="Não permitido"),p["id"])
             with self.assertRaises(ValueError):
