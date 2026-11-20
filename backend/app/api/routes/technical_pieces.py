@@ -64,7 +64,7 @@ def _owned(piece_id: UUID, db: Session, user: User) -> TechnicalPiece:
 
 
 
-from app.services.cartographic_catalog import BaseProfile, list_profiles, save_profile
+from app.services.cartographic_catalog import BaseProfile, list_profiles, save_profile, delete_profile
 
 @router.get("/cartographic-catalog")
 def cartographic_catalog(user: User = Depends(get_current_user)):
@@ -81,6 +81,14 @@ def create_cartographic_profile(payload: BaseProfile, user: User = Depends(get_c
 def edit_cartographic_profile(profile_id: str, payload: BaseProfile, user: User = Depends(get_current_user)):
     try:
         return save_profile(user.id,payload,profile_id)
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+
+
+@router.delete("/cartographic-catalog/{profile_id}")
+def remove_cartographic_profile(profile_id: str, user: User = Depends(get_current_user)):
+    try:
+        return delete_profile(user.id,profile_id)
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
 
