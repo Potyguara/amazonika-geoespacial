@@ -127,7 +127,7 @@ const emptyPaLine: PaLine = { a: "", b: "", offset: "", side: "LEFT", offsetSigm
 type PaChainVertex = {
   sequence: number; support_point: string; position: "START" | "INTERNAL" | "END";
   easting_m: number; northing_m: number; longitude: number | null; latitude: number | null;
-  height_m: number | null; height_source: string | null; support_height_m?: number | null;
+  height_m: number | null; height_source: string | null; reference_points?: string[];
   sigma_e_m: number | null; sigma_n_m: number | null; sigma_horizontal_m: number | null; sigma_h_m: number | null;
   turn_angle_deg: number; miter_factor: number;
 };
@@ -1600,8 +1600,12 @@ export function PecasTecnicasWorkspace({
       const point = (name: string) => {
         const p = topconPreview.points.find((item) => item.name === name);
         if (!p) throw new Error("Ponto " + name + " não encontrado no relatório importado.");
+        const boundary = topconBoundary.find((b) => b.name === name);
         return { name: p.name, easting_m: p.easting_m, northing_m: p.northing_m,
-          sigma_e_m: p.sigma_e_m, sigma_n_m: p.sigma_n_m };
+          latitude: p.latitude, longitude: p.longitude,
+          sigma_e_m: p.sigma_e_m, sigma_n_m: p.sigma_n_m,
+          ellipsoidal_height_m: boundary?.ellipsoidal_height_m ?? p.ellipsoidal_height_reported_m ?? null,
+          sigma_h_m: boundary?.sigma_h_m ?? p.sigma_u_m ?? null };
       };
       const num = (v: string) => v.trim() === "" ? null : Number(v.replace(",", "."));
       const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/offset-lines-intersection`, {
@@ -1667,6 +1671,7 @@ export function PecasTecnicasWorkspace({
         if (!p) throw new Error("Ponto " + name + " não encontrado no relatório importado.");
         const boundary = topconBoundary.find((b) => b.name === name);
         return { name: p.name, easting_m: p.easting_m, northing_m: p.northing_m,
+          latitude: p.latitude, longitude: p.longitude,
           sigma_e_m: p.sigma_e_m, sigma_n_m: p.sigma_n_m,
           ellipsoidal_height_m: boundary?.ellipsoidal_height_m ?? p.ellipsoidal_height_reported_m ?? null,
           sigma_h_m: boundary?.sigma_h_m ?? p.sigma_u_m ?? null };
@@ -1797,9 +1802,16 @@ export function PecasTecnicasWorkspace({
       sigma_suggestion_n_m: pa2Result.sigma_n_m,
       sigma_suggestion_h_m: pa2Result.sigma_h_m,
       derived_calculation: { ...pa2Result, generated_at: new Date().toISOString() },
-      ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
-      sigma_hz_m: null, sigma_u_m: null,
-      sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+      ...(pa2Result.operation === "OFFSET_LINES_INTERSECTION" ? {
+        // SGL + h média dos vértices de referência (MTGIR 3.8 b e 3.3.2).
+        ellipsoidal_height_m: pa2Result.height_m, sigma_n_m: pa2Result.sigma_n_m, sigma_e_m: pa2Result.sigma_e_m,
+        sigma_hz_m: pa2Result.sigma_horizontal_m ?? null, sigma_u_m: pa2Result.sigma_h_m,
+        sigma_lon_m: pa2Result.sigma_e_m, sigma_lat_m: pa2Result.sigma_n_m, sigma_h_m: pa2Result.sigma_h_m,
+      } : {
+        ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
+        sigma_hz_m: null, sigma_u_m: null,
+        sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+      }),
       sigma_reference_confirmed: false,
       height_reference_confirmed: false,
       sigef_vertex_code: "", sigef_method: constructionMethod, boundary_type: previous.boundary_type,
@@ -4802,12 +4814,16 @@ export function PecasTecnicasWorkspace({
                               {pa2Result.sigma_horizontal_m != null
                                 ? pa2Result.sigma_horizontal_m.toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m"
                                 : "não calculada (falta desvio-padrão de algum ponto ou afastamento)"}
+                              {pa2Result.height_m != null && <><br/><strong>h atribuída (média dos 4 pontos, Manual 3.3.2):</strong>{" "}
+                                {pa2Result.height_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} m
+                                {pa2Result.sigma_h_m != null ? " · σh " + pa2Result.sigma_h_m.toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m" : ""}</>}
                             </p>}
                           </section>}
                           {chainMode && <section aria-label="Paralelas a cadeias de pontos P" style={{display:"grid",gap:10}}>
                             <p>Clique no mapa nos pontos P na ordem do caminhamento. Os segmentos são ligados
                               automaticamente. Depois informe o afastamento e o lado: os V são as interseções das
-                              paralelas de segmentos consecutivos, com σE e σN propagados. A h dos V não é estimada: informe-a na tabela.
+                              paralelas de segmentos consecutivos. O cálculo é feito no plano local SGL (Manual, item 3.8 b),
+                              com σE e σN propagados. A h de cada V é a média das h dos pontos de referência (Manual, item 3.3).
                               Clique de novo no último ponto para desfazê-lo. Crie quantas paralelas precisar.</p>
                             <label className="pecas-check">
                               <input type="checkbox" checked={pa2ConfirmedCrs}
@@ -4858,13 +4874,13 @@ export function PecasTecnicasWorkspace({
                                 {chain.error && <p role="alert" className="pecas-warning">{chain.error}</p>}
                                 {r && <div role="status" style={{display:"grid",gap:6}}>
                                   <div style={{overflowX:"auto"}}><table className="pecas-table">
-                                    <thead><tr><th>#</th><th>Apoio</th><th>E (m)</th><th>N (m)</th><th>σE</th><th>σN</th><th>σHz</th><th>h do P de apoio (ref.)</th><th>Deflexão</th></tr></thead>
+                                    <thead><tr><th>#</th><th>Apoio</th><th>E (m)</th><th>N (m)</th><th>σE</th><th>σN</th><th>σHz</th><th>h (m)</th><th>σh</th><th>Deflexão</th></tr></thead>
                                     <tbody>{r.vertices.map((v) => {
                                       const f = (x: number | null, d = 3) => x == null ? "—" : x.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
                                       return <tr key={v.sequence}><td>{v.sequence}</td><td>{v.support_point}</td>
                                         <td>{f(v.easting_m)}</td><td>{f(v.northing_m)}</td><td>{f(v.sigma_e_m)}</td><td>{f(v.sigma_n_m)}</td>
                                         <td style={{color:v.sigma_horizontal_m!=null&&v.sigma_horizontal_m>0.5?"#b42318":undefined}}>{f(v.sigma_horizontal_m)}</td>
-                                        <td>{f(v.support_height_m ?? null)}</td><td>{f(v.turn_angle_deg, 1)}°</td></tr>;
+                                        <td title={"Média de " + (v.reference_points ?? []).join(", ")}>{f(v.height_m)}</td><td>{f(v.sigma_h_m)}</td><td>{f(v.turn_angle_deg, 1)}°</td></tr>;
                                     })}</tbody>
                                   </table></div>
                                   {r.warnings.map((w, i) => <p key={i} className="pecas-note" style={{margin:0}}>{w}</p>)}

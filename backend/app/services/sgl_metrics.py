@@ -2,8 +2,8 @@
 from math import radians, degrees, sin, cos, sqrt, fsum, isfinite, atan2, hypot
 from pyproj import Transformer
 
-_TO_XYZ = Transformer.from_crs("EPSG:4893", "EPSG:4892", always_xy=True)
-_TO_LLH = Transformer.from_crs("EPSG:4892", "EPSG:4893", always_xy=True)
+_TO_XYZ = Transformer.from_crs("EPSG:4989", "EPSG:4988", always_xy=True)
+_TO_LLH = Transformer.from_crs("EPSG:4988", "EPSG:4989", always_xy=True)
 
 def sgl_metrics(points, heights):
     if len(points)<3 or len(points)!=len(heights):
