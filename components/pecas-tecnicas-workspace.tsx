@@ -121,6 +121,8 @@ export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_re
   sigma_suggestion_h_m?: number | null;
   derived_calculation?: Record<string, unknown> | null;
 };
+type PaLine = { a: string; b: string; offset: string; side: "LEFT" | "RIGHT"; offsetSigma: string };
+const emptyPaLine: PaLine = { a: "", b: "", offset: "", side: "LEFT", offsetSigma: "" };
 type TopconReview = {
   ready_for_geometry?: boolean;
   ready_for_ods: boolean;
@@ -218,7 +220,8 @@ export type TopconDraft = {
   }>;
   construction?: {
     method: "PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1";
-    pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
+    pa2_variant: "SUPPORT_LINE" | "INTERSECTION" | "OFFSET_LINES";
+    pa_lines?: PaLine[];
     witnesses: string[];
     distance: string;
     side: "LEFT" | "RIGHT" | "FORWARD" | "BACKWARD";
@@ -351,6 +354,7 @@ type Props = {
   onAdoptTopconParcels: (parcels: Array<{
     number: string; name: string; vertices: TopconBoundaryPoint[];
   }>) => void;
+  onResetTopconWork?: () => void;
   memorialText: string;
   memorialLoading: boolean;
   externalError?: string | null;
@@ -412,7 +416,7 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function PecasTecnicasWorkspace({
   open, onClose, data, onDataChange, onLegalMetadataChange, polygons, importedMetadata, selectedIds, rasterKey, onSelect,
-  onRenamePolygon, onRenameVertex, onConfrontant, onAdoptTopconParcels, memorialText,
+  onRenamePolygon, onRenameVertex, onConfrontant, onAdoptTopconParcels, onResetTopconWork, memorialText,
   memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
   rtProfile, rtLoading, rtError, onRtChange, onRtReload,
@@ -828,7 +832,9 @@ export function PecasTecnicasWorkspace({
     setPs4Notice(`Vértice ${name} registrado como rascunho. Continue marcando a feição e depois confira o fechamento.`);
     setPs4Status({kind:"success", message:`Vértice ${name} registrado. Próximo: marcar outro V ou validar fechamento.`});
   };
-  const [pa2Variant, setPa2Variant] = useState<"SUPPORT_LINE" | "INTERSECTION">("SUPPORT_LINE");
+  const [pa2Variant, setPa2Variant] = useState<"SUPPORT_LINE" | "INTERSECTION" | "OFFSET_LINES">("OFFSET_LINES");
+  const [paLines, setPaLines] = useState<PaLine[]>([{ ...emptyPaLine }, { ...emptyPaLine }]);
+  const offsetMode = (constructionMethod === "PA1" || constructionMethod === "PA2") && pa2Variant === "OFFSET_LINES";
   const [constructionDistance, setConstructionDistance] = useState("");
   const [pt8PointConfirmed, setPt8PointConfirmed] = useState(false);
   const [constructionSide, setConstructionSide] = useState<"LEFT" | "RIGHT" | "FORWARD" | "BACKWARD">("LEFT");
@@ -848,6 +854,7 @@ export function PecasTecnicasWorkspace({
     distance_a_b_m?: number;
     witnesses?: string[];
     sigma_e_m: number | null; sigma_n_m: number | null; sigma_h_m: number | null;
+    sigma_horizontal_m?: number | null; sigma_model?: string | null; operation?: string;
     warnings: string[]; ready_for_sigef: boolean;
   } | null>(null);
   const [pa2Busy, setPa2Busy] = useState(false);
@@ -1163,8 +1170,10 @@ export function PecasTecnicasWorkspace({
     setSigefValidatedSignature("");
     setPa2Mode(false);
     setConstructionMethod(d.construction?.method === "PT8" ? "PT8" :
+      d.construction?.method === "PA1" ? "PA1" : d.construction?.method === "PA2" ? "PA2" :
       d.construction?.method === "PB1" ? "PB1" : d.construction?.method === "PS1" ? "PS1" : "PS4");
-    setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
+    setPa2Variant(d.construction?.pa2_variant ?? "OFFSET_LINES");
+    setPaLines(d.construction?.pa_lines?.length === 2 ? d.construction.pa_lines : [{ ...emptyPaLine }, { ...emptyPaLine }]);
     setPa2Witnesses(d.construction?.witnesses ?? []);
     setConstructionDistance(d.construction?.distance ?? "");
     setConstructionSide(d.construction?.side ?? "LEFT");
@@ -1193,7 +1202,7 @@ export function PecasTecnicasWorkspace({
     cns: sigefCns, registration: sigefRegistration,
     area_nature:areaNature, sncr, stage, premium_step:premiumStep,
     construction: {
-      method: constructionMethod, pa2_variant: pa2Variant,
+      method: constructionMethod, pa2_variant: pa2Variant, pa_lines: paLines,
       witnesses: pa2Witnesses, distance: constructionDistance,
       side: constructionSide, crs_confirmed: pa2ConfirmedCrs,
       insert_after: pa2InsertAfter, hint: mapHint,
@@ -1554,6 +1563,47 @@ export function PecasTecnicasWorkspace({
       setPa2Busy(false);
     }
   };
+  const paLineReady = (line: PaLine) => Boolean(line.a && line.b && line.a !== line.b &&
+    line.offset.trim() !== "" && Number.isFinite(Number(line.offset.replace(",", "."))) &&
+    Number(line.offset.replace(",", ".")) >= 0);
+  const calculatePaOffsetLines = async () => {
+    if (!topconPreview) return;
+    setPa2Busy(true); setPa2Error(""); setPa2Result(null);
+    try {
+      if (!paLines.every(paLineReady)) throw new Error("Preencha as duas retas: dois pontos distintos e o afastamento (0 para usar o próprio alinhamento).");
+      const point = (name: string) => {
+        const p = topconPreview.points.find((item) => item.name === name);
+        if (!p) throw new Error("Ponto " + name + " não encontrado no relatório importado.");
+        return { name: p.name, easting_m: p.easting_m, northing_m: p.northing_m,
+          sigma_e_m: p.sigma_e_m, sigma_n_m: p.sigma_n_m };
+      };
+      const num = (v: string) => v.trim() === "" ? null : Number(v.replace(",", "."));
+      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/offset-lines-intersection`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: constructionMethod,
+          lines: paLines.map((line) => ({
+            points: [point(line.a), point(line.b)],
+            offset_m: num(line.offset) ?? 0,
+            side: line.side,
+            offset_sigma_m: num(line.offsetSigma),
+          })),
+          utm_zone: topconPreview.project.utm_zone,
+          hemisphere: topconPreview.project.hemisphere,
+          sirgas2000_confirmed: pa2ConfirmedCrs,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(typeof payload?.detail === "string"
+        ? payload.detail : "Não foi possível calcular a interseção das retas.");
+      setPa2Result(payload);
+    } catch (error) {
+      setPa2Error(error instanceof Error ? error.message : "Falha no cálculo.");
+    } finally {
+      setPa2Busy(false);
+    }
+  };
   const addProvisionalPa2 = () => {
     if (!topconPreview || !pa2Result || !Number.isFinite(pa2Result.latitude)
         || !Number.isFinite(pa2Result.longitude)) {
@@ -1792,6 +1842,14 @@ export function PecasTecnicasWorkspace({
     setSigefValidatedSignature("");
       setPs1Points([]);
       setPs1Notice("");
+      // Novo levantamento: nada do relatório anterior é preservado
+      // (pontos, parcela M–V, V construídos, PB1/PS4/PA e revisões).
+      setPb1Partial(null); setPb1OdsAudit(null); setPb1Start("");
+      setPb1Source({sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
+      setPb1Review({category:"",position_reference:"",inaccessible_reason:"",rt_reviewed:false});
+      setPs4ApprovalConfirmed(false); setPt8PointConfirmed(false);
+      setPaLines([{...emptyPaLine},{...emptyPaLine}]);
+      onResetTopconWork?.();
       setTopconPreview(preview);
       const candidates=preview.points.filter(p=>p.point_role!=="CONTROL");
       const complete=candidates.filter(p=>[p.sigma_n_m,p.sigma_e_m,p.sigma_u_m].every(v=>typeof v==="number"&&Number.isFinite(v)&&v>0)).length;
@@ -3549,7 +3607,7 @@ export function PecasTecnicasWorkspace({
           </button>}
         </div>
       </footer>
-      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1") && (
+      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || offsetMode || constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1") && (
         <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1" ? "ps4-redesigned-dialog" : undefined}
           style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
             border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
@@ -3701,16 +3759,16 @@ export function PecasTecnicasWorkspace({
               marginBottom: 12 }}>
             {(["PA1", "PA2", "PT8", "PS4", "PB1", "PS1"] as const).map(method => <button
               key={method} type="button"
-              disabled={method === "PA1" || method === "PA2"}
               title={method === "PA1" || method === "PA2"
-                ? "Vértices V nesta versão utilizam somente PS4 com relatório" : undefined}
+                ? "Vértice V por interseção de paralelas a pontos medidos (sem clique)" : undefined}
               className={constructionMethod === method ? "pecas-primary" : "pecas-secondary"}
               onClick={() => {
                 setConstructionMethod(method);
                 setPs4Status({kind:"info",message: method === "PS4"
                   ? "Método PS4 ativado. Etapa 1: clique sobre a feição na imagem CBERS-4A."
                   : `Método ${method} selecionado. Confira o procedimento e as entradas exigidas.`});
-                setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
+                setPa2Witnesses([]); setPa2Result(null); setMapHint(null); setPa2Error("");
+                if (method === "PA1" || method === "PA2") setPa2Variant("OFFSET_LINES");
                 setConstructionSide(method === "PT8" ? "FORWARD" : "LEFT");
               }}>
               {method} — {method === "PA1" ? "Paralela"
@@ -3781,11 +3839,12 @@ export function PecasTecnicasWorkspace({
                           <span>Método de posicionamento</span>
                           <select value={constructionMethod} onChange={e => {
                             setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1");
+                            if (e.target.value === "PA1" || e.target.value === "PA2") setPa2Variant("OFFSET_LINES");
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
-                            <option value="PA1" disabled>PA1 — Não disponível nesta versão</option>
-                            <option value="PA2" disabled>PA2 — Não disponível nesta versão</option>
+                            <option value="PA1">PA1 — Paralela (tipo V)</option>
+                            <option value="PA2">PA2 — Interseção (tipo V)</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
                             <option value="PS1">PS1 — Aerofotogrametria</option>
                             <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
@@ -4504,16 +4563,79 @@ export function PecasTecnicasWorkspace({
                           </details>
                         </section>}
                         {pa2Mode && constructionMethod !== "PS4" && constructionMethod !== "PB1" && constructionMethod !== "PS1" && <>
-                          {constructionMethod === "PA2" && <label className="pecas-field">
-                            <span>Procedimento de construção PA2</span>
+                          {(constructionMethod === "PA1" || constructionMethod === "PA2") && <label className="pecas-field">
+                            <span>Procedimento de construção {constructionMethod}</span>
                             <select value={pa2Variant} onChange={(event) => {
                               setPa2Variant(event.target.value as typeof pa2Variant);
-                              setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
+                              setPa2Witnesses([]); setPa2Result(null); setMapHint(null); setPa2Error("");
                             }}>
-                              <option value="SUPPORT_LINE">Linha de apoio entre dois marcos + clique projetado</option>
-                              <option value="INTERSECTION">Interseção geométrica de duas retas (quatro marcos)</option>
+                              <option value="OFFSET_LINES">Interseção de duas paralelas a pontos medidos (sem clique)</option>
+                              {constructionMethod === "PA2" && <option value="SUPPORT_LINE">Linha de apoio entre dois marcos + clique projetado</option>}
+                              {constructionMethod === "PA2" && <option value="INTERSECTION">Interseção geométrica de duas retas (quatro marcos)</option>}
+                              {constructionMethod === "PA1" && <option value="SUPPORT_LINE">Paralela a dois marcos + clique (legado)</option>}
                             </select>
                           </label>}
+                          {offsetMode && <section aria-label="Interseção de paralelas" style={{display:"grid",gap:10}}>
+                            <p>Cada reta passa por dois pontos medidos por GNSS (por exemplo, pontos P na margem)
+                              e pode ser deslocada por um afastamento perpendicular. Com afastamento 0, a reta é
+                              o próprio alinhamento. O V é a interseção das duas retas, calculada só por geometria,
+                              sem clique no mapa.</p>
+                            {paLines.map((line, index) => <fieldset key={index} className="pecas-card" style={{display:"grid",gap:8}}>
+                              <legend><strong>Reta {index + 1}</strong></legend>
+                              {(["a", "b"] as const).map((key) => <label key={key} className="pecas-field">
+                                <span>{key === "a" ? "Ponto A" : "Ponto B"}</span>
+                                <select value={line[key]} onChange={(e) => {
+                                  const value = e.target.value;
+                                  setPaLines((old) => old.map((l, i) => i === index ? { ...l, [key]: value } : l));
+                                  setPa2Result(null);
+                                }}>
+                                  <option value="">Selecione</option>
+                                  {topconPreview.points.map((p) => <option key={p.name} value={p.name}>
+                                    {p.name}{p.point_role === "CONTROL" ? " (base)" : ""}
+                                  </option>)}
+                                </select>
+                              </label>)}
+                              <label className="pecas-field"><span>Afastamento perpendicular (m)</span>
+                                <input type="number" min="0" step="any" value={line.offset}
+                                  onChange={(e) => { const value = e.target.value;
+                                    setPaLines((old) => old.map((l, i) => i === index ? { ...l, offset: value } : l));
+                                    setPa2Result(null); }} />
+                              </label>
+                              <label className="pecas-field"><span>Lado do afastamento</span>
+                                <select value={line.side} onChange={(e) => { const value = e.target.value as PaLine["side"];
+                                  setPaLines((old) => old.map((l, i) => i === index ? { ...l, side: value } : l));
+                                  setPa2Result(null); }}>
+                                  <option value="LEFT">Esquerda de A → B</option>
+                                  <option value="RIGHT">Direita de A → B</option>
+                                </select>
+                              </label>
+                              <label className="pecas-field"><span>Desvio-padrão do afastamento (m, opcional)</span>
+                                <input type="number" min="0" step="any" value={line.offsetSigma}
+                                  placeholder="0 se o afastamento é definido por documento"
+                                  onChange={(e) => { const value = e.target.value;
+                                    setPaLines((old) => old.map((l, i) => i === index ? { ...l, offsetSigma: value } : l));
+                                    setPa2Result(null); }} />
+                              </label>
+                            </fieldset>)}
+                            <label className="pecas-check">
+                              <input type="checkbox" checked={pa2ConfirmedCrs}
+                                onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPa2Result(null); }} />
+                              Confirmo que os pontos estão no mesmo referencial SIRGAS2000,
+                              na zona e hemisfério indicados pelo processamento.
+                            </label>
+                            <button type="button" className="pecas-primary"
+                              disabled={pa2Busy || !paLines.every(paLineReady)}
+                              onClick={() => void calculatePaOffsetLines()}>
+                              {pa2Busy ? "Calculando..." : "Calcular V (" + constructionMethod + ")"}
+                            </button>
+                            {pa2Result?.operation === "OFFSET_LINES_INTERSECTION" && <p>
+                              <strong>Precisão horizontal propagada:</strong>{" "}
+                              {pa2Result.sigma_horizontal_m != null
+                                ? pa2Result.sigma_horizontal_m.toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m"
+                                : "não calculada (falta desvio-padrão de algum ponto ou afastamento)"}
+                            </p>}
+                          </section>}
+                          {!offsetMode && <>
                           <p>No mapa à direita, selecione os marcos diretamente posicionados.
                             O clique no terreno é um indicador visual de posição e nunca
                             substitui a distância ou o afastamento medido em campo.</p>
@@ -4571,6 +4693,7 @@ export function PecasTecnicasWorkspace({
                             Confirmo em campo a caracterização do ponto como vértice do tipo P
                             (PT8 não pode gerar um vértice do tipo V).
                           </label>}
+                          </>}
                           {pa2Result && <div role="status">
                             {pa2Result.physical_altitude_m != null && <p>
                               <strong>Altitude física interpolada:</strong>{" "}

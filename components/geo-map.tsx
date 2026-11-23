@@ -814,6 +814,26 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     }
   };
 
+  // Novo relatório TOPCON: o trabalho anterior (pontos, parcela M–V e V
+  // construídos) não tem relação com o novo levantamento e é descartado.
+  // Somente geometrias de trabalho TOPCON são removidas; camadas oficiais não.
+  const resetTopconWork = () => {
+    let removed = false;
+    for (const existing of polygonFeatures()) {
+      const id = String(existing.get("workPolygonId") ?? "");
+      if (/^TOPCON-/.test(id)) { sourceRef.current.removeFeature(existing); removed = true; }
+    }
+    if (!removed) return;
+    setMemorialText("");
+    setEditedMemorial(null);
+    setLastGeneratedPdfId(null);
+    syncPolygonRegistry();
+    setSelectedPolygonIds((old) => old.filter((id) => !/^TOPCON-/.test(id)));
+    setSituationSnapshot(null);
+    refreshVertexLabels();
+    emitGeometry();
+  };
+
   const documentParcels = () => {
     const features = selectedFeatures();
     if (!features.length) throw new Error("Selecione ao menos um polígono.");
@@ -3271,6 +3291,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         )}
         onRenamePolygon={setPolygonName}
         onAdoptTopconParcels={adoptTopconParcels}
+        onResetTopconWork={resetTopconWork}
         onRenameVertex={renameVertex}
         onConfrontant={(id, index, value) => updateParcelVertexData(id, index, "confrontants", value)}
         memorialText={memorialText}
