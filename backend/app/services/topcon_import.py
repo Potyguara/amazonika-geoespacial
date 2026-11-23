@@ -167,7 +167,7 @@ def _native_html_tables(raw: bytes) -> dict | None:
             return row[i] if i is not None and i < len(row) else ""
         if not any(row):
             continue
-        name = _canonical_point_id(get("name"))
+        name = _native_point_id(get("name"))
         if not _point_name(name) or name in points:
             raise ValueError("Identificador de ponto inválido ou duplicado: " + name)
         try:
@@ -182,6 +182,7 @@ def _native_html_tables(raw: bytes) -> dict | None:
                 if val < 0:
                     raise ValueError(f"{name}: desvio padrão negativo.")
                 point["sigma_point"][key] = val
+        point["original_name"] = get("name").strip()
         point["control"] = _norm(get("control"))
         point["project_geographic"] = headers[columns["latitude"]] == "latitude" and headers[columns["longitude"]] == "longitude"
         points[name] = point
@@ -201,7 +202,7 @@ def _native_html_tables(raw: bytes) -> dict | None:
                     continue
                 observations.append(dict(zip(("dn_m","de_m","dz_m","horizontal_rms_m","vertical_rms_m","sigma_x_m","sigma_y_m","sigma_z_m"), nums), baseline=row[0], solution_type=row[9]))
             elif title == "ocupacoes gps" and len(row) >= 6:
-                name = _canonical_point_id(row[0])
+                name = _native_point_id(row[0])
                 occupations.append(dict(point=name, original_name=row[0], started_at_reported=row[1], ended_at_reported=row[2], duration=row[3], method="", interval_ms=row[5], antenna=row[4]))
     return {"points":points,"observations":observations[:LIMIT_POINTS],"occupations":occupations[:LIMIT_POINTS]}
 
@@ -296,6 +297,15 @@ def _canonical_point_id(value: str) -> str:
     Apenas identificadores; nunca altera os sinais das coordenadas.
     """
     return re.sub(r"[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]", "-", value.strip())
+
+
+def _native_point_id(value: str) -> str:
+    """Identificador da tabela HTML nativa: nomes como "BASE 1" viram "BASE_1".
+
+    O Topcon Tools aceita espaços no nome do ponto; o restante do fluxo usa
+    identificadores sem espaço. O nome original é preservado em original_name.
+    """
+    return re.sub(r"\s+", "_", _canonical_point_id(value))
 
 
 def _point_name(value: str) -> bool:
