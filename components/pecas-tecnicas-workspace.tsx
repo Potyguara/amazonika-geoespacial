@@ -229,6 +229,61 @@ export type TopconDraft = {
   };
 };
 
+// GEO125_SIGEF_CANONICAL_ORDER_V1
+// Aplicada apenas ao payload da ODS, sem deslocar geometria ou modificar
+// os dados do projeto. O servidor permanece responsavel pela validacao.
+type Geo125SigefVertex = {
+  latitude: number; longitude: number;
+  boundary_type?: string; boundary_detail?: string; confrontant?: string;
+  confrontant_cns?: string; confrontant_registration?: string;
+};
+function geo125CanonicalSigefOrder<T extends Geo125SigefVertex>(source: T[]): {
+  vertices: T[]; reversed: boolean; rotated: boolean;
+} {
+  if (source.length < 3) throw new Error("SIGEF: perímetro com menos de três vértices.");
+  if (source.some(v => !Number.isFinite(v.latitude) || !Number.isFinite(v.longitude)))
+    throw new Error("SIGEF: coordenadas inválidas na ordenação.");
+  // Cálculo robusto do sinal em coordenadas métricas locais; o backend faz
+  // a revisão geodésica definitiva do sentido e da validade do polígono.
+  const lat0 = source[0].latitude, lon0 = source[0].longitude;
+  const cos0 = Math.cos(lat0 * Math.PI / 180);
+  const xy = source.map(v => ({
+    x: (v.longitude - lon0) * 111320 * cos0,
+    y: (v.latitude - lat0) * 111132,
+  }));
+  const doubleArea = xy.reduce((sum, p, i) => {
+    const next = xy[(i + 1) % xy.length];
+    return sum + p.x * next.y - next.x * p.y;
+  }, 0);
+  if (!Number.isFinite(doubleArea) || Math.abs(doubleArea) < 1e-7)
+    throw new Error("SIGEF: perímetro degenerado; revise os vértices antes da ODS.");
+  const reversed = doubleArea > 0; // lon=eixo X, lat=eixo Y: CCW > 0
+  const count = source.length;
+  // O confrontante e o tipo de limite pertencem ao segmento que parte
+  // deste vertice e chega ao proximo. Ao inverter, migram do vertice
+  // anterior, sem trocar atributos como codigo, h, metodo ou sigmas.
+  const oriented: T[] = reversed ? Array.from({length: count}, (_, j) => {
+    const oldIndex = j === 0 ? 0 : count - j;
+    const vertex = source[oldIndex];
+    const preceding = source[(oldIndex + count - 1) % count];
+    return { ...vertex,
+      boundary_type: preceding.boundary_type,
+      boundary_detail: preceding.boundary_detail,
+      confrontant: preceding.confrontant,
+      confrontant_cns: preceding.confrontant_cns,
+      confrontant_registration: preceding.confrontant_registration,
+    } as T;
+  }) : source.slice();
+  let north = 0;
+  for (let i = 1; i < oriented.length; i++) {
+    if (oriented[i].latitude > oriented[north].latitude ||
+       (oriented[i].latitude === oriented[north].latitude &&
+        oriented[i].longitude < oriented[north].longitude)) north = i;
+  }
+  return {vertices: [...oriented.slice(north), ...oriented.slice(0, north)],
+    reversed, rotated: north !== 0};
+}
+
 const SIGEF_POSITION_METHODS = [
   ["PG1", "Relativo estático"], ["PG2", "Relativo estático-rápido"],
   ["PG3", "Relativo semicinemático"], ["PG4", "Relativo cinemático"],
@@ -590,8 +645,55 @@ export function PecasTecnicasWorkspace({
       const body=await res.json();
       if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Falha no processamento PB1.");
       setPb1Partial(body);
-      if(finish)await adoptPb1WorkingParcel(true,body);
-      else setPb1Notice("Resultados preliminares calculados. Campos sem fundamento permanecem pendentes.");
+      if(finish){await adoptPb1WorkingParcel(true,body);}else{
+      // GEO125: somente transportar numeros calculados no servidor;
+        // NAO confirmar h/sigmas nem aprovar o RT automaticamente.
+        type PB1Row = {vertex_id:string;latitude:number;longitude:number;status:string;
+          h_ellipsoidal_m:number|null;sigma_e_m:number|null;
+          sigma_n_m:number|null;sigma_h_m:number|null};
+        const calculated = new globalThis.Map<string,PB1Row>(
+          (Array.isArray(body?.points) ? body.points : [])
+            .filter((r:PB1Row)=>typeof r?.vertex_id==="string")
+            .map((r:PB1Row)=>[r.vertex_id,r] as [string,PB1Row])
+        );
+        const currentPB1=topconBoundary.filter(p=>p.sigef_method==="PB1");
+        // GEO125: validar coordenadas antes da comparacao.
+        const geo125SameCoord=(
+          a:number|null|undefined,
+          b:number|null|undefined
+        ):boolean=>{
+          if(typeof a!=="number" || typeof b!=="number")return false;
+          return Number.isFinite(a) &&
+            Number.isFinite(b) &&
+            Math.abs(a-b)<=5.1e-10;
+        };
+        const canTransfer=body?.sigma_origin==="DECLARED" &&
+          currentPB1.length>0 && calculated.size===currentPB1.length &&
+          currentPB1.every(p=>{
+            const r=calculated.get(p.name);
+            return !!r && r.status==="DECLARED_REFERENCE" &&
+              typeof r.h_ellipsoidal_m==="number" && Number.isFinite(r.h_ellipsoidal_m) &&
+              [r.sigma_e_m,r.sigma_n_m,r.sigma_h_m].every(v=>
+                typeof v==="number" && Number.isFinite(v) && v>0) &&
+              geo125SameCoord(p.latitude,r.latitude) &&
+              geo125SameCoord(p.longitude,r.longitude);
+          });
+        if(canTransfer){
+          setTopconBoundary(current=>current.map(p=>{
+            if(p.sigef_method!=="PB1")return p;
+            const r=calculated.get(p.name);
+            if(!r || !geo125SameCoord(p.latitude,r.latitude) ||
+               !geo125SameCoord(p.longitude,r.longitude))return p;
+            return {...p,ellipsoidal_height_m:r.h_ellipsoidal_m,
+              sigma_lon_m:r.sigma_e_m,sigma_lat_m:r.sigma_n_m,sigma_h_m:r.sigma_h_m,
+              height_reference_confirmed:false,sigma_reference_confirmed:false};
+          }));
+          setTopconReview(null);setSigefParcelReview(null);setSigefValidatedSignature("");
+          setPb1Notice("Resultados calculados aplicados aos vértices PB1. Salve a peça e confirme as referências e os sigmas na revisão RT; a ODS ainda não está aprovada.");
+        }else{
+          setPb1Notice("Processamento salvo. Os dados sem fundamentação continuam pendentes e não foram aplicados ao perímetro.");
+        }
+      }
     }catch(e){setPb1Notice(e instanceof Error?e.message:"Falha no processamento.");}
     finally{setPb1Busy(false);}
   };
@@ -985,7 +1087,9 @@ export function PecasTecnicasWorkspace({
             };
           }),
         };
-      });
+      }).map(parcel => ({...parcel,
+        vertices: geo125CanonicalSigefOrder(parcel.vertices).vertices,
+      }));
       if(!parcels.length)throw new Error("Selecione uma parcela antes de baixar a ODS de trabalho.");
       const response=await fetch(getApiUrl()+"/technical-pieces/sigef/rascunho-ods",{
         method:"POST",credentials:"include",
@@ -1208,7 +1312,9 @@ export function PecasTecnicasWorkspace({
           confrontant_registration:String(d.confrontant_registration??original?.confrontant_registration??""),
           derived_calculation:original?.derived_calculation??null};
       })};
-    });
+    }).map(parcel => ({...parcel,
+      vertices: geo125CanonicalSigefOrder(parcel.vertices).vertices,
+    }));
   };
   const sigefSignature = () => {
     try {
@@ -1227,6 +1333,7 @@ export function PecasTecnicasWorkspace({
     // and a second confirmation click are optional; mandatory SIGEF columns are not.
     let current:ReturnType<typeof parcelsForOds>;
     try{current=parcelsForOds();}catch(e){setReviewedOdsError(e instanceof Error?e.message:"Parcela inválida.");return;}
+    // GEO125_PIECE_ID_FOR_REVIEWED_SIGEF_ODS: a GEO124 já salva a peça e envia piece_id (exportPieceId).
     const pb1Parcels=current.filter(p=>p.vertices.some(v=>v.sigef_method==="PB1"));
     if(pb1Parcels.length){
       if(pb1Parcels.length!==1||!pb1Review.rt_reviewed||!pb1Review.category||pb1Review.position_reference.trim().length<12){
@@ -3299,6 +3406,20 @@ export function PecasTecnicasWorkspace({
                 <label className="pecas-field"><span>Fonte efetivamente utilizada para posicionar os V (produto, órgão, folha ou documento)</span><textarea value={pb1Review.position_reference} onChange={e=>setPb1Review(o=>({...o,position_reference:e.target.value,rt_reviewed:false}))}/></label>
                 <label className="pecas-check"><input type="checkbox" checked={pb1Review.rt_reviewed} onChange={e=>setPb1Review(o=>({...o,rt_reviewed:e.target.checked}))}/>Confirmo, como responsável técnico, a identificação dos limites, os extremos determinados diretamente, o referencial SIRGAS2000, a documentação de exatidão da fonte realmente utilizada, as alturas e os sigmas calculados. Conferi os códigos dos V e a ausência de duplicidades. A aprovação não equivale à certificação SIGEF.</label>
               </div>}
+              <div className="pecas-note" role="status" aria-label="Ordem dos vértices para o SIGEF">
+                <strong>Ordem SIGEF automática (antes da pré-validação):</strong>{" "}
+                {(() => { try {
+                  return parcelsForOds().map(p =>
+                    p.name + ": início " + (p.vertices[0]?.sigef_vertex_code ?? "—") +
+                    "; perímetro em sentido horário").join(" · ");
+                } catch (error) {
+                  return error instanceof Error ? error.message : "Nenhuma parcela selecionada.";
+                } })()}
+                <p>Corrige o início pelo vértice mais ao norte e a orientação para o sentido horário
+                  na sequência da ODS e da pré-validação. Se houver inversão, os atributos
+                  de confrontação são transferidos para o segmento correspondente.
+                  A geometria e a sequência originais da planta não são modificadas.</p>
+              </div>
               <button type="button" className="pecas-secondary" disabled={sigefParcelBusy} onClick={()=>void validateSigefParcel()}>{sigefParcelBusy?"Validando…":"Pré-validar identificação e geometria"}</button>
               <details className="pecas-advanced"><summary>Pendências técnicas por vértice</summary>
                 {polygons.filter(p=>selectedIds.includes(p.id)).map(p=><div key={p.id} className="pecas-table-wrap"><table className="pecas-table"><thead><tr><th>Vértice</th><th>h</th><th>σE</th><th>σN</th><th>σh</th><th>Pendências</th></tr></thead><tbody>{p.vertices.map((code,i)=>{

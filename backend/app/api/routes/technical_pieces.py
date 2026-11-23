@@ -357,7 +357,8 @@ def export_reviewed_sigef_ods(
                 and hashes == {k:v["sha256"] for k,v in attached.items() if k in ("pb1_dtm","pb1_color")}
                 and all(exists_matching(user.id,piece.id,attached[k]) for k in hashes)):
             parcels_pb1 = [p for p in payload.parcels if any(v.get("sigef_method")=="PB1" for v in p.get("vertices",[]))]
-            if len(parcels_pb1)==1 and same_perimeter(decision.get("vertices"),parcels_pb1[0]["vertices"]):
+            from app.services.ps1_persistence import same_perimeter_cyclic
+            if len(parcels_pb1)==1 and same_perimeter_cyclic(decision.get("vertices"),parcels_pb1[0]["vertices"]):
                 approved_pb1 = decision.get("generated") or []
     try:
         data = build_reviewed_sigef_ods(payload.model_dump(), approved_ps1_vertices=approved, approved_pb1_vertices=approved_pb1)
@@ -943,9 +944,13 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
     color, dtm = assets.get("pb1_color"), assets.get("pb1_dtm")
     if not dtm or not points or len(points)>500 or not exists_matching(user.id, piece.id, dtm):
         raise HTTPException(422, "É necessário MDT numérico válido e de 1 a 500 vértices salvos.")
-    source = top.get("pb1_source") or {}
-    params = partial_parameters(source, payload.model_dump())
-    factors = {}
+    from app.services.pb1_bridge import bridge_inputs
+    source, merged_inputs, derived_factors = bridge_inputs(
+        top.get("pb1_source") or {}, payload.model_dump(),
+        pb.get("technical_preview") or {}, points, color, dtm
+    )
+    params = partial_parameters(source, merged_inputs)
+    factors = dict(derived_factors)
     record = pb.get("ibge_factors") or {}
     if record.get("raw"):
         try:
@@ -955,6 +960,8 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
                 factors = {}
         except ValueError:
             factors = {}
+    if not factors and derived_factors:
+        factors = derived_factors
     path = stored_file_path(user.id,piece.id,"pb1_dtm",dtm["sha256"]) if dtm else None
     bands = ((dtm or {}).get("metadata") or {}).get("bands") or [{}]
     local_model=None
@@ -991,6 +998,10 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
     pb.pop("approval", None)
     pb["review_status"] = "PRELIMINARY"
     pb["partial_preview"]=result
+    if source != (top.get("pb1_source") or {}):
+        top = dict(top)
+        top["pb1_source"] = source
+        snapshot["topcon"] = top
     snapshot["pb1"]=pb
     piece.snapshot=snapshot
     db.commit()
