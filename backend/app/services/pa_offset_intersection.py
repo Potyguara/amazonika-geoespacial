@@ -337,7 +337,7 @@ MAX_TURN_DEG = 170.0
 SPIKE_TURN_DEG = 120.0
 
 
-def _chain_vertices(values: list[float], n: int, sign: float, end_mode: str):
+def _chain_vertices(values: list[float], n: int, sign: float, end_mode: str, start_mode: str | None = None):
     """Vértices da paralela a uma poligonal aberta de n pontos (plano do SGL).
 
     values = [e0, n0, ..., e(n-1), n(n-1), d]. Nos pontos internos o vértice é
@@ -355,8 +355,9 @@ def _chain_vertices(values: list[float], n: int, sign: float, end_mode: str):
         if length < 0.01:
             raise ValueError(f"Segmento {i + 1} com comprimento nulo.")
         normals.append((-dy / length * sign, dx / length * sign))
+    start_mode = end_mode if start_mode is None else start_mode
     out = []
-    if end_mode == "PERPENDICULAR":
+    if start_mode == "PERPENDICULAR":
         out.append((0, pts[0][0] + normals[0][0] * d, pts[0][1] + normals[0][1] * d, 0.0, 1.0, (0, 1)))
     for k in range(1, n - 1):
         n1, n2 = normals[k - 1], normals[k]
@@ -377,6 +378,19 @@ def _chain_vertices(values: list[float], n: int, sign: float, end_mode: str):
     return out
 
 
+def _ends_text(names, anchor_start, anchor_end, end_mode):
+    parts = []
+    if anchor_start:
+        parts.append(f"{names[0]} permanece fixo e liga-se por segmento reto ao primeiro V")
+    if anchor_end:
+        parts.append(f"{names[-1]} permanece fixo e liga-se por segmento reto ao último V")
+    free = (not anchor_start) or (not anchor_end)
+    if free:
+        parts.append("pontas livres: V perpendicular ao segmento extremo" if end_mode == "PERPENDICULAR"
+                     else "pontas livres sem V: ligue a paralela a outra reta por interseção")
+    return "Pontas: " + "; ".join(parts) + "."
+
+
 def offset_polyline(
     points: list[dict], *,
     method: str,
@@ -384,6 +398,8 @@ def offset_polyline(
     side: str | None,
     offset_sigma_m: float | None = None,
     end_mode: str = "PERPENDICULAR",
+    anchor_start: bool = False,
+    anchor_end: bool = False,
     utm_zone: int | None = None,
     hemisphere: str | None = None,
     sirgas2000_confirmed: bool = False,
@@ -401,8 +417,12 @@ def offset_polyline(
         raise ValueError("Tratamento das pontas inválido.")
     if not isinstance(points, list) or len(points) < 2:
         raise ValueError("Selecione pelo menos dois pontos P em sequência.")
-    if end_mode == "NONE" and len(points) < 3:
-        raise ValueError("Sem vértices nas pontas, a cadeia precisa de pelo menos três pontos.")
+    # Ponta ancorada = marco de canto (ex.: M) que permanece fixo no perímetro;
+    # a paralela liga-se a ele por um segmento reto, sem V nessa ponta.
+    start_mode = "NONE" if anchor_start else end_mode
+    last_mode = "NONE" if anchor_end else end_mode
+    if (start_mode == "NONE" or last_mode == "NONE") and len(points) < 3:
+        raise ValueError("Com uma ponta ancorada ou sem vértice, a cadeia precisa de pelo menos três pontos.")
     try:
         d = float(offset_m)
     except (TypeError, ValueError) as exc:
@@ -433,7 +453,7 @@ def offset_polyline(
             od = None
     sigmas = [s for r in refs for s in (r["sigma_e"], r["sigma_n"])] + [od]
 
-    base = _chain_vertices(values, n, sign, end_mode)
+    base = _chain_vertices(values, n, sign, last_mode, start_mode)
 
     # A paralela não pode inverter o sentido de nenhum trecho.
     for i in range(len(base) - 1):
@@ -446,6 +466,9 @@ def offset_polyline(
             )
 
     missing = any(s is None for s in sigmas)
+    missing_what = [r["name"] for r in refs if r["sigma_e"] is None or r["sigma_n"] is None]
+    if od is None:
+        missing_what.append("desvio-padrão do afastamento")
     jac: list[list[tuple[float, float]]] = [[(0.0, 0.0)] * len(values) for _ in base]
     if not missing:
         step = 1e-4
@@ -454,8 +477,8 @@ def offset_polyline(
                 continue
             plus = list(values); plus[j] += step
             minus = list(values); minus[j] -= step
-            vp = _chain_vertices(plus, n, sign, end_mode)
-            vm = _chain_vertices(minus, n, sign, end_mode)
+            vp = _chain_vertices(plus, n, sign, last_mode, start_mode)
+            vm = _chain_vertices(minus, n, sign, last_mode, start_mode)
             for i in range(len(base)):
                 jac[i][j] = ((vp[i][1] - vm[i][1]) / (2 * step), (vp[i][2] - vm[i][2]) / (2 * step))
 
@@ -484,8 +507,7 @@ def offset_polyline(
             "sequence": i + 1,
             "support_point": names[k],
             "reference_points": [r["name"] for r in used],
-            "position": "START" if (end_mode == "PERPENDICULAR" and i == 0) else
-                        "END" if (end_mode == "PERPENDICULAR" and i == len(base) - 1) else "INTERNAL",
+            "position": "START" if k == 0 else "END" if k == n - 1 else "INTERNAL",
             **_output_coords(frame, x, y, h, utm),
             "height_m": round(h, 4),
             "height_source": "MEAN_OF_REFERENCE_VERTICES",
@@ -499,13 +521,12 @@ def offset_polyline(
 
     warnings = [
         "Vértices determinados por geometria analítica no SGL (MTGIR 3.8 b): paralela à cadeia de pontos medidos (MTGIR 3.3.1), com interseção das paralelas de segmentos consecutivos.",
-        "Nas pontas, o vértice é o afastamento perpendicular ao segmento extremo." if end_mode == "PERPENDICULAR"
-        else "Pontas sem vértice: ligue a paralela a outra reta por interseção.",
+        _ends_text(names, anchor_start, anchor_end, end_mode),
         "Altitude elipsoidal de cada V = média das altitudes dos vértices de referência dos segmentos que o definem (MTGIR 3.3). Se houver medição ou modelo de terreno, prefira esse valor.",
         "O enquadramento como PA1 ou PA2 é declaração do responsável técnico e deve constar do relatório técnico.",
     ]
     if missing:
-        warnings.append("Sigmas não propagados: falta desvio-padrão e/n de algum ponto ou do afastamento.")
+        warnings.append("Sigmas não propagados. Falta: " + ", ".join(missing_what) + ". Informe o desvio-padrão do afastamento (0 se definido por documento).")
     else:
         warnings.append("Sigmas propagados em primeira ordem supondo observações não correlacionadas entre os pontos.")
     if no_sigma_h:
@@ -524,6 +545,8 @@ def offset_polyline(
         "side": side,
         "offset_sigma_m": od,
         "end_mode": end_mode,
+        "anchor_start": names[0] if anchor_start else None,
+        "anchor_end": names[-1] if anchor_end else None,
         "support_points": names,
         "sigma_model": None if missing else "FIRST_ORDER_UNCORRELATED",
         "calculation_frame": _frame_info(frame),

@@ -73,6 +73,19 @@ class OffsetPolylineTest(unittest.TestCase):
         self.assertEqual(len(r["vertices"]), 1)
         self.assertEqual(r["vertices"][0]["support_point"], "p2")
 
+    def test_anchored_corners_stay_fixed(self):
+        pts = [P("M1", 500000, 100000), P("p1", 500050, 100000), P("p2", 500100, 100000),
+               P("p3", 500100, 100050), P("M2", 500100, 100100)]
+        r = offset_polyline(pts, method="PA1", offset_m=5, side="LEFT", offset_sigma_m=0,
+                            anchor_start=True, anchor_end=True, **KW)
+        self.assertEqual([v["support_point"] for v in r["vertices"]], ["p1", "p2", "p3"])
+        self.assertEqual(xy(r), [(50, 5), (95, 5), (95, 50)])
+        self.assertEqual((r["anchor_start"], r["anchor_end"]), ("M1", "M2"))
+
+    def test_missing_sigma_names_what(self):
+        r = self.run_l(offset_sigma_m=None)
+        self.assertTrue(any("desvio-padrão do afastamento" in w for w in r["warnings"]))
+
     def test_requires_sirgas_confirmation(self):
         with self.assertRaises(ValueError):
             self.run_l(sirgas2000_confirmed=False)

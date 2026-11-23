@@ -248,6 +248,8 @@ class OffsetPolylineInput(BaseModel):
     side: str | None = None
     offset_sigma_m: float | None = None
     end_mode: str = "PERPENDICULAR"
+    anchor_start: bool = False
+    anchor_end: bool = False
     utm_zone: int | None = None
     hemisphere: str | None = None
     sirgas2000_confirmed: bool = False
@@ -267,6 +269,8 @@ def calculate_offset_polyline(
             side=payload.side,
             offset_sigma_m=payload.offset_sigma_m,
             end_mode=payload.end_mode,
+            anchor_start=payload.anchor_start,
+            anchor_end=payload.anchor_end,
             utm_zone=payload.utm_zone,
             hemisphere=payload.hemisphere,
             sirgas2000_confirmed=payload.sirgas2000_confirmed,

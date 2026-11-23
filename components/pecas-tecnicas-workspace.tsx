@@ -134,11 +134,14 @@ type PaChainVertex = {
 type PaChainResult = {
   method: string; operation: "OFFSET_POLYLINE"; offset_m: number; side: string; offset_sigma_m: number | null;
   end_mode: string; support_points: string[]; sigma_model: string | null; vertices: PaChainVertex[]; warnings: string[];
+  anchor_start?: string | null; anchor_end?: string | null;
 };
 type PaChain = {
   id: string; points: string[]; offset: string; side: "LEFT" | "RIGHT"; offsetSigma: string;
   endMode: "PERPENDICULAR" | "NONE"; replace: boolean;
   result: PaChainResult | null; error: string; insertedNames: string[];
+  /** Pontos retirados do perímetro na inserção, para desfazer. */
+  removed?: TopconBoundaryPoint[];
 };
 const newPaChain = (n: number): PaChain => ({ id: "C" + n + "-" + Date.now().toString(36), points: [], offset: "", side: "LEFT",
   offsetSigma: "", endMode: "PERPENDICULAR", replace: true, result: null, error: "", insertedNames: [] });
@@ -1646,6 +1649,37 @@ export function PecasTecnicasWorkspace({
     setActiveChainId(chain.id);
     return chain.id;
   };
+  // Marco de canto (tipo M): fica fixo no perímetro e a paralela liga-se a ele por segmento reto.
+  const isCornerMark = (name: string) => {
+    const code = topconBoundary.find((p) => p.name === name)?.sigef_vertex_code ?? "";
+    return /-M-/i.test(code) || /^M[-_ ]?\d/i.test(name);
+  };
+  const undoPaChain = (chain: PaChain, boundaryIn?: TopconBoundaryPoint[]) => {
+    const boundary = boundaryIn ?? topconBoundary;
+    if (!chain.insertedNames.length) return boundary;
+    const at = boundary.findIndex((p) => chain.insertedNames.includes(p.name));
+    const kept = boundary.filter((p) => !chain.insertedNames.includes(p.name));
+    const pos = at < 0 ? kept.length : at;
+    return [...kept.slice(0, pos), ...(chain.removed ?? []), ...kept.slice(pos)];
+  };
+  const resetInvalidations = () => { setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature(""); };
+  const undoPaChainInsertion = (chain: PaChain) => {
+    setTopconBoundary(undoPaChain(chain)); resetInvalidations();
+    updatePaChain(chain.id, { insertedNames: [], removed: [] }, true);
+    setSavedPieceNotice("Inserção desfeita: os pontos originais voltaram ao perímetro e os V dessa paralela foram removidos.");
+  };
+  const deletePaChain = (chain: PaChain) => {
+    if (chain.insertedNames.length) { setTopconBoundary(undoPaChain(chain)); resetInvalidations(); }
+    setPaChains((old) => old.filter((c) => c.id !== chain.id));
+    if (chain.id === activeChainId) setActiveChainId("");
+  };
+  const resetAllPaChains = () => {
+    let boundary = topconBoundary;
+    for (const chain of [...paChains].reverse()) boundary = undoPaChain(chain, boundary);
+    setTopconBoundary(boundary); resetInvalidations();
+    setPaChains([]); setActiveChainId(""); setPa2Error("");
+    setSavedPieceNotice("Todas as paralelas e seus cálculos foram excluídos. O perímetro voltou aos pontos originais.");
+  };
   const pickChainPoint = (name: string) => {
     const point = topconPreview?.points.find((p) => p.name === name);
     if (!point || point.point_role === "CONTROL") {
@@ -1680,12 +1714,16 @@ export function PecasTecnicasWorkspace({
           ellipsoidal_height_m: boundary?.ellipsoidal_height_m ?? p.ellipsoidal_height_reported_m ?? null,
           sigma_h_m: boundary?.sigma_h_m ?? p.sigma_u_m ?? null };
       });
+      const corners = chain.points.map(isCornerMark);
+      if (corners.slice(1, -1).some(Boolean))
+        throw new Error("Um marco M só pode ficar na ponta da cadeia: ele é canto fixo do perímetro e não recebe paralela.");
       const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/offset-polyline`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           method: constructionMethod, points, offset_m: offset, side: chain.side,
           offset_sigma_m: num(chain.offsetSigma), end_mode: chain.endMode,
+          anchor_start: corners[0], anchor_end: corners[corners.length - 1],
           utm_zone: topconPreview.project.utm_zone, hemisphere: topconPreview.project.hemisphere,
           sirgas2000_confirmed: pa2ConfirmedCrs,
         }),
@@ -1714,6 +1752,8 @@ export function PecasTecnicasWorkspace({
     const forward = inBoundary && idx.every((v, i) => i === 0 || (v - idx[i - 1] + len) % len === 1);
     const backward = inBoundary && idx.every((v, i) => i === 0 || (idx[i - 1] - v + len) % len === 1);
     const replace = chain.replace && (forward || backward);
+    const anchorStart = Boolean(result.anchor_start), anchorEnd = Boolean(result.anchor_end);
+    const innerIdx = idx.slice(anchorStart ? 1 : 0, anchorEnd ? idx.length - 1 : idx.length);
     const anchorAt = boundary.findIndex((p) => p.name === pa2InsertAfter);
     if (!replace && anchorAt < 0) {
       updatePaChain(chain.id, { error: chain.replace
@@ -1758,8 +1798,8 @@ export function PecasTecnicasWorkspace({
     let next: TopconBoundaryPoint[];
     if (replace) {
       const ordered = forward ? vertices : [...vertices].reverse();
-      const start = forward ? idx[0] : idx[idx.length - 1];
-      const n = idx.length;
+      const start = forward ? innerIdx[0] : innerIdx[innerIdx.length - 1];
+      const n = innerIdx.length;
       if (start + n <= len) next = [...boundary.slice(0, start), ...ordered, ...boundary.slice(start + n)];
       else {
         const rotated = [...boundary.slice(start), ...boundary.slice(0, start)];
@@ -1768,12 +1808,15 @@ export function PecasTecnicasWorkspace({
     } else {
       next = [...boundary.slice(0, anchorAt + 1), ...vertices, ...boundary.slice(anchorAt + 1)];
     }
+    const removedPoints = replace ? boundary.filter((_, i) => innerIdx.includes(i)) : [];
     setTopconBoundary(next);
-    setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature("");
-    updatePaChain(chain.id, { insertedNames: vertices.map((v) => v.name), error: "" }, true);
+    resetInvalidations();
+    updatePaChain(chain.id, { insertedNames: vertices.map((v) => v.name), removed: removedPoints, error: "" }, true);
     setPa2Error("");
     setSavedPieceNotice(vertices.length + " vértice(s) V inseridos " + (replace
-      ? "no lugar dos pontos " + chain.points.join(", ") : "após " + pa2InsertAfter)
+      ? "no lugar dos pontos " + removedPoints.map((p) => p.name).join(", ")
+        + (anchorStart || anchorEnd ? "; " + [result.anchor_start, result.anchor_end].filter(Boolean).join(" e ") + " seguem como cantos fixos" : "")
+      : "após " + pa2InsertAfter)
       + ". Confira identificação, h e sigmas na tabela antes de exportar.");
   };
   const addProvisionalPa2 = () => {
@@ -4843,14 +4886,18 @@ export function PecasTecnicasWorkspace({
                                 <legend><strong>Paralela {index + 1}</strong>{active ? " · recebendo cliques" : ""}</legend>
                                 <p style={{margin:0}}><strong>Pontos:</strong> {chain.points.length ? chain.points.join(" → ") : "nenhum ainda"}
                                   {chain.points.length > 1 ? " (" + (chain.points.length - 1) + " segmento(s))" : ""}</p>
+                                {chain.points.length > 1 && [chain.points[0], chain.points[chain.points.length - 1]].some(isCornerMark) &&
+                                  <p className="pecas-note" style={{margin:0}}>
+                                    {[chain.points[0], chain.points[chain.points.length - 1]].filter(isCornerMark).join(" e ")} {[chain.points[0], chain.points[chain.points.length - 1]].filter(isCornerMark).length > 1 ? "são cantos fixos" : "é canto fixo"}:
+                                    não recebem paralela e ligam-se aos V por segmento reto.</p>}
                                 <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
                                   {!active && <button type="button" className="pecas-secondary" onClick={() => setActiveChainId(chain.id)}>Selecionar no mapa</button>}
                                   <button type="button" className="pecas-secondary" disabled={!chain.points.length}
                                     onClick={() => updatePaChain(chain.id, { points: chain.points.slice(0, -1) })}>Desfazer último ponto</button>
                                   <button type="button" className="pecas-secondary" disabled={chain.points.length < 2}
                                     onClick={() => updatePaChain(chain.id, { points: [...chain.points].reverse() })}>Inverter sentido</button>
-                                  <button type="button" className="pecas-secondary"
-                                    onClick={() => { setPaChains((old) => old.filter((c) => c.id !== chain.id)); if (active) setActiveChainId(""); }}>Excluir</button>
+                                  <button type="button" className="pecas-secondary" onClick={() => deletePaChain(chain)}>
+                                    {chain.insertedNames.length ? "Excluir paralela e desfazer inserção" : "Excluir paralela"}</button>
                                 </div>
                                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
                                   <label className="pecas-field"><span>Afastamento (m)</span>
@@ -4890,7 +4937,7 @@ export function PecasTecnicasWorkspace({
                                   {r.warnings.map((w, i) => <p key={i} className="pecas-note" style={{margin:0}}>{w}</p>)}
                                   <label className="pecas-check">
                                     <input type="checkbox" checked={chain.replace} onChange={(e) => updatePaChain(chain.id, { replace: e.target.checked }, true)} />
-                                    Substituir no perímetro os pontos {chain.points.join(", ")} pelos V calculados
+                                    Substituir no perímetro os pontos {chain.points.filter((n) => n !== r.anchor_start && n !== r.anchor_end).join(", ")} pelos V calculados
                                   </label>
                                   {!chain.replace && <label className="pecas-field">
                                     <span>Inserir os V após qual vértice de limite?</span>
@@ -4901,16 +4948,27 @@ export function PecasTecnicasWorkspace({
                                       </option>)}
                                     </select>
                                   </label>}
-                                  <button type="button" className="pecas-secondary" disabled={!pa2ConfirmedCrs || chain.insertedNames.length > 0}
+                                  {chain.insertedNames.length > 0 ? <>
+                                    <p style={{margin:0}}><strong>Inseridos:</strong> {chain.insertedNames.join(", ")}</p>
+                                    <button type="button" className="pecas-secondary" onClick={() => undoPaChainInsertion(chain)}>
+                                      Desfazer inserção (volta os pontos originais)</button>
+                                  </> : <button type="button" className="pecas-secondary" disabled={!pa2ConfirmedCrs}
                                     onClick={() => insertPaChain(chain)}>
-                                    {chain.insertedNames.length ? "Inseridos: " + chain.insertedNames.join(", ") : "Inserir " + r.vertices.length + " V no perímetro"}
-                                  </button>
+                                    {"Inserir " + r.vertices.length + " V no perímetro"}
+                                  </button>}
                                 </div>}
                               </fieldset>;
                             })}
-                            <button type="button" className="pecas-secondary" onClick={() => addPaChain()}>
-                              + Nova paralela
-                            </button>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                              <button type="button" className="pecas-secondary" onClick={() => addPaChain()}>
+                                + Nova paralela
+                              </button>
+                              {paChains.length > 0 && <button type="button" className="pecas-secondary"
+                                style={{borderColor:"#b42318",color:"#b42318"}}
+                                onClick={() => { if (window.confirm("Excluir todas as paralelas e desfazer todas as inserções no perímetro?")) resetAllPaChains(); }}>
+                                Excluir todas as paralelas e recomeçar
+                              </button>}
+                            </div>
                           </section>}
                           {!offsetMode && !chainMode && <>
                           <p>No mapa à direita, selecione os marcos diretamente posicionados.
