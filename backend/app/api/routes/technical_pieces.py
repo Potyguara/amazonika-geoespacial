@@ -244,10 +244,11 @@ def calculate_offset_lines_intersection(
 class OffsetPolylineInput(BaseModel):
     method: str
     points: list[dict] = Field(min_length=2, max_length=200)
-    offset_m: float
+    offset_m: float | None = None
     side: str | None = None
     offset_sigma_m: float | None = None
     end_mode: str = "PERPENDICULAR"
+    offset_from: str | None = None
     anchor_start: bool = False
     anchor_end: bool = False
     utm_zone: int | None = None
@@ -269,6 +270,7 @@ def calculate_offset_polyline(
             side=payload.side,
             offset_sigma_m=payload.offset_sigma_m,
             end_mode=payload.end_mode,
+            offset_from=payload.offset_from,
             anchor_start=payload.anchor_start,
             anchor_end=payload.anchor_end,
             utm_zone=payload.utm_zone,

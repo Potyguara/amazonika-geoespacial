@@ -82,6 +82,24 @@ class OffsetPolylineTest(unittest.TestCase):
         self.assertEqual(xy(r), [(50, 5), (95, 5), (95, 50)])
         self.assertEqual((r["anchor_start"], r["anchor_end"]), ("M1", "M2"))
 
+    def test_offset_from_corner_mark(self):
+        # M1 a 5 m ao norte (esquerda) da reta p1–p2: afastamento = 5 m, lado esquerdo.
+        pts = [P("M1", 500000, 100005), P("p1", 500050, 100000), P("p2", 500100, 100000),
+               P("p3", 500100, 100050), P("M2", 500095, 100100)]
+        r = offset_polyline(pts, method="PA1", offset_from="START",
+                            anchor_start=True, anchor_end=True, **KW)
+        info = r["offset_from_mark"]
+        self.assertEqual((info["mark"], info["side"]), ("M1", "LEFT"))
+        self.assertAlmostEqual(info["offset_m"], 5.0, places=3)
+        self.assertGreater(info["offset_sigma_m"], 0)
+        self.assertEqual(xy(r)[1], (95, 5))
+        self.assertEqual(r["sigma_model"], "FIRST_ORDER_UNCORRELATED")
+        self.assertIsNotNone(r["vertices"][0]["sigma_horizontal_m"])
+
+    def test_offset_from_mark_requires_anchor(self):
+        with self.assertRaises(ValueError):
+            self.run_l(offset_from="START")
+
     def test_missing_sigma_names_what(self):
         r = self.run_l(offset_sigma_m=None)
         self.assertTrue(any("desvio-padrão do afastamento" in w for w in r["warnings"]))

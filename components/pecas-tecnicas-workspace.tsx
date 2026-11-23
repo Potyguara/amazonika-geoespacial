@@ -135,10 +135,13 @@ type PaChainResult = {
   method: string; operation: "OFFSET_POLYLINE"; offset_m: number; side: string; offset_sigma_m: number | null;
   end_mode: string; support_points: string[]; sigma_model: string | null; vertices: PaChainVertex[]; warnings: string[];
   anchor_start?: string | null; anchor_end?: string | null;
+  offset_from_mark?: { mark: string; line: string[]; offset_m: number; offset_sigma_m: number | null; side: string } | null;
 };
 type PaChain = {
   id: string; points: string[]; offset: string; side: "LEFT" | "RIGHT"; offsetSigma: string;
   endMode: "PERPENDICULAR" | "NONE"; replace: boolean;
+  /** Afastamento tirado do marco M da ponta (START/END) em vez de digitado. */
+  offsetFrom?: "" | "START" | "END";
   result: PaChainResult | null; error: string; insertedNames: string[];
   /** Pontos retirados do perímetro na inserção, para desfazer. */
   removed?: TopconBoundaryPoint[];
@@ -1703,7 +1706,8 @@ export function PecasTecnicasWorkspace({
       const num = (v: string) => v.trim() === "" ? null : Number(v.replace(",", "."));
       const offset = num(chain.offset);
       if (chain.points.length < 2) throw new Error("Clique em pelo menos dois pontos P em sequência no mapa.");
-      if (offset == null || !Number.isFinite(offset) || offset <= 0) throw new Error("Informe o afastamento da paralela em metros.");
+      const fromMark = chain.offsetFrom || "";
+      if (!fromMark && (offset == null || !Number.isFinite(offset) || offset <= 0)) throw new Error("Informe o afastamento da paralela em metros.");
       const points = chain.points.map((name) => {
         const p = topconPreview.points.find((item) => item.name === name);
         if (!p) throw new Error("Ponto " + name + " não encontrado no relatório importado.");
@@ -1721,8 +1725,9 @@ export function PecasTecnicasWorkspace({
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          method: constructionMethod, points, offset_m: offset, side: chain.side,
-          offset_sigma_m: num(chain.offsetSigma), end_mode: chain.endMode,
+          method: constructionMethod, points,
+          ...(fromMark ? { offset_from: fromMark } : { offset_m: offset, side: chain.side, offset_sigma_m: num(chain.offsetSigma) }),
+          end_mode: chain.endMode,
           anchor_start: corners[0], anchor_end: corners[corners.length - 1],
           utm_zone: topconPreview.project.utm_zone, hemisphere: topconPreview.project.hemisphere,
           sirgas2000_confirmed: pa2ConfirmedCrs,
@@ -4899,7 +4904,24 @@ export function PecasTecnicasWorkspace({
                                   <button type="button" className="pecas-secondary" onClick={() => deletePaChain(chain)}>
                                     {chain.insertedNames.length ? "Excluir paralela e desfazer inserção" : "Excluir paralela"}</button>
                                 </div>
+                                {(() => {
+                                  const first = chain.points[0], last = chain.points[chain.points.length - 1];
+                                  const canStart = chain.points.length >= 3 && isCornerMark(first);
+                                  const canEnd = chain.points.length >= 3 && isCornerMark(last);
+                                  if (!canStart && !canEnd) return null;
+                                  return <label className="pecas-field"><span>Origem do afastamento</span>
+                                    <select value={chain.offsetFrom || ""} onChange={(e) => updatePaChain(chain.id, { offsetFrom: e.target.value as PaChain["offsetFrom"] })}>
+                                      <option value="">Informado (documento ou medição em campo)</option>
+                                      {canStart && <option value="START">Calculado do marco {first} (distância e σ automáticos)</option>}
+                                      {canEnd && <option value="END">Calculado do marco {last} (distância e σ automáticos)</option>}
+                                    </select></label>;
+                                })()}
+                                {r?.offset_from_mark && <p style={{margin:0}}><strong>Afastamento do marco {r.offset_from_mark.mark}:</strong>{" "}
+                                  {r.offset_from_mark.offset_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} m à {r.offset_from_mark.side === "LEFT" ? "esquerda" : "direita"}
+                                  {r.offset_from_mark.offset_sigma_m != null ? " · σ " + r.offset_from_mark.offset_sigma_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 }) + " m" : ""}
+                                  {" "}(distância perpendicular ao alinhamento {r.offset_from_mark.line.join("–")})</p>}
                                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
+                                  {!chain.offsetFrom && <>
                                   <label className="pecas-field"><span>Afastamento (m)</span>
                                     <input type="number" min="0" step="any" value={chain.offset}
                                       onChange={(e) => updatePaChain(chain.id, { offset: e.target.value })} /></label>
@@ -4911,6 +4933,7 @@ export function PecasTecnicasWorkspace({
                                     <input type="number" min="0" step="any" value={chain.offsetSigma}
                                       placeholder="0 se definido por documento"
                                       onChange={(e) => updatePaChain(chain.id, { offsetSigma: e.target.value })} /></label>
+                                  </>}
                                   <label className="pecas-field"><span>Pontas da paralela</span>
                                     <select value={chain.endMode} onChange={(e) => updatePaChain(chain.id, { endMode: e.target.value as PaChain["endMode"] })}>
                                       <option value="PERPENDICULAR">V perpendicular ao primeiro e ao último ponto</option>
@@ -4918,7 +4941,7 @@ export function PecasTecnicasWorkspace({
                                     </select></label>
                                 </div>
                                 <button type="button" className="pecas-primary"
-                                  disabled={paChainBusy === chain.id || chain.points.length < 2 || !chain.offset.trim()}
+                                  disabled={paChainBusy === chain.id || chain.points.length < 2 || (!chain.offsetFrom && !chain.offset.trim())}
                                   onClick={() => void calculatePaChain(chain)}>
                                   {paChainBusy === chain.id ? "Calculando..." : "Calcular V da paralela (" + constructionMethod + ")"}
                                 </button>

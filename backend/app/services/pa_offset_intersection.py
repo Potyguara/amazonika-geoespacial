@@ -394,10 +394,11 @@ def _ends_text(names, anchor_start, anchor_end, end_mode):
 def offset_polyline(
     points: list[dict], *,
     method: str,
-    offset_m: float,
-    side: str | None,
+    offset_m: float | None = None,
+    side: str | None = None,
     offset_sigma_m: float | None = None,
     end_mode: str = "PERPENDICULAR",
+    offset_from: str | None = None,
     anchor_start: bool = False,
     anchor_end: bool = False,
     utm_zone: int | None = None,
@@ -423,15 +424,22 @@ def offset_polyline(
     last_mode = "NONE" if anchor_end else end_mode
     if (start_mode == "NONE" or last_mode == "NONE") and len(points) < 3:
         raise ValueError("Com uma ponta ancorada ou sem vértice, a cadeia precisa de pelo menos três pontos.")
-    try:
-        d = float(offset_m)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("Afastamento inválido.") from exc
-    if not math.isfinite(d) or d <= 0:
-        raise ValueError("Informe um afastamento maior que zero.")
-    if side not in ("LEFT", "RIGHT"):
-        raise ValueError("Indique o lado da paralela (esquerdo/direito no sentido do caminhamento).")
-    sign = 1.0 if side == "LEFT" else -1.0
+    if offset_from not in (None, "START", "END"):
+        raise ValueError("Origem do afastamento inválida.")
+    if offset_from is None:
+        try:
+            d = float(offset_m)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Afastamento inválido.") from exc
+        if not math.isfinite(d) or d <= 0:
+            raise ValueError("Informe um afastamento maior que zero.")
+        if side not in ("LEFT", "RIGHT"):
+            raise ValueError("Indique o lado da paralela (esquerdo/direito no sentido do caminhamento).")
+    else:
+        if len(points) < 3:
+            raise ValueError("Para tirar o afastamento do marco, a cadeia precisa do marco e de pelo menos dois pontos P.")
+        if (offset_from == "START" and not anchor_start) or (offset_from == "END" and not anchor_end):
+            raise ValueError("O afastamento só pode vir de um marco M que esteja na ponta da cadeia.")
 
     refs = _reference_points(points, "Cadeia", utm_zone=utm_zone, hemisphere=hemisphere,
                              sirgas2000_confirmed=sirgas2000_confirmed)
@@ -442,9 +450,43 @@ def offset_polyline(
     frame = LocalFrame([(r["lon"], r["lat"], r["h"]) for r in refs])
     local = [frame.to_local(r["lon"], r["lat"], r["h"]) for r in refs]
 
-    values: list[float] = [c for p in local for c in p[:2]] + [d]
+    coords: list[float] = [c for p in local for c in p[:2]]
+    mark_info = None
+    if offset_from is not None:
+        m_i, a_i, b_i = (0, 1, 2) if offset_from == "START" else (n - 1, n - 3, n - 2)
+
+        def mark_offset(c: list[float]) -> float:
+            # Distância perpendicular assinada do marco à reta dos dois P vizinhos
+            # (positiva à esquerda no sentido da cadeia).
+            ax, ay, bx, by = c[2 * a_i], c[2 * a_i + 1], c[2 * b_i], c[2 * b_i + 1]
+            mx, my = c[2 * m_i], c[2 * m_i + 1]
+            length = math.hypot(bx - ax, by - ay)
+            if length < 0.01:
+                raise ValueError("Alinhamento de referência do marco com comprimento nulo.")
+            return ((mx - ax) * -(by - ay) + (my - ay) * (bx - ax)) / length
+
+        signed = mark_offset(coords)
+        if abs(signed) < 0.01:
+            raise ValueError(f"O marco {names[m_i]} está sobre o alinhamento {names[a_i]}–{names[b_i]}: afastamento nulo.")
+        side = "LEFT" if signed > 0 else "RIGHT"
+        sd = None
+        c_sigmas = [s for r in refs for s in (r["sigma_e"], r["sigma_n"])]
+        if all(s is not None for s in c_sigmas):
+            var = 0.0
+            for j in (2 * m_i, 2 * m_i + 1, 2 * a_i, 2 * a_i + 1, 2 * b_i, 2 * b_i + 1):
+                plus = list(coords); plus[j] += 1e-4
+                minus = list(coords); minus[j] -= 1e-4
+                var += ((mark_offset(plus) - mark_offset(minus)) / 2e-4 * c_sigmas[j]) ** 2
+            sd = math.sqrt(var)
+        d = abs(signed)
+        mark_info = {"mark": names[m_i], "line": [names[a_i], names[b_i]], "offset_m": round(d, 4),
+                     "offset_sigma_m": None if sd is None else round(sd, 4), "side": side}
+    sign = 1.0 if side == "LEFT" else -1.0
+    values: list[float] = coords + [d]
     od = None
-    if offset_sigma_m not in (None, ""):
+    if offset_from is not None:
+        od = 0.0  # o afastamento é função das coordenadas: propagado pela jacobiana completa
+    elif offset_sigma_m not in (None, ""):
         try:
             od = float(offset_sigma_m)
         except (TypeError, ValueError):
@@ -477,6 +519,9 @@ def offset_polyline(
                 continue
             plus = list(values); plus[j] += step
             minus = list(values); minus[j] -= step
+            if mark_info is not None and j < len(coords):
+                plus[-1] = abs(mark_offset(plus[:-1]))
+                minus[-1] = abs(mark_offset(minus[:-1]))
             vp = _chain_vertices(plus, n, sign, last_mode, start_mode)
             vm = _chain_vertices(minus, n, sign, last_mode, start_mode)
             for i in range(len(base)):
@@ -522,6 +567,10 @@ def offset_polyline(
     warnings = [
         "Vértices determinados por geometria analítica no SGL (MTGIR 3.8 b): paralela à cadeia de pontos medidos (MTGIR 3.3.1), com interseção das paralelas de segmentos consecutivos.",
         _ends_text(names, anchor_start, anchor_end, end_mode),
+        *([f"Afastamento = distância perpendicular do marco {mark_info['mark']} ao alinhamento {mark_info['line'][0]}–{mark_info['line'][1]}: "
+           f"{mark_info['offset_m']:.3f} m"
+           + (f", σ = {mark_info['offset_sigma_m']:.3f} m propagado dos σ do marco e dos dois pontos (NTGIR 2.8)." if mark_info['offset_sigma_m'] is not None else ".")
+           + " A correlação entre o afastamento e os pontos entra na propagação dos V."] if mark_info else []),
         "Altitude elipsoidal de cada V = média das altitudes dos vértices de referência dos segmentos que o definem (MTGIR 3.3). Se houver medição ou modelo de terreno, prefira esse valor.",
         "O enquadramento como PA1 ou PA2 é declaração do responsável técnico e deve constar do relatório técnico.",
     ]
@@ -545,6 +594,7 @@ def offset_polyline(
         "side": side,
         "offset_sigma_m": od,
         "end_mode": end_mode,
+        "offset_from_mark": mark_info,
         "anchor_start": names[0] if anchor_start else None,
         "anchor_end": names[-1] if anchor_end else None,
         "support_points": names,
