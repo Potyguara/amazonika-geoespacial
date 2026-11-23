@@ -127,7 +127,7 @@ const emptyPaLine: PaLine = { a: "", b: "", offset: "", side: "LEFT", offsetSigm
 type PaChainVertex = {
   sequence: number; support_point: string; position: "START" | "INTERNAL" | "END";
   easting_m: number; northing_m: number; longitude: number | null; latitude: number | null;
-  height_m: number | null; height_source: string | null;
+  height_m: number | null; height_source: string | null; support_height_m?: number | null;
   sigma_e_m: number | null; sigma_n_m: number | null; sigma_horizontal_m: number | null; sigma_h_m: number | null;
   turn_angle_deg: number; miter_factor: number;
 };
@@ -4807,7 +4807,7 @@ export function PecasTecnicasWorkspace({
                           {chainMode && <section aria-label="Paralelas a cadeias de pontos P" style={{display:"grid",gap:10}}>
                             <p>Clique no mapa nos pontos P na ordem do caminhamento. Os segmentos são ligados
                               automaticamente. Depois informe o afastamento e o lado: os V são as interseções das
-                              paralelas de segmentos consecutivos, com sigma propagado e h transportada de cada P.
+                              paralelas de segmentos consecutivos, com σE e σN propagados. A h dos V não é estimada: informe-a na tabela.
                               Clique de novo no último ponto para desfazê-lo. Crie quantas paralelas precisar.</p>
                             <label className="pecas-check">
                               <input type="checkbox" checked={pa2ConfirmedCrs}
@@ -4858,13 +4858,13 @@ export function PecasTecnicasWorkspace({
                                 {chain.error && <p role="alert" className="pecas-warning">{chain.error}</p>}
                                 {r && <div role="status" style={{display:"grid",gap:6}}>
                                   <div style={{overflowX:"auto"}}><table className="pecas-table">
-                                    <thead><tr><th>#</th><th>Apoio</th><th>E (m)</th><th>N (m)</th><th>σE</th><th>σN</th><th>σHz</th><th>h (m)</th><th>σh</th><th>Deflexão</th></tr></thead>
+                                    <thead><tr><th>#</th><th>Apoio</th><th>E (m)</th><th>N (m)</th><th>σE</th><th>σN</th><th>σHz</th><th>h do P de apoio (ref.)</th><th>Deflexão</th></tr></thead>
                                     <tbody>{r.vertices.map((v) => {
                                       const f = (x: number | null, d = 3) => x == null ? "—" : x.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
                                       return <tr key={v.sequence}><td>{v.sequence}</td><td>{v.support_point}</td>
                                         <td>{f(v.easting_m)}</td><td>{f(v.northing_m)}</td><td>{f(v.sigma_e_m)}</td><td>{f(v.sigma_n_m)}</td>
                                         <td style={{color:v.sigma_horizontal_m!=null&&v.sigma_horizontal_m>0.5?"#b42318":undefined}}>{f(v.sigma_horizontal_m)}</td>
-                                        <td>{f(v.height_m)}</td><td>{f(v.sigma_h_m)}</td><td>{f(v.turn_angle_deg, 1)}°</td></tr>;
+                                        <td>{f(v.support_height_m ?? null)}</td><td>{f(v.turn_angle_deg, 1)}°</td></tr>;
                                     })}</tbody>
                                   </table></div>
                                   {r.warnings.map((w, i) => <p key={i} className="pecas-note" style={{margin:0}}>{w}</p>)}

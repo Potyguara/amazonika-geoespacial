@@ -40,11 +40,10 @@ class OffsetPolylineTest(unittest.TestCase):
         xy = [(v["easting_m"], v["northing_m"]) for v in r["vertices"]]
         self.assertEqual(xy, [(500000, 99995), (500105, 99995), (500105, 100100)])
 
-    def test_heights_transferred_from_support(self):
+    def test_height_not_copied_from_support(self):
         r = self.run_l()
-        self.assertEqual([v["height_m"] for v in r["vertices"]], [10, 11, 12])
-        self.assertEqual([v["sigma_h_m"] for v in r["vertices"]], [0.03, 0.04, 0.05])
-        self.assertTrue(all(v["height_source"] == "TRANSFERRED_FROM_SUPPORT_POINT" for v in r["vertices"]))
+        self.assertTrue(all(v["height_m"] is None and v["sigma_h_m"] is None for v in r["vertices"]))
+        self.assertEqual([v["support_height_m"] for v in r["vertices"]], [10, 11, 12])
 
     def test_sigma_propagated(self):
         r = self.run_l()

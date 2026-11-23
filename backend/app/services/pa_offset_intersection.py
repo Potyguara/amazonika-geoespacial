@@ -284,7 +284,7 @@ def offset_polyline(
     opcionalmente, ellipsoidal_height_m e sigma_h_m. A precisão horizontal de
     cada V é propagada em primeira ordem a partir de todos os pontos da cadeia
     e do desvio-padrão do afastamento. A altura elipsoidal de cada V é
-    transportada do ponto P de apoio correspondente (marcada como derivada).
+    não é calculada: a h do P de apoio é devolvida só como referência.
     """
     if method not in ("PA1", "PA2"):
         raise ValueError("Código de posicionamento: informe PA1 ou PA2, conforme o enquadramento do RT.")
@@ -401,12 +401,14 @@ def offset_polyline(
             "northing_m": round(y, 4),
             "longitude": lon,
             "latitude": lat,
-            "height_m": None if heights[k] is None else round(heights[k], 4),
-            "height_source": None if heights[k] is None else "TRANSFERRED_FROM_SUPPORT_POINT",
+            "height_m": None,
+            "height_source": None,
+            "support_height_m": None if heights[k] is None else round(heights[k], 4),
             "sigma_e_m": None if se is None else round(se, 4),
             "sigma_n_m": None if sn is None else round(sn, 4),
             "sigma_horizontal_m": None if shz is None else round(shz, 4),
-            "sigma_h_m": None if sigma_hs[k] is None else round(sigma_hs[k], 4),
+            "sigma_h_m": None,
+            "support_sigma_h_m": None if sigma_hs[k] is None else round(sigma_hs[k], 4),
             "turn_angle_deg": round(turn, 4),
             "miter_factor": round(factor, 4),
         })
@@ -415,15 +417,13 @@ def offset_polyline(
         "Vértices determinados por geometria analítica: paralela à cadeia de pontos P medidos, com interseção das paralelas de segmentos consecutivos.",
         "Nas pontas, o vértice é o afastamento perpendicular ao segmento extremo." if end_mode == "PERPENDICULAR"
         else "Pontas sem vértice: ligue a paralela a outra reta por interseção.",
-        "A altura elipsoidal h de cada V foi transportada do ponto P de apoio correspondente; confirme se o desnível no afastamento é desprezível.",
+        "A altura elipsoidal h dos V não é calculada: informe h e σh obtidos por medição ou outro método declarado pelo RT antes de exportar. A h do ponto P de apoio é mostrada só como referência.",
         "O enquadramento como PA1 ou PA2 é declaração do responsável técnico e deve constar do relatório técnico.",
     ]
     if missing:
         warnings.append("Sigmas não propagados: falta desvio-padrão E/N de algum ponto P ou do afastamento.")
     else:
         warnings.append("Sigmas propagados em primeira ordem supondo observações não correlacionadas entre os pontos P.")
-    if any(h is None for h in heights):
-        warnings.append("Algum ponto P não tem altura elipsoidal: o V correspondente fica sem h.")
     if over_limit:
         warnings.append("Precisão horizontal acima de 0,50 m (limite para limite artificial) em: " + ", ".join(over_limit) + ".")
     if spikes:
