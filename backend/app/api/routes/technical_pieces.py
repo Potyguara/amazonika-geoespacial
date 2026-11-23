@@ -33,6 +33,7 @@ from app.services.vertical_datum import convert_altitudes
 from app.services.pa2_intersection import intersect_pa2
 from app.services.constructed_vertices import calculate_constructed_vertex
 from app.services.pa2_support_line import pa2_support_line
+from app.services.pa_offset_intersection import intersect_offset_lines
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -206,6 +207,36 @@ def calculate_constructed_vertex_route(
     """Pré-cálculo PA1/PT8. Nunca presume h, precisões ou certificação."""
     try:
         return calculate_constructed_vertex(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class OffsetLinesIntersectionInput(BaseModel):
+    method: str
+    lines: list[dict] = Field(min_length=2, max_length=2)
+    utm_zone: int | None = None
+    hemisphere: str | None = None
+    sirgas2000_confirmed: bool = False
+
+
+@router.post("/topcon/offset-lines-intersection")
+def calculate_offset_lines_intersection(
+    payload: OffsetLinesIntersectionInput,
+    user: User = Depends(get_current_user),
+):
+    """Vértice V por interseção de duas paralelas (PA1/PA2), sem clique.
+
+    Propaga sigma horizontal quando todos os desvios-padrão são informados;
+    nunca calcula h nem marca o vértice como pronto para o SIGEF.
+    """
+    try:
+        return intersect_offset_lines(
+            payload.lines,
+            method=payload.method,
+            utm_zone=payload.utm_zone,
+            hemisphere=payload.hemisphere,
+            sirgas2000_confirmed=payload.sirgas2000_confirmed,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
