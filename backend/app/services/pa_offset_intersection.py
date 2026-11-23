@@ -219,3 +219,230 @@ def intersect_offset_lines(
         "warnings": warnings,
         "ready_for_sigef": False,
     }
+
+
+# ---------------------------------------------------------------------------
+# Paralela a uma cadeia de pontos P (vários segmentos com o mesmo afastamento)
+# ---------------------------------------------------------------------------
+
+MAX_TURN_DEG = 170.0
+SPIKE_TURN_DEG = 120.0
+
+
+def _chain_vertices(values: list[float], n: int, sign: float, end_mode: str):
+    """Vértices da paralela a uma poligonal aberta de n pontos.
+
+    values = [E0, N0, ..., E(n-1), N(n-1), d]. Nos pontos internos o vértice é
+    a interseção das paralelas aos dois segmentos que chegam ao ponto (fórmula
+    da esquadria: P + d·(n1+n2)/(1+n1·n2)). Nas pontas, afastamento
+    perpendicular ao segmento extremo (end_mode PERPENDICULAR) ou nenhum
+    vértice (end_mode NONE, para ligar a outra reta por interseção).
+    """
+    d = values[2 * n]
+    pts = [(values[2 * i], values[2 * i + 1]) for i in range(n)]
+    normals = []
+    for i in range(n - 1):
+        dx, dy = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+        length = math.hypot(dx, dy)
+        if length < 0.01:
+            raise ValueError(f"Segmento {i + 1} com comprimento nulo.")
+        normals.append((-dy / length * sign, dx / length * sign))
+    out = []
+    if end_mode == "PERPENDICULAR":
+        out.append((0, pts[0][0] + normals[0][0] * d, pts[0][1] + normals[0][1] * d, 0.0, 1.0))
+    for k in range(1, n - 1):
+        n1, n2 = normals[k - 1], normals[k]
+        dot = n1[0] * n2[0] + n1[1] * n2[1]
+        denom = 1.0 + dot
+        turn = math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+        if turn > MAX_TURN_DEG:
+            raise ValueError(
+                f"Mudança de direção maior que {MAX_TURN_DEG:g}° no ponto {k + 1}: paralela indefinida (retorno)."
+            )
+        factor = 1.0 / math.cos(math.radians(turn) / 2)
+        out.append((k, pts[k][0] + d * (n1[0] + n2[0]) / denom, pts[k][1] + d * (n1[1] + n2[1]) / denom, turn, factor))
+    if end_mode == "PERPENDICULAR":
+        last = n - 1
+        out.append((last, pts[last][0] + normals[-1][0] * d, pts[last][1] + normals[-1][1] * d, 0.0, 1.0))
+    return out
+
+
+def offset_polyline(
+    points: list[dict], *,
+    method: str,
+    offset_m: float,
+    side: str | None,
+    offset_sigma_m: float | None = None,
+    end_mode: str = "PERPENDICULAR",
+    utm_zone: int | None = None,
+    hemisphere: str | None = None,
+    sirgas2000_confirmed: bool = False,
+) -> dict:
+    """Vértices V de uma paralela à cadeia de pontos P medidos.
+
+    Cada ponto: name, easting_m, northing_m, sigma_e_m, sigma_n_m e,
+    opcionalmente, ellipsoidal_height_m e sigma_h_m. A precisão horizontal de
+    cada V é propagada em primeira ordem a partir de todos os pontos da cadeia
+    e do desvio-padrão do afastamento. A altura elipsoidal de cada V é
+    transportada do ponto P de apoio correspondente (marcada como derivada).
+    """
+    if method not in ("PA1", "PA2"):
+        raise ValueError("Código de posicionamento: informe PA1 ou PA2, conforme o enquadramento do RT.")
+    if end_mode not in ("PERPENDICULAR", "NONE"):
+        raise ValueError("Tratamento das pontas inválido.")
+    if not isinstance(points, list) or len(points) < 2:
+        raise ValueError("Selecione pelo menos dois pontos P em sequência.")
+    if end_mode == "NONE" and len(points) < 3:
+        raise ValueError("Sem vértices nas pontas, a cadeia precisa de pelo menos três pontos.")
+    try:
+        d = float(offset_m)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Afastamento inválido.") from exc
+    if not math.isfinite(d) or d <= 0:
+        raise ValueError("Informe um afastamento maior que zero.")
+    if side not in ("LEFT", "RIGHT"):
+        raise ValueError("Indique o lado da paralela (esquerdo/direito no sentido do caminhamento).")
+    sign = 1.0 if side == "LEFT" else -1.0
+
+    parsed = [_point(p, f"Ponto {i + 1}") for i, p in enumerate(points)]
+    names = [p[0] for p in parsed]
+    if len(set(names)) != len(names):
+        raise ValueError("A cadeia repete um ponto: cada ponto P entra uma única vez.")
+    heights: list[float | None] = []
+    sigma_hs: list[float | None] = []
+    for p in points:
+        def num(key):
+            value = p.get(key)
+            if value is None or value == "":
+                return None
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return None
+            return value if math.isfinite(value) else None
+        heights.append(num("ellipsoidal_height_m"))
+        sh = num("sigma_h_m")
+        sigma_hs.append(sh if sh is None or sh >= 0 else None)
+
+    n = len(parsed)
+    values: list[float] = []
+    sigmas: list[float | None] = []
+    for p in parsed:
+        values += [p[1], p[2]]
+        sigmas += [p[3], p[4]]
+    values.append(d)
+    od = None
+    if offset_sigma_m not in (None, ""):
+        try:
+            od = float(offset_sigma_m)
+        except (TypeError, ValueError):
+            od = None
+        if od is not None and (not math.isfinite(od) or od < 0):
+            od = None
+    sigmas.append(od)
+
+    base = _chain_vertices(values, n, sign, end_mode)
+
+    # A paralela não pode inverter o sentido de nenhum segmento (afastamento
+    # maior do que a geometria comporta gera laços).
+    seq = [(x, y) for _, x, y, _, _ in base]
+    support = [k for k, *_ in base]
+    for i in range(len(seq) - 1):
+        a, b = support[i], support[i + 1]
+        ox, oy = parsed[b][1] - parsed[a][1], parsed[b][2] - parsed[a][2]
+        vx, vy = seq[i + 1][0] - seq[i][0], seq[i + 1][1] - seq[i][1]
+        if ox * vx + oy * vy <= 0:
+            raise ValueError(
+                f"O afastamento de {d:g} m inverte o trecho {names[a]}→{names[b]}: reduza o afastamento ou retire pontos muito próximos."
+            )
+
+    missing = any(s is None for s in sigmas)
+    jac: list[list[tuple[float, float]]] = [[(0.0, 0.0)] * len(values) for _ in base]
+    if not missing:
+        step = 1e-4
+        for j, s in enumerate(sigmas):
+            if s == 0:
+                continue
+            plus = list(values); plus[j] += step
+            minus = list(values); minus[j] -= step
+            vp = _chain_vertices(plus, n, sign, end_mode)
+            vm = _chain_vertices(minus, n, sign, end_mode)
+            for i in range(len(base)):
+                jac[i][j] = ((vp[i][1] - vm[i][1]) / (2 * step), (vp[i][2] - vm[i][2]) / (2 * step))
+
+    transformer = None
+    if sirgas2000_confirmed:
+        transformer = Transformer.from_crs(f"EPSG:{_epsg(utm_zone, hemisphere)}", "EPSG:4674", always_xy=True)
+
+    vertices = []
+    over_limit = []
+    spikes = []
+    for i, (k, x, y, turn, factor) in enumerate(base):
+        if not _finite(x, y):
+            raise ValueError("Vértice numericamente inválido.")
+        se = sn = shz = None
+        if not missing:
+            var_e = sum((jac[i][j][0] * s) ** 2 for j, s in enumerate(sigmas) if s)
+            var_n = sum((jac[i][j][1] * s) ** 2 for j, s in enumerate(sigmas) if s)
+            se, sn, shz = math.sqrt(var_e), math.sqrt(var_n), math.sqrt(var_e + var_n)
+            if shz > 0.50:
+                over_limit.append(names[k])
+        if turn > SPIKE_TURN_DEG:
+            spikes.append(names[k])
+        lon = lat = None
+        if transformer is not None:
+            lon, lat = transformer.transform(x, y)
+        vertices.append({
+            "sequence": i + 1,
+            "support_point": names[k],
+            "position": "START" if (end_mode == "PERPENDICULAR" and i == 0) else
+                        "END" if (end_mode == "PERPENDICULAR" and i == len(base) - 1) else "INTERNAL",
+            "easting_m": round(x, 4),
+            "northing_m": round(y, 4),
+            "longitude": lon,
+            "latitude": lat,
+            "height_m": None if heights[k] is None else round(heights[k], 4),
+            "height_source": None if heights[k] is None else "TRANSFERRED_FROM_SUPPORT_POINT",
+            "sigma_e_m": None if se is None else round(se, 4),
+            "sigma_n_m": None if sn is None else round(sn, 4),
+            "sigma_horizontal_m": None if shz is None else round(shz, 4),
+            "sigma_h_m": None if sigma_hs[k] is None else round(sigma_hs[k], 4),
+            "turn_angle_deg": round(turn, 4),
+            "miter_factor": round(factor, 4),
+        })
+
+    warnings = [
+        "Vértices determinados por geometria analítica: paralela à cadeia de pontos P medidos, com interseção das paralelas de segmentos consecutivos.",
+        "Nas pontas, o vértice é o afastamento perpendicular ao segmento extremo." if end_mode == "PERPENDICULAR"
+        else "Pontas sem vértice: ligue a paralela a outra reta por interseção.",
+        "A altura elipsoidal h de cada V foi transportada do ponto P de apoio correspondente; confirme se o desnível no afastamento é desprezível.",
+        "O enquadramento como PA1 ou PA2 é declaração do responsável técnico e deve constar do relatório técnico.",
+    ]
+    if missing:
+        warnings.append("Sigmas não propagados: falta desvio-padrão E/N de algum ponto P ou do afastamento.")
+    else:
+        warnings.append("Sigmas propagados em primeira ordem supondo observações não correlacionadas entre os pontos P.")
+    if any(h is None for h in heights):
+        warnings.append("Algum ponto P não tem altura elipsoidal: o V correspondente fica sem h.")
+    if over_limit:
+        warnings.append("Precisão horizontal acima de 0,50 m (limite para limite artificial) em: " + ", ".join(over_limit) + ".")
+    if spikes:
+        warnings.append(f"Mudança de direção acima de {SPIKE_TURN_DEG:g}° em {', '.join(spikes)}: o vértice fica distante do ponto P; confira.")
+    if not sirgas2000_confirmed:
+        warnings.append("SIRGAS2000 não confirmado: coordenadas geográficas não calculadas.")
+
+    return {
+        "status": "DRAFT_REQUIRES_TECHNICAL_REVIEW",
+        "method": method,
+        "operation": "OFFSET_POLYLINE",
+        "vertex_type": "V",
+        "offset_m": d,
+        "side": side,
+        "offset_sigma_m": od,
+        "end_mode": end_mode,
+        "support_points": names,
+        "sigma_model": None if missing else "FIRST_ORDER_UNCORRELATED",
+        "vertices": vertices,
+        "warnings": warnings,
+        "ready_for_sigef": False,
+    }

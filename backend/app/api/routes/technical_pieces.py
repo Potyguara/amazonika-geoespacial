@@ -33,7 +33,7 @@ from app.services.vertical_datum import convert_altitudes
 from app.services.pa2_intersection import intersect_pa2
 from app.services.constructed_vertices import calculate_constructed_vertex
 from app.services.pa2_support_line import pa2_support_line
-from app.services.pa_offset_intersection import intersect_offset_lines
+from app.services.pa_offset_intersection import intersect_offset_lines, offset_polyline
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -233,6 +233,40 @@ def calculate_offset_lines_intersection(
         return intersect_offset_lines(
             payload.lines,
             method=payload.method,
+            utm_zone=payload.utm_zone,
+            hemisphere=payload.hemisphere,
+            sirgas2000_confirmed=payload.sirgas2000_confirmed,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class OffsetPolylineInput(BaseModel):
+    method: str
+    points: list[dict] = Field(min_length=2, max_length=200)
+    offset_m: float
+    side: str | None = None
+    offset_sigma_m: float | None = None
+    end_mode: str = "PERPENDICULAR"
+    utm_zone: int | None = None
+    hemisphere: str | None = None
+    sirgas2000_confirmed: bool = False
+
+
+@router.post("/topcon/offset-polyline")
+def calculate_offset_polyline(
+    payload: OffsetPolylineInput,
+    user: User = Depends(get_current_user),
+):
+    """Vértices V de uma paralela a uma cadeia de pontos P (PA1/PA2)."""
+    try:
+        return offset_polyline(
+            payload.points,
+            method=payload.method,
+            offset_m=payload.offset_m,
+            side=payload.side,
+            offset_sigma_m=payload.offset_sigma_m,
+            end_mode=payload.end_mode,
             utm_zone=payload.utm_zone,
             hemisphere=payload.hemisphere,
             sirgas2000_confirmed=payload.sirgas2000_confirmed,

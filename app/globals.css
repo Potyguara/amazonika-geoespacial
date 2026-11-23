@@ -6713,3 +6713,47 @@ input {
 .pecas-workspace .geo115-order-layout .pecas-table td{white-space:nowrap;}
 .pecas-workspace .geo115-boundary-map{min-width:0;}
 @media(max-width:1150px){.pecas-workspace .geo115-order-layout{grid-template-columns:minmax(0,1fr);}}
+
+/* ===== Retorno visual global (app-feedback.tsx) ===== */
+button { transition: scale .12s ease, box-shadow .15s ease, filter .15s ease, background-color .15s ease, opacity .15s ease; }
+button:not(:disabled):hover { filter: brightness(1.04); }
+button:not(:disabled):active, button.app-press { scale: .97; }
+button:focus-visible { outline: 3px solid #2f9e7a; outline-offset: 2px; }
+button:disabled { cursor: not-allowed; }
+button[data-busy="true"] { position: relative; cursor: progress; pointer-events: none; opacity: .85; padding-right: max(2.1em, 28px) !important; }
+button[data-busy="true"]::after {
+  content: ""; position: absolute; right: .7em; top: 50%; width: 12px; height: 12px; margin-top: -6px;
+  border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent;
+  animation: app-spin .7s linear infinite;
+}
+@keyframes app-spin { to { transform: rotate(360deg); } }
+
+.app-activity-bar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 300000; overflow: hidden; background: #d7ebe3; }
+.app-activity-bar::before { content: ""; position: absolute; inset: 0 auto 0 -40%; width: 40%; background: #0b7a55; animation: app-slide 1.1s ease-in-out infinite; }
+@keyframes app-slide { to { left: 100%; } }
+
+.app-modal-backdrop { position: fixed; inset: 0; z-index: 250000; display: grid; place-items: center; padding: 16px; background: rgba(12, 38, 31, .42); backdrop-filter: blur(2px); animation: app-fade .15s ease; }
+.app-modal { width: min(460px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 24px; border-radius: 16px; background: #fff; color: #173e33; border: 1px solid #b4cec3; box-shadow: 0 24px 70px rgba(16, 47, 41, .35); display: grid; gap: 12px; animation: app-pop .18s ease; }
+.app-modal h2 { margin: 0; font-size: 19px; }
+.app-modal p { margin: 0; line-height: 1.45; }
+.app-modal label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.app-modal input { padding: 10px 12px; border: 1px solid #b4cec3; border-radius: 8px; font-size: 14px; }
+.app-modal-eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #0b7a55; }
+.app-modal-error { color: #a32020; background: #fdeeee; border: 1px solid #f1c2c2; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.app-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.app-modal-primary { padding: 10px 18px; border: 1px solid #08623f; border-radius: 8px; background: #08623f; color: #fff; font-weight: 700; cursor: pointer; }
+.app-modal-secondary { padding: 10px 18px; border: 1px solid #b4cec3; border-radius: 8px; background: #fff; color: #173e33; font-weight: 700; cursor: pointer; }
+.app-notice-error { border-color: #e3a5a5; }
+.app-notice-error .app-modal-eyebrow { color: #a32020; }
+.app-notice-success .app-modal-eyebrow { color: #08623f; }
+.app-transfer { display: grid; gap: 6px; }
+.app-transfer-head { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.app-transfer-head span { font-variant-numeric: tabular-nums; font-weight: 800; color: #08623f; }
+.app-transfer small { color: #4c6b61; font-variant-numeric: tabular-nums; }
+.app-progress { position: relative; height: 10px; border-radius: 999px; background: #e3efe9; overflow: hidden; }
+.app-progress > div { height: 100%; background: linear-gradient(90deg, #0b7a55, #2fb486); border-radius: inherit; transition: width .2s ease; }
+.app-progress-indeterminate > div { position: absolute; width: 35%; animation: app-slide2 1.2s ease-in-out infinite; }
+@keyframes app-slide2 { from { left: -35%; } to { left: 100%; } }
+@keyframes app-fade { from { opacity: 0; } }
+@keyframes app-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+.app-spinner { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #0b7a55; border-right-color: transparent; animation: app-spin .7s linear infinite; vertical-align: -3px; margin-right: 8px; }
