@@ -12,6 +12,9 @@ from shapely.ops import nearest_points
 from shapely.validation import explain_validity
 from pyproj import Geod
 
+from app.services.normative_checks import check_vertices
+from app.services.sgl_metrics import sgl_metrics
+
 GEOD = Geod(ellps="GRS80")
 AREA_SITUATIONS = {"Imóvel Registrado", "Área Titulada não Registrada", "Área não Titulada"}
 MAX_PARCELS = 50
@@ -107,6 +110,7 @@ def review_sigef_parcels(payload: dict[str, Any]) -> dict:
 
     parsed = []
     numbers = []
+    vertex_checks: dict[str, tuple] = {}
     for index, item in enumerate(parcels, 1):
         if not isinstance(item, dict):
             errors.append(f"Parcela {index}: registro inválido.")
@@ -125,7 +129,21 @@ def review_sigef_parcels(payload: dict[str, Any]) -> dict:
             )
         if item.get("parcelling_type") not in (None, "", "SEM_PARCELAMENTO", "PARCELAMENTO", "ENCRAVADA"):
             errors.append(f"Parcela {index}: tipo de parcelamento desconhecido.")
+        vertices = item.get("vertices")
+        checks = None
+        sgl_area = None
+        if isinstance(vertices, list) and vertices:
+            vertex_errors, checks, vertex_alerts = check_vertices(vertices, f"Parcela {number}")
+            errors.extend(vertex_errors)
+            warnings.extend(vertex_alerts)
+            heights = [v.get("ellipsoidal_height_m") for v in vertices if isinstance(v, dict)]
+            ring = [(v.get("longitude"), v.get("latitude")) for v in vertices if isinstance(v, dict)]
+            try:
+                sgl_area = round(sgl_metrics(ring, heights)["area_ha"], 4)
+            except (ValueError, TypeError):
+                warnings.append(f"Parcela {number}: área em SGL (MTGIR 3.8.3) não calculada; faltam alturas h.")
         parsed.append((number, name, polygon, holes))
+        vertex_checks[number] = (checks, sgl_area)
     if len(set(numbers)) != len(numbers):
         errors.append("Números de parcelas duplicados.")
     internal_conflicts = []
@@ -186,7 +204,9 @@ def review_sigef_parcels(payload: dict[str, Any]) -> dict:
         "municipalities": municipalities,
         "parcel_count": len(parsed),
         "parcels": [{"number": n, "name": name,
-                     "area_ha": round(_geo_area(poly), 4),
+                     "area_ha": vertex_checks.get(n, (None, None))[1] or round(_geo_area(poly), 4),
+                     "area_method": "SGL_GRS80_MTGIR_3_8_3" if vertex_checks.get(n, (None, None))[1] else "GEODESIC_PRELIMINARY",
+                     "vertex_checks": vertex_checks.get(n, (None, None))[0],
                      "internal_perimeter_count": holes}
                     for n, name, poly, holes in parsed],
         "internal_overlaps": internal_conflicts,

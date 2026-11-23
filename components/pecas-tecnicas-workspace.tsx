@@ -1457,7 +1457,11 @@ export function PecasTecnicasWorkspace({
           identification: makeSigefIdentity(),
           parcels: parcelsForOds().map(({number,name,vertices})=>{
             const ring=vertices.map(v=>[v.longitude,v.latitude]);
-            return {number,name,geometry:{type:"Polygon",coordinates:[[...ring,ring[0]]]},parcelling_type:"SEM_PARCELAMENTO"};
+            return {number,name,geometry:{type:"Polygon",coordinates:[[...ring,ring[0]]]},parcelling_type:"SEM_PARCELAMENTO",
+              // Verificação normativa por vértice (NTGIR 3.3, 4.2–4.4; MTGIR Tabelas 6 e 7).
+              vertices:vertices.map(v=>({sigef_vertex_code:v.sigef_vertex_code,sigef_method:v.sigef_method,boundary_type:v.boundary_type,
+                longitude:v.longitude,latitude:v.latitude,ellipsoidal_height_m:v.ellipsoidal_height_m,
+                sigma_lat_m:v.sigma_lat_m,sigma_lon_m:v.sigma_lon_m,sigma_h_m:v.sigma_h_m}))};
           }),
           neighbors: [],
         }),
