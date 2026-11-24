@@ -122,7 +122,10 @@ export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_re
   sigma_suggestion_h_m?: number | null;
   derived_calculation?: Record<string, unknown> | null;
 };
-type PaLine = { a: string; b: string; offset: string; side: "LEFT" | "RIGHT"; offsetSigma: string };
+type PaLine = { a: string; b: string; offset: string; side: "LEFT" | "RIGHT"; offsetSigma: string;
+  /** Afastamento próprio em cada ponto (ex.: barco ancorado a distâncias diferentes da margem). */
+  perPoint?: boolean; offsetB?: string; offsetSigmaB?: string;
+  direction?: "PERPENDICULAR" | "AZIMUTH"; azA?: string; azB?: string; azSigma?: string };
 const emptyPaLine: PaLine = { a: "", b: "", offset: "", side: "LEFT", offsetSigma: "" };
 type PaChainVertex = {
   sequence: number; support_point: string; position: "START" | "INTERNAL" | "END";
@@ -1599,9 +1602,10 @@ export function PecasTecnicasWorkspace({
       setPa2Busy(false);
     }
   };
-  const paLineReady = (line: PaLine) => Boolean(line.a && line.b && line.a !== line.b &&
-    line.offset.trim() !== "" && Number.isFinite(Number(line.offset.replace(",", "."))) &&
-    Number(line.offset.replace(",", ".")) >= 0);
+  const nonNeg = (v?: string) => (v ?? "").trim() !== "" && Number.isFinite(Number(v!.replace(",", "."))) && Number(v!.replace(",", ".")) >= 0;
+  const paLineReady = (line: PaLine) => Boolean(line.a && line.b && line.a !== line.b && nonNeg(line.offset) &&
+    (!line.perPoint || nonNeg(line.offsetB)) &&
+    (!line.perPoint || line.direction !== "AZIMUTH" || ((line.azA ?? "").trim() !== "" && (line.azB ?? "").trim() !== "")));
   const calculatePaOffsetLines = async () => {
     if (!topconPreview) return;
     setPa2Busy(true); setPa2Error(""); setPa2Result(null);
@@ -1623,7 +1627,17 @@ export function PecasTecnicasWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           method: constructionMethod,
-          lines: paLines.map((line) => ({
+          lines: paLines.map((line) => line.perPoint ? ({
+            points: [point(line.a), point(line.b)],
+            side: line.side,
+            direction: line.direction ?? "PERPENDICULAR",
+            point_offsets: [
+              { offset_m: num(line.offset), offset_sigma_m: num(line.offsetSigma),
+                azimuth_deg: num(line.azA ?? ""), azimuth_sigma_deg: num(line.azSigma ?? "") },
+              { offset_m: num(line.offsetB ?? ""), offset_sigma_m: num(line.offsetSigmaB ?? ""),
+                azimuth_deg: num(line.azB ?? ""), azimuth_sigma_deg: num(line.azSigma ?? "") },
+            ],
+          }) : ({
             points: [point(line.a), point(line.b)],
             offset_m: num(line.offset) ?? 0,
             side: line.side,
@@ -4828,27 +4842,39 @@ export function PecasTecnicasWorkspace({
                                   </option>)}
                                 </select>
                               </label>)}
-                              <label className="pecas-field"><span>Afastamento perpendicular (m)</span>
-                                <input type="number" min="0" step="any" value={line.offset}
-                                  onChange={(e) => { const value = e.target.value;
-                                    setPaLines((old) => old.map((l, i) => i === index ? { ...l, offset: value } : l));
-                                    setPa2Result(null); }} />
-                              </label>
-                              <label className="pecas-field"><span>Lado do afastamento</span>
-                                <select value={line.side} onChange={(e) => { const value = e.target.value as PaLine["side"];
-                                  setPaLines((old) => old.map((l, i) => i === index ? { ...l, side: value } : l));
-                                  setPa2Result(null); }}>
-                                  <option value="LEFT">Esquerda de A → B</option>
-                                  <option value="RIGHT">Direita de A → B</option>
-                                </select>
-                              </label>
-                              <label className="pecas-field"><span>Desvio-padrão do afastamento (m, opcional)</span>
-                                <input type="number" min="0" step="any" value={line.offsetSigma}
-                                  placeholder="0 se o afastamento é definido por documento"
-                                  onChange={(e) => { const value = e.target.value;
-                                    setPaLines((old) => old.map((l, i) => i === index ? { ...l, offsetSigma: value } : l));
-                                    setPa2Result(null); }} />
-                              </label>
+                              {(() => {
+                                const set = (patch: Partial<PaLine>) => { setPaLines((old) => old.map((l, k) => k === index ? { ...l, ...patch } : l)); setPa2Result(null); };
+                                const field = (label: string, key: keyof PaLine, placeholder = "") => <label className="pecas-field"><span>{label}</span>
+                                  <input type="number" step="any" value={String(line[key] ?? "")} placeholder={placeholder}
+                                    onChange={(e) => set({ [key]: e.target.value } as Partial<PaLine>)} /></label>;
+                                return <>
+                                  <label className="pecas-check">
+                                    <input type="checkbox" checked={Boolean(line.perPoint)} onChange={(e) => set({ perPoint: e.target.checked })} />
+                                    Afastamento diferente em cada ponto (ex.: barco ancorado a distâncias diferentes da margem)
+                                  </label>
+                                  {line.perPoint && <label className="pecas-field"><span>Como o afastamento foi medido</span>
+                                    <select value={line.direction ?? "PERPENDICULAR"} onChange={(e) => set({ direction: e.target.value as PaLine["direction"] })}>
+                                      <option value="PERPENDICULAR">Menor distância até a margem (perpendicular a ela)</option>
+                                      <option value="AZIMUTH">Distância e azimute geodésico medidos</option>
+                                    </select></label>}
+                                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8}}>
+                                    {field(line.perPoint ? "Afastamento em " + (line.a || "A") + " (m)" : "Afastamento perpendicular (m)", "offset")}
+                                    {field(line.perPoint ? "σ do afastamento em " + (line.a || "A") + " (m)" : "Desvio-padrão do afastamento (m)", "offsetSigma", "0 se definido por documento")}
+                                    {line.perPoint && field("Afastamento em " + (line.b || "B") + " (m)", "offsetB")}
+                                    {line.perPoint && field("σ do afastamento em " + (line.b || "B") + " (m)", "offsetSigmaB", "precisão da trena/distanciômetro")}
+                                    {line.perPoint && line.direction === "AZIMUTH" && <>
+                                      {field("Azimute em " + (line.a || "A") + " (°)", "azA")}
+                                      {field("Azimute em " + (line.b || "B") + " (°)", "azB")}
+                                      {field("σ dos azimutes (°)", "azSigma")}
+                                    </>}
+                                    {(!line.perPoint || line.direction !== "AZIMUTH") && <label className="pecas-field"><span>Lado do afastamento</span>
+                                      <select value={line.side} onChange={(e) => set({ side: e.target.value as PaLine["side"] })}>
+                                        <option value="LEFT">Esquerda de A → B</option>
+                                        <option value="RIGHT">Direita de A → B</option>
+                                      </select></label>}
+                                  </div>
+                                </>;
+                              })()}
                             </fieldset>)}
                             <label className="pecas-check">
                               <input type="checkbox" checked={pa2ConfirmedCrs}

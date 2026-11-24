@@ -188,10 +188,44 @@ def _offset_line(ax, ay, bx, by, offset, side):
     return ax + nx * offset, ay + ny * offset, dx, dy
 
 
-def _solve(values: list[float], sides: tuple[str, str]):
-    ax, ay, bx, by, cx, cy, dx_, dy_, d1, d2 = values
-    p1x, p1y, ux, uy = _offset_line(ax, ay, bx, by, d1, sides[0])
-    p2x, p2y, vx, vy = _offset_line(cx, cy, dx_, dy_, d2, sides[1])
+def _margin_line(ax, ay, bx, by, da, db, side, mode, aza=0.0, azb=0.0):
+    """Reta deslocada a partir de dois pontos medidos, cada um com seu afastamento.
+
+    PERPENDICULAR: da e db são as menores distâncias (perpendiculares) de A e de
+    B até a reta procurada, do mesmo lado; a reta é a tangente comum externa aos
+    círculos de raio da e db. Com da = db ela é a paralela a A–B.
+    AZIMUTH: cada ponto da reta é A + da·(sen az, cos az), com azimute geodésico
+    medido em campo (o eixo n do SGL aponta para o norte geodésico).
+    Devolve um ponto da reta e sua direção.
+    """
+    if mode == "AZIMUTH":
+        fax, fay = ax + da * math.sin(aza), ay + da * math.cos(aza)
+        fbx, fby = bx + db * math.sin(azb), by + db * math.cos(azb)
+        if math.hypot(fbx - fax, fby - fay) < 0.01:
+            raise ValueError("Os dois pontos deslocados coincidem: confira afastamentos e azimutes.")
+        return fax, fay, fbx - fax, fby - fay
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy)
+    if length < 0.01:
+        raise ValueError("Alinhamento com comprimento nulo.")
+    ux, uy = dx / length, dy / length
+    sign = 1.0 if side == "LEFT" else -1.0
+    px, py = -sign * uy, sign * ux
+    k = (da - db) / length
+    if abs(k) >= 0.99:
+        raise ValueError("A diferença entre os afastamentos dos dois pontos é quase igual à distância entre eles: reta indefinida.")
+    c = math.sqrt(1 - k * k)
+    mx, my = k * ux + c * px, k * uy + c * py
+    return ax + da * mx, ay + da * my, (c * ux - k * px) * length, (c * uy - k * py) * length
+
+
+def _solve(values: list[float], sides, modes=("PERPENDICULAR", "PERPENDICULAR")):
+    """values = [A1, B1, A2, B2 (e, n)] + [dA1, dB1, dA2, dB2] + [azA1, azB1, azA2, azB2] (rad)."""
+    if len(values) == 10:  # formato antigo: um afastamento por reta
+        values = values[:8] + [values[8], values[8], values[9], values[9]] + [0.0] * 4
+    ax, ay, bx, by, cx, cy, dx_, dy_, da1, db1, da2, db2, za1, zb1, za2, zb2 = values
+    p1x, p1y, ux, uy = _margin_line(ax, ay, bx, by, da1, db1, sides[0], modes[0], za1, zb1)
+    p2x, p2y, vx, vy = _margin_line(cx, cy, dx_, dy_, da2, db2, sides[1], modes[1], za2, zb2)
     cross = ux * vy - uy * vx
     if cross == 0:
         raise ValueError("Retas paralelas: sem interseção.")
@@ -201,13 +235,21 @@ def _solve(values: list[float], sides: tuple[str, str]):
     return p1x + t * ux, p1y + t * uy, t, u, cross, math.hypot(ux, uy), math.hypot(vx, vy)
 
 
-def _offset_sigma(line: dict, offset: float) -> float | None:
-    raw = line.get("offset_sigma_m")
+def _nonneg(value) -> float | None:
+    if value is None or value == "" or isinstance(value, bool):
+        return None
     try:
-        value = float(raw) if raw not in (None, "") else (0.0 if offset == 0 else None)
+        value = float(value)
     except (TypeError, ValueError):
         return None
-    return value if value is not None and math.isfinite(value) and value >= 0 else None
+    return value if math.isfinite(value) and value >= 0 else None
+
+
+def _offset_sigma(line: dict, offset: float) -> float | None:
+    raw = line.get("offset_sigma_m")
+    if raw in (None, ""):
+        return 0.0 if offset == 0 else None
+    return _nonneg(raw)
 
 
 def intersect_offset_lines(
@@ -217,14 +259,22 @@ def intersect_offset_lines(
     hemisphere: str | None = None,
     sirgas2000_confirmed: bool = False,
 ) -> dict:
+    """V pela interseção de duas retas deslocadas de pontos medidos (PA2).
+
+    Cada reta: dois pontos, lado e afastamento único (offset_m, paralela) ou um
+    afastamento por ponto (point_offsets), medido como menor distância até a
+    reta (direction PERPENDICULAR) ou com azimute geodésico (direction AZIMUTH).
+    """
     if method not in ("PA1", "PA2"):
         raise ValueError("Código de posicionamento: informe PA1 ou PA2, conforme o enquadramento do RT.")
     if not isinstance(lines, list) or len(lines) != 2:
         raise ValueError("Informe exatamente duas retas.")
     refs: list[dict] = []
     sides: list[str] = []
-    offsets: list[float] = []
-    offset_sigmas: list[float | None] = []
+    modes: list[str] = []
+    dists: list[float] = []
+    azs: list[float] = []
+    groups: list[tuple[list[int], float | None, str]] = []  # (índices em values, σ, descrição)
     descriptions = []
     for index, line in enumerate(lines, start=1):
         label = f"Reta {index}"
@@ -235,30 +285,73 @@ def intersect_offset_lines(
                                  sirgas2000_confirmed=sirgas2000_confirmed)
         if a["name"] == b["name"]:
             raise ValueError(f"{label}: os dois pontos devem ser distintos.")
-        try:
-            offset = float(line.get("offset_m", 0) or 0)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{label}: afastamento inválido.") from exc
-        if not math.isfinite(offset) or offset < 0:
-            raise ValueError(f"{label}: o afastamento deve ser zero ou positivo.")
+        mode = line.get("direction") or "PERPENDICULAR"
+        if mode not in ("PERPENDICULAR", "AZIMUTH"):
+            raise ValueError(f"{label}: direção do afastamento inválida.")
+        per_point = line.get("point_offsets")
+        base_d = 8 + 2 * (index - 1)
+        base_z = 12 + 2 * (index - 1)
+        if per_point is not None:
+            if not isinstance(per_point, list) or len(per_point) != 2 or not all(isinstance(x, dict) for x in per_point):
+                raise ValueError(f"{label}: informe o afastamento de cada um dos dois pontos.")
+            pair = []
+            for j, (pt, po) in enumerate(zip((a, b), per_point)):
+                d = _nonneg(po.get("offset_m"))
+                if d is None:
+                    raise ValueError(f"{label}: afastamento inválido no ponto {pt['name']}.")
+                az = None
+                if mode == "AZIMUTH":
+                    az = _num(po, "azimuth_deg")
+                    if az is None:
+                        raise ValueError(f"{label}: informe o azimute geodésico do afastamento no ponto {pt['name']}.")
+                d_sigma = _nonneg(po.get("offset_sigma_m"))
+                if d_sigma is None and d == 0:
+                    d_sigma = 0.0
+                groups.append(([base_d + j], d_sigma, f"desvio-padrão do afastamento em {pt['name']}"))
+                if mode == "AZIMUTH":
+                    az_sigma = _nonneg(po.get("azimuth_sigma_deg"))
+                    groups.append(([base_z + j], None if az_sigma is None else math.radians(az_sigma),
+                                   f"desvio-padrão do azimute em {pt['name']}"))
+                pair.append({"point": pt["name"], "offset_m": d, "offset_sigma_m": d_sigma,
+                             "azimuth_deg": az})
+                dists.append(d)
+                azs.append(math.radians(az) if az is not None else 0.0)
+            offset_desc = pair
+        else:
+            if mode == "AZIMUTH":
+                raise ValueError(f"{label}: com azimute, informe o afastamento de cada ponto.")
+            try:
+                offset = float(line.get("offset_m", 0) or 0)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{label}: afastamento inválido.") from exc
+            if not math.isfinite(offset) or offset < 0:
+                raise ValueError(f"{label}: o afastamento deve ser zero ou positivo.")
+            dists += [offset, offset]
+            azs += [0.0, 0.0]
+            groups.append(([base_d, base_d + 1], _offset_sigma(line, offset), f"desvio-padrão do afastamento da {label}"))
+            offset_desc = offset
         side = line.get("side")
-        if offset > 0 and side not in ("LEFT", "RIGHT"):
+        any_offset = any(x > 0 for x in dists[-2:])
+        if mode == "PERPENDICULAR" and any_offset and side not in ("LEFT", "RIGHT"):
             raise ValueError(f"{label}: indique o lado do afastamento (esquerdo/direito no sentido {a['name']}→{b['name']}).")
         side = side if side in ("LEFT", "RIGHT") else "LEFT"
         refs += [a, b]
         sides.append(side)
-        offsets.append(offset)
-        offset_sigmas.append(_offset_sigma(line, offset))
-        descriptions.append({"points": [a["name"], b["name"]], "offset_m": offset,
-                             "side": side if offset > 0 else None, "offset_sigma_m": offset_sigmas[-1]})
+        modes.append(mode)
+        descriptions.append({"points": [a["name"], b["name"]], "direction": mode,
+                             "offset_m": offset_desc if per_point is None else None,
+                             "point_offsets": offset_desc if per_point is not None else None,
+                             "side": side if mode == "PERPENDICULAR" and any_offset else None,
+                             "offset_sigma_m": groups[-1][1] if per_point is None else None})
 
     frame = LocalFrame([(r["lon"], r["lat"], r["h"]) for r in refs])
     local = [frame.to_local(r["lon"], r["lat"], r["h"]) for r in refs]
     for i, d in enumerate(descriptions):
         a, b = local[2 * i], local[2 * i + 1]
         d["length_m"] = round(math.hypot(b[0] - a[0], b[1] - a[1]), 4)
-    values = [c for p in local for c in p[:2]] + offsets
-    x, y, t, u, cross, lu, lv = _solve(values, (sides[0], sides[1]))
+    values = [c for p in local for c in p[:2]] + dists + azs
+    sd, md = (sides[0], sides[1]), (modes[0], modes[1])
+    x, y, t, u, cross, lu, lv = _solve(values, sd, md)
     sin_angle = abs(cross) / (lu * lv)
     if sin_angle < math.sin(math.radians(MIN_ANGLE_DEG)):
         raise ValueError(
@@ -269,24 +362,30 @@ def intersect_offset_lines(
     if abs(t) > MAX_EXTRAPOLATION or abs(u) > MAX_EXTRAPOLATION:
         raise ValueError("Interseção muito distante dos pontos de apoio.")
 
-    sigmas = [s for r in refs for s in (r["sigma_e"], r["sigma_n"])] + offset_sigmas
-    missing = any(s is None for s in sigmas)
+    for i, r in enumerate(refs):
+        groups.append(([2 * i], r["sigma_e"], r["name"]))
+        groups.append(([2 * i + 1], r["sigma_n"], r["name"]))
+    missing_what = sorted({desc for _, sg, desc in groups if sg is None})
+    missing = bool(missing_what)
     sigma_e = sigma_n = sigma_hz = None
     if not missing:
         var_e = var_n = 0.0
-        for i, s in enumerate(sigmas):
-            if s == 0:
+        step = 1e-4
+        for idx, sg, _ in groups:
+            if not sg:
                 continue
-            step = 1e-4
-            plus = list(values); plus[i] += step
-            minus = list(values); minus[i] -= step
-            xp, yp, *_ = _solve(plus, (sides[0], sides[1]))
-            xm, ym, *_ = _solve(minus, (sides[0], sides[1]))
+            plus = list(values); minus = list(values)
+            for i in idx:
+                plus[i] += step
+                minus[i] -= step
+            xp, yp, *_ = _solve(plus, sd, md)
+            xm, ym, *_ = _solve(minus, sd, md)
             jx, jy = (xp - xm) / (2 * step), (yp - ym) / (2 * step)
-            var_e += (jx * s) ** 2
-            var_n += (jy * s) ** 2
+            var_e += (jx * sg) ** 2
+            var_n += (jy * sg) ** 2
         sigma_e, sigma_n = math.sqrt(var_e), math.sqrt(var_n)
         sigma_hz = math.sqrt(var_e + var_n)
+    t_rel, u_rel = t, u
 
     h, sigma_h = _mean_height(refs)
     coords = _output_coords(frame, x, y, h, _utm_forward(utm_zone, hemisphere))
@@ -296,13 +395,20 @@ def intersect_offset_lines(
         "Altitude elipsoidal do V = média das altitudes dos 4 vértices de referência (MTGIR 3.3.2). Se houver medição ou modelo de terreno, prefira esse valor.",
         "O enquadramento como PA1 ou PA2 é declaração do responsável técnico e deve constar do relatório técnico.",
     ]
+    if any(d.get("point_offsets") for d in descriptions):
+        warnings.append(
+            "Afastamentos diferentes por ponto: a reta deslocada é a que fica, de cada ponto, à distância medida "
+            "(menor distância, ou na direção do azimute informado); com afastamentos iguais ela é a paralela."
+        )
+    if "AZIMUTH" in modes:
+        warnings.append("Azimutes considerados geodésicos (norte verdadeiro). Azimute magnético precisa ser corrigido da declinação antes.")
     if missing:
-        warnings.append("Sigmas não propagados: falta desvio-padrão e/n de algum ponto de apoio ou de algum afastamento.")
+        warnings.append("Sigmas não propagados. Falta: " + "; ".join(missing_what) + ".")
     else:
         warnings.append("Sigmas propagados em primeira ordem supondo observações não correlacionadas entre os pontos de apoio.")
     if sigma_h is None:
         warnings.append("σh não calculado: falta desvio-padrão da altitude de algum vértice de referência.")
-    if t < 0 or t > 1 or u < 0 or u > 1:
+    if t_rel < 0 or t_rel > 1 or u_rel < 0 or u_rel > 1:
         warnings.append("A interseção extrapola pelo menos um dos segmentos medidos.")
 
     return {
@@ -319,7 +425,7 @@ def intersect_offset_lines(
         "sigma_h_m": None if sigma_h is None else round(sigma_h, 4),
         "sigma_model": None if missing else "FIRST_ORDER_UNCORRELATED",
         "angle_deg_acute": round(math.degrees(math.asin(min(1.0, sin_angle))), 4),
-        "line_parameters": {"first_t": round(t, 8), "second_t": round(u, 8)},
+        "line_parameters": {"first_t": round(t_rel, 8), "second_t": round(u_rel, 8)},
         "lines": descriptions,
         "witnesses": [r["name"] for r in refs],
         "calculation_frame": _frame_info(frame),

@@ -99,6 +99,48 @@ class OffsetLinesIntersectionTests(unittest.TestCase):
         self.assertAlmostEqual(r["latitude"], ref["latitude"], places=8)
 
 
+class PerPointOffsetTests(unittest.TestCase):
+    def two(self, line1, s=0.002):
+        line2 = {"points": [P("p3", 50, -100, s, h=14), P("p4", 50, 100, s, h=16)], "offset_m": 0,
+                 "offset_sigma_m": 0}
+        return intersect_offset_lines([line1, line2], method="PA2", **KW)
+
+    def test_afastamentos_iguais_por_ponto_equivalem_a_paralela(self):
+        r = self.two({"points": [P("p1", 0, 0, 0.002, h=10), P("p2", 100, 0, 0.002, h=12)], "side": "LEFT",
+                      "point_offsets": [{"offset_m": 10, "offset_sigma_m": 0}, {"offset_m": 10, "offset_sigma_m": 0}]})
+        self.assertTrue(close(local(r), (50, 10)))
+
+    def test_afastamentos_diferentes_menor_distancia(self):
+        r = self.two({"points": [P("p1", 0, 0, 0.002, h=10), P("p2", 100, 0, 0.002, h=12)], "side": "LEFT",
+                      "point_offsets": [{"offset_m": 10, "offset_sigma_m": 0.05}, {"offset_m": 20, "offset_sigma_m": 0.05}]})
+        # Reta tangente aos círculos de raio 10 (em p1) e 20 (em p2): m = (-0,1; √0,99).
+        y = 15 / math.sqrt(0.99)
+        self.assertTrue(close(local(r), (50, y)), local(r))
+        self.assertIsNotNone(r["sigma_horizontal_m"])
+        self.assertTrue(any("Afastamentos diferentes" in w for w in r["warnings"]))
+
+    def test_afastamentos_com_azimute(self):
+        line = {"points": [P("p1", 0, 0, 0.002, h=10), P("p2", 100, 0, 0.002, h=12)], "direction": "AZIMUTH",
+                "point_offsets": [{"offset_m": 10, "offset_sigma_m": 0.05, "azimuth_deg": 0, "azimuth_sigma_deg": 0.5},
+                                  {"offset_m": 20, "offset_sigma_m": 0.05, "azimuth_deg": 0, "azimuth_sigma_deg": 0.5}]}
+        r = self.two(line)
+        self.assertTrue(close(local(r), (50, 15)), local(r))
+        self.assertIsNotNone(r["sigma_horizontal_m"])
+
+    def test_azimute_sem_sigma_nao_propaga(self):
+        line = {"points": [P("p1", 0, 0, 0.002, h=10), P("p2", 100, 0, 0.002, h=12)], "direction": "AZIMUTH",
+                "point_offsets": [{"offset_m": 10, "offset_sigma_m": 0.05, "azimuth_deg": 0},
+                                  {"offset_m": 20, "offset_sigma_m": 0.05, "azimuth_deg": 0}]}
+        r = self.two(line)
+        self.assertIsNone(r["sigma_horizontal_m"])
+        self.assertTrue(any("azimute em p1" in w for w in r["warnings"]))
+
+    def test_diferenca_maior_que_segmento(self):
+        with self.assertRaises(ValueError):
+            self.two({"points": [P("p1", 0, 0, h=10), P("p2", 10, 0, h=12)], "side": "LEFT",
+                      "point_offsets": [{"offset_m": 1}, {"offset_m": 30}]})
+
+
 def _utm(p):
     from pyproj import Transformer
     t = Transformer.from_crs("EPSG:4674", "EPSG:31976", always_xy=True)
