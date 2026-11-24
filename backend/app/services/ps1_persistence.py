@@ -28,3 +28,32 @@ def same_vertex(a, b):
 def same_perimeter(expected, actual):
     return bool(expected and len(expected) == len(actual) and
                 all(same_vertex(a,b) for a,b in zip(expected,actual)))
+
+def same_perimeter_cyclic(expected, actual):
+    """Mesma sequencia e atributos, admitindo apenas outro vertice inicial.
+
+    A ordem de percurso nunca e invertida. A correspondencia de cada vertice
+    permanece subordinada ao comparador estrito same_vertex existente.
+    """
+    if not isinstance(expected, (list, tuple)) or not isinstance(actual, (list, tuple)):
+        return False
+    n = len(expected)
+    if n < 3 or len(actual) != n:
+        return False
+    if any(not isinstance(p, dict) for p in expected) or any(not isinstance(p, dict) for p in actual):
+        return False
+    def code(p):
+        return str(p.get("sigef_vertex_code") or p.get("name") or "").strip()
+    original_codes = [code(p) for p in expected]
+    new_codes = [code(p) for p in actual]
+    if (any(not code for code in original_codes + new_codes)
+            or len(set(original_codes)) != n or len(set(new_codes)) != n):
+        return False
+    try:
+        offset = original_codes.index(new_codes[0])
+    except ValueError:
+        return False
+    if new_codes != original_codes[offset:] + original_codes[:offset]:
+        return False
+    return all(same_vertex(expected[(offset+i) % n], actual[i]) for i in range(n))
+

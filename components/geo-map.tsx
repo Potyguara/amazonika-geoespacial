@@ -28,6 +28,7 @@ import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "o
 import View from "ol/View";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
+import { trackedFetch } from "@/components/app-feedback";
 import { LayerAttributeSearch, type LayerSearchResult } from "@/components/layer-attribute-search";
 import { PecasTecnicasWorkspace, DEFAULT_PLANT_ELEMENTS, type PecasData, type PlantElementFlags, type PlantElementKey, type ProfessionalDocumentProfile, type TopconBoundaryPoint, type TopconDraft } from "@/components/pecas-tecnicas-workspace";
 import type { SituationSnapshot } from "@/components/situation-map-preview";
@@ -814,6 +815,26 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     }
   };
 
+  // Novo relatório TOPCON: o trabalho anterior (pontos, parcela M–V e V
+  // construídos) não tem relação com o novo levantamento e é descartado.
+  // Somente geometrias de trabalho TOPCON são removidas; camadas oficiais não.
+  const resetTopconWork = () => {
+    let removed = false;
+    for (const existing of polygonFeatures()) {
+      const id = String(existing.get("workPolygonId") ?? "");
+      if (/^TOPCON-/.test(id)) { sourceRef.current.removeFeature(existing); removed = true; }
+    }
+    if (!removed) return;
+    setMemorialText("");
+    setEditedMemorial(null);
+    setLastGeneratedPdfId(null);
+    syncPolygonRegistry();
+    setSelectedPolygonIds((old) => old.filter((id) => !/^TOPCON-/.test(id)));
+    setSituationSnapshot(null);
+    refreshVertexLabels();
+    emitGeometry();
+  };
+
   const documentParcels = () => {
     const features = selectedFeatures();
     if (!features.length) throw new Error("Selecione ao menos um polígono.");
@@ -896,12 +917,12 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         vertex_names: feature.get("vertexNames"),
         format,
       };
-      const response = await fetch(`${getApiUrl()}/tools/export-polygon`, {
+      const response = await trackedFetch(`${getApiUrl()}/tools/export-polygon`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      });
+      }, "Exportando o polígono");
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(typeof body?.detail === "string" ? body.detail : "Falha na exportação.");
@@ -2396,9 +2417,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       if (extension === "ods") {
         const body = new FormData();
         body.append("file", file);
-        const response = await fetch(`${getApiUrl()}/technical-pieces/import-sigef-ods`, {
+        const response = await trackedFetch(`${getApiUrl()}/technical-pieces/import-sigef-ods`, {
           method: "POST", credentials: "include", body,
-        });
+        }, "Enviando a planilha SIGEF");
         const payload = await response.json().catch(() => null);
         if (!response.ok) throw new Error(typeof payload?.detail === "string"
           ? payload.detail : "Não foi possível importar a planilha SIGEF.");
@@ -2430,11 +2451,11 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       } else {
         const body = new FormData();
         body.append("file", file);
-        const response = await fetch(`${getApiUrl()}/tools/convert-vector`, {
+        const response = await trackedFetch(`${getApiUrl()}/tools/convert-vector`, {
           method: "POST",
           credentials: "include",
           body,
-        });
+        }, "Enviando o arquivo vetorial");
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(
@@ -2687,7 +2708,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     setMemorialLoading(true);
     try {
       const parcels = documentParcels();
-      const response = await fetch(`${getApiUrl()}/tools/memorial/docx`, {
+      const response = await trackedFetch(`${getApiUrl()}/tools/memorial/docx`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -2704,7 +2725,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           professional_override: documentProfessional,
           edited_memorial: editedMemorial,
         }),
-      });
+      }, "Gerando o memorial (DOCX)");
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(typeof payload?.detail === "string" ? payload.detail : "Falha no DOCX.");
@@ -2737,7 +2758,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     }
     const capture = situationSnapshot ?? await captureMapSituation();
     const { raster_b64, raster_source } = capture;
-    const response = await fetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
+    const response = await trackedFetch(`${getApiUrl()}/tools/plant-memorial/pdf`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -2768,7 +2789,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
             ? Number(customScale)
             : Number(scaleChoice),
       }),
-    });
+    }, "Gerando a planta e o memorial (PDF)");
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       const detail = payload?.detail;
@@ -2803,9 +2824,9 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       throw new Error("ODS SIGEF bloqueada: vértice PS4 sem acurácia horizontal, altura elipsoidal confirmada ou sigmas individuais completos.");
     }
     if (!analysisId) throw new Error("Conclua uma análise espacial antes de exportar o ODS SIGEF.");
-    const response = await fetch(`${getApiUrl()}/analyses/${analysisId}/sigef-ods`, {
+    const response = await trackedFetch(`${getApiUrl()}/analyses/${analysisId}/sigef-ods`, {
       credentials: "include",
-    });
+    }, "Baixando a ODS SIGEF");
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       throw new Error(payload?.detail ?? "Não foi possível exportar o ODS SIGEF.");
@@ -3271,6 +3292,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         )}
         onRenamePolygon={setPolygonName}
         onAdoptTopconParcels={adoptTopconParcels}
+        onResetTopconWork={resetTopconWork}
         onRenameVertex={renameVertex}
         onConfrontant={(id, index, value) => updateParcelVertexData(id, index, "confrontants", value)}
         memorialText={memorialText}

@@ -21,6 +21,7 @@ import { ProfessionalProfile } from "@/components/professional-profile";
 import { AnalysesModule } from "@/components/analyses-module";
 import { TechnicalPiecesModule, type TechnicalPieceSnapshot } from "@/components/technical-pieces-module";
 import { getApiUrl } from "@/lib/api";
+import { AppFeedbackLayer } from "@/components/app-feedback";
 import {
   Activity,
   Database,
@@ -1554,6 +1555,7 @@ export default function Home() {
           </p>
         </SheetContent>
       </Sheet>
+      <AppFeedbackLayer />
     </main>
   );
 }

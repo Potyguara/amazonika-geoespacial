@@ -20,6 +20,7 @@ export function BoundaryOrderMap({points,ordered}:{points:Mark[];ordered:Mark[]}
   const source=useRef(new VectorSource());
   const lastFit=useRef("");
   const [base,setBase]=useState(true);
+  const [showControl,setShowControl]=useState(false);
   const tiles=useRef<TileLayer<OSM>|null>(null);
   const valid=(p:Mark)=>typeof p.longitude==="number"&&typeof p.latitude==="number"&&Number.isFinite(p.longitude)&&Number.isFinite(p.latitude);
   const selected=ordered.filter(valid);
@@ -60,7 +61,7 @@ export function BoundaryOrderMap({points,ordered}:{points:Mark[];ordered:Mark[]}
       features.push(new Feature({geometry:new LineString([a,b]),kind:"line",closing:i===xy.length-1,bad}));
       features.push(new Feature({geometry:new Point([(a[0]+b[0])/2,(a[1]+b[1])/2]),kind:"arrow",rotation:Math.atan2(b[0]-a[0],b[1]-a[1]),bad}));
     }
-    for(const p of points.filter(valid)){
+    for(const p of points.filter(p=>valid(p)&&(showControl||p.point_role!=="CONTROL"))){
       const i=ordered.findIndex(v=>v.name===p.name);
       const label=(i>=0?(i+1)+" · ":"")+(ordered[i]?.sigef_vertex_code||p.name);
       features.push(new Feature({geometry:new Point(fromLonLat([p.longitude!,p.latitude!])),kind:"point",chosen:i>=0,control:p.point_role==="CONTROL",label}));
@@ -68,12 +69,12 @@ export function BoundaryOrderMap({points,ordered}:{points:Mark[];ordered:Mark[]}
     source.current.clear();source.current.addFeatures(features);
     const key=JSON.stringify(points.map(p=>[p.name,p.longitude,p.latitude]));
     if(key!==lastFit.current){lastFit.current=key;fit();}
-  },[points,ordered]);
+  },[points,ordered,showControl]);
   return <section className="pecas-card geo115-boundary-map">
     <h3>Composição do perímetro</h3><p className="pecas-note">Acompanhe a sequência dos marcos em tempo real. As setas indicam o sentido do caminhamento.</p>
     <div style={{position:"relative"}}><div ref={target} style={{height:440,width:"100%",background:"#edf2ef",borderRadius:10,overflow:"hidden"}}/><span style={{position:"absolute",right:12,top:12,background:"#fff",padding:"6px 10px",borderRadius:6,color:"#17463d",fontWeight:700}}>↑ N</span></div>
-    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:12}}><button type="button" className="pecas-secondary" onClick={fit}>Enquadrar marcos</button><label className="pecas-check"><input type="checkbox" checked={base} onChange={e=>setBase(e.target.checked)}/>Mapa de fundo OSM</label></div>
-    <p className="pecas-note">Verde: selecionados · Cinza: controle/não selecionados · Tracejado: fechamento provisório.</p>
+    <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:12}}><button type="button" className="pecas-secondary" onClick={fit}>Enquadrar marcos</button><label className="pecas-check"><input type="checkbox" checked={base} onChange={e=>setBase(e.target.checked)}/>Mapa de fundo OSM</label><label className="pecas-check"><input type="checkbox" checked={showControl} onChange={e=>setShowControl(e.target.checked)}/>Mostrar bases de controle (não entram no perímetro)</label></div>
+    <p className="pecas-note">Verde: selecionados · Branco: não selecionados · Cinza: bases de controle (ocultas por padrão) · Tracejado: fechamento provisório.</p>
     <p role="status" className={crossing?"pecas-warning":"geo96-next-step"}>{crossing?"Segmentos cruzados. Reordene os vértices antes de avançar.":selected.length<3?"Selecione pelo menos três marcos para visualizar o fechamento.":area===0?"Perímetro degenerado: confira os marcos.":(area<0?"Sentido horário":"Sentido anti-horário")+" · "+selected.length+" marcos. Fechamento ilustrativo antes da construção dos V."}</p>
   </section>;
 }

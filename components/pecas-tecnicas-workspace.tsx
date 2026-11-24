@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Download, FileText, Map, X } from "lucide-react";
 import { SituationMapPreview, type SituationSnapshot } from "@/components/situation-map-preview";
 import { Pa2WitnessMap } from "@/components/pa2-witness-map";
+import { trackedFetch } from "@/components/app-feedback";
 import { BoundaryOrderMap } from "@/components/boundary-order-map";
 import { InpeCbersSceneSearch } from "@/components/inpe-cbers-scene-search";
 import { Ps4EvidencePanel } from "@/components/ps4-evidence-panel";
@@ -121,6 +122,35 @@ export type TopconBoundaryPoint = Omit<TopconPoint, "point_role" | "elevation_re
   sigma_suggestion_h_m?: number | null;
   derived_calculation?: Record<string, unknown> | null;
 };
+type PaLine = { a: string; b: string; offset: string; side: "LEFT" | "RIGHT"; offsetSigma: string;
+  /** Afastamento próprio em cada ponto (ex.: barco ancorado a distâncias diferentes da margem). */
+  perPoint?: boolean; offsetB?: string; offsetSigmaB?: string;
+  direction?: "PERPENDICULAR" | "AZIMUTH"; azA?: string; azB?: string; azSigma?: string };
+const emptyPaLine: PaLine = { a: "", b: "", offset: "", side: "LEFT", offsetSigma: "" };
+type PaChainVertex = {
+  sequence: number; support_point: string; position: "START" | "INTERNAL" | "END";
+  easting_m: number; northing_m: number; longitude: number | null; latitude: number | null;
+  height_m: number | null; height_source: string | null; reference_points?: string[];
+  sigma_e_m: number | null; sigma_n_m: number | null; sigma_horizontal_m: number | null; sigma_h_m: number | null;
+  turn_angle_deg: number; miter_factor: number;
+};
+type PaChainResult = {
+  method: string; operation: "OFFSET_POLYLINE"; offset_m: number; side: string; offset_sigma_m: number | null;
+  end_mode: string; support_points: string[]; sigma_model: string | null; vertices: PaChainVertex[]; warnings: string[];
+  anchor_start?: string | null; anchor_end?: string | null;
+  offset_from_mark?: { mark: string; line: string[]; offset_m: number; offset_sigma_m: number | null; side: string } | null;
+};
+type PaChain = {
+  id: string; points: string[]; offset: string; side: "LEFT" | "RIGHT"; offsetSigma: string;
+  endMode: "PERPENDICULAR" | "NONE"; replace: boolean;
+  /** Afastamento tirado do marco M da ponta (START/END) em vez de digitado. */
+  offsetFrom?: "" | "START" | "END";
+  result: PaChainResult | null; error: string; insertedNames: string[];
+  /** Pontos retirados do perímetro na inserção, para desfazer. */
+  removed?: TopconBoundaryPoint[];
+};
+const newPaChain = (n: number): PaChain => ({ id: "C" + n + "-" + Date.now().toString(36), points: [], offset: "", side: "LEFT",
+  offsetSigma: "", endMode: "PERPENDICULAR", replace: true, result: null, error: "", insertedNames: [] });
 type TopconReview = {
   ready_for_geometry?: boolean;
   ready_for_ods: boolean;
@@ -218,7 +248,9 @@ export type TopconDraft = {
   }>;
   construction?: {
     method: "PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1";
-    pa2_variant: "SUPPORT_LINE" | "INTERSECTION";
+    pa2_variant: "SUPPORT_LINE" | "INTERSECTION" | "OFFSET_LINES" | "CHAIN";
+    pa_lines?: PaLine[];
+    pa_chains?: PaChain[];
     witnesses: string[];
     distance: string;
     side: "LEFT" | "RIGHT" | "FORWARD" | "BACKWARD";
@@ -228,6 +260,61 @@ export type TopconDraft = {
     last_result: Record<string, unknown> | null;
   };
 };
+
+// GEO125_SIGEF_CANONICAL_ORDER_V1
+// Aplicada apenas ao payload da ODS, sem deslocar geometria ou modificar
+// os dados do projeto. O servidor permanece responsavel pela validacao.
+type Geo125SigefVertex = {
+  latitude: number; longitude: number;
+  boundary_type?: string; boundary_detail?: string; confrontant?: string;
+  confrontant_cns?: string; confrontant_registration?: string;
+};
+function geo125CanonicalSigefOrder<T extends Geo125SigefVertex>(source: T[]): {
+  vertices: T[]; reversed: boolean; rotated: boolean;
+} {
+  if (source.length < 3) throw new Error("SIGEF: perímetro com menos de três vértices.");
+  if (source.some(v => !Number.isFinite(v.latitude) || !Number.isFinite(v.longitude)))
+    throw new Error("SIGEF: coordenadas inválidas na ordenação.");
+  // Cálculo robusto do sinal em coordenadas métricas locais; o backend faz
+  // a revisão geodésica definitiva do sentido e da validade do polígono.
+  const lat0 = source[0].latitude, lon0 = source[0].longitude;
+  const cos0 = Math.cos(lat0 * Math.PI / 180);
+  const xy = source.map(v => ({
+    x: (v.longitude - lon0) * 111320 * cos0,
+    y: (v.latitude - lat0) * 111132,
+  }));
+  const doubleArea = xy.reduce((sum, p, i) => {
+    const next = xy[(i + 1) % xy.length];
+    return sum + p.x * next.y - next.x * p.y;
+  }, 0);
+  if (!Number.isFinite(doubleArea) || Math.abs(doubleArea) < 1e-7)
+    throw new Error("SIGEF: perímetro degenerado; revise os vértices antes da ODS.");
+  const reversed = doubleArea > 0; // lon=eixo X, lat=eixo Y: CCW > 0
+  const count = source.length;
+  // O confrontante e o tipo de limite pertencem ao segmento que parte
+  // deste vertice e chega ao proximo. Ao inverter, migram do vertice
+  // anterior, sem trocar atributos como codigo, h, metodo ou sigmas.
+  const oriented: T[] = reversed ? Array.from({length: count}, (_, j) => {
+    const oldIndex = j === 0 ? 0 : count - j;
+    const vertex = source[oldIndex];
+    const preceding = source[(oldIndex + count - 1) % count];
+    return { ...vertex,
+      boundary_type: preceding.boundary_type,
+      boundary_detail: preceding.boundary_detail,
+      confrontant: preceding.confrontant,
+      confrontant_cns: preceding.confrontant_cns,
+      confrontant_registration: preceding.confrontant_registration,
+    } as T;
+  }) : source.slice();
+  let north = 0;
+  for (let i = 1; i < oriented.length; i++) {
+    if (oriented[i].latitude > oriented[north].latitude ||
+       (oriented[i].latitude === oriented[north].latitude &&
+        oriented[i].longitude < oriented[north].longitude)) north = i;
+  }
+  return {vertices: [...oriented.slice(north), ...oriented.slice(0, north)],
+    reversed, rotated: north !== 0};
+}
 
 const SIGEF_POSITION_METHODS = [
   ["PG1", "Relativo estático"], ["PG2", "Relativo estático-rápido"],
@@ -296,6 +383,7 @@ type Props = {
   onAdoptTopconParcels: (parcels: Array<{
     number: string; name: string; vertices: TopconBoundaryPoint[];
   }>) => void;
+  onResetTopconWork?: () => void;
   memorialText: string;
   memorialLoading: boolean;
   externalError?: string | null;
@@ -357,7 +445,7 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function PecasTecnicasWorkspace({
   open, onClose, data, onDataChange, onLegalMetadataChange, polygons, importedMetadata, selectedIds, rasterKey, onSelect,
-  onRenamePolygon, onRenameVertex, onConfrontant, onAdoptTopconParcels, memorialText,
+  onRenamePolygon, onRenameVertex, onConfrontant, onAdoptTopconParcels, onResetTopconWork, memorialText,
   memorialLoading, externalError, onGenerateMemorial, onBuildPdf, onDownloadDocx,
   onExportPolygon, onDownloadSigef, sigefAvailable,
   rtProfile, rtLoading, rtError, onRtChange, onRtReload,
@@ -590,8 +678,55 @@ export function PecasTecnicasWorkspace({
       const body=await res.json();
       if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Falha no processamento PB1.");
       setPb1Partial(body);
-      if(finish)await adoptPb1WorkingParcel(true,body);
-      else setPb1Notice("Resultados preliminares calculados. Campos sem fundamento permanecem pendentes.");
+      if(finish){await adoptPb1WorkingParcel(true,body);}else{
+      // GEO125: somente transportar numeros calculados no servidor;
+        // NAO confirmar h/sigmas nem aprovar o RT automaticamente.
+        type PB1Row = {vertex_id:string;latitude:number;longitude:number;status:string;
+          h_ellipsoidal_m:number|null;sigma_e_m:number|null;
+          sigma_n_m:number|null;sigma_h_m:number|null};
+        const calculated = new globalThis.Map<string,PB1Row>(
+          (Array.isArray(body?.points) ? body.points : [])
+            .filter((r:PB1Row)=>typeof r?.vertex_id==="string")
+            .map((r:PB1Row)=>[r.vertex_id,r] as [string,PB1Row])
+        );
+        const currentPB1=topconBoundary.filter(p=>p.sigef_method==="PB1");
+        // GEO125: validar coordenadas antes da comparacao.
+        const geo125SameCoord=(
+          a:number|null|undefined,
+          b:number|null|undefined
+        ):boolean=>{
+          if(typeof a!=="number" || typeof b!=="number")return false;
+          return Number.isFinite(a) &&
+            Number.isFinite(b) &&
+            Math.abs(a-b)<=5.1e-10;
+        };
+        const canTransfer=body?.sigma_origin==="DECLARED" &&
+          currentPB1.length>0 && calculated.size===currentPB1.length &&
+          currentPB1.every(p=>{
+            const r=calculated.get(p.name);
+            return !!r && r.status==="DECLARED_REFERENCE" &&
+              typeof r.h_ellipsoidal_m==="number" && Number.isFinite(r.h_ellipsoidal_m) &&
+              [r.sigma_e_m,r.sigma_n_m,r.sigma_h_m].every(v=>
+                typeof v==="number" && Number.isFinite(v) && v>0) &&
+              geo125SameCoord(p.latitude,r.latitude) &&
+              geo125SameCoord(p.longitude,r.longitude);
+          });
+        if(canTransfer){
+          setTopconBoundary(current=>current.map(p=>{
+            if(p.sigef_method!=="PB1")return p;
+            const r=calculated.get(p.name);
+            if(!r || !geo125SameCoord(p.latitude,r.latitude) ||
+               !geo125SameCoord(p.longitude,r.longitude))return p;
+            return {...p,ellipsoidal_height_m:r.h_ellipsoidal_m,
+              sigma_lon_m:r.sigma_e_m,sigma_lat_m:r.sigma_n_m,sigma_h_m:r.sigma_h_m,
+              height_reference_confirmed:false,sigma_reference_confirmed:false};
+          }));
+          setTopconReview(null);setSigefParcelReview(null);setSigefValidatedSignature("");
+          setPb1Notice("Resultados calculados aplicados aos vértices PB1. Salve a peça e confirme as referências e os sigmas na revisão RT; a ODS ainda não está aprovada.");
+        }else{
+          setPb1Notice("Processamento salvo. Os dados sem fundamentação continuam pendentes e não foram aplicados ao perímetro.");
+        }
+      }
     }catch(e){setPb1Notice(e instanceof Error?e.message:"Falha no processamento.");}
     finally{setPb1Busy(false);}
   };
@@ -645,8 +780,8 @@ export function PecasTecnicasWorkspace({
       const id=await onSavePiece(editableMemorial.trim(),draftForSave());
       setPb1PieceId(id);
       const form=new FormData();form.append("file",file);
-      const res=await fetch(`${getApiUrl()}/technical-pieces/${id}/pb1/files/${kind}`,
-        {method:"POST",credentials:"include",body:form});
+      const res=await trackedFetch(`${getApiUrl()}/technical-pieces/${id}/pb1/files/${kind}`,
+        {method:"POST",credentials:"include",body:form},"Enviando arquivo PB1");
       const body=await res.json().catch(()=>null);
       if(!res.ok)throw new Error(typeof body?.detail==="string"?body.detail:"Falha no upload PB1");
       setPb1Assets(old=>({...old,[kind]:body.asset}));
@@ -726,7 +861,13 @@ export function PecasTecnicasWorkspace({
     setPs4Notice(`Vértice ${name} registrado como rascunho. Continue marcando a feição e depois confira o fechamento.`);
     setPs4Status({kind:"success", message:`Vértice ${name} registrado. Próximo: marcar outro V ou validar fechamento.`});
   };
-  const [pa2Variant, setPa2Variant] = useState<"SUPPORT_LINE" | "INTERSECTION">("SUPPORT_LINE");
+  const [pa2Variant, setPa2Variant] = useState<"SUPPORT_LINE" | "INTERSECTION" | "OFFSET_LINES" | "CHAIN">("CHAIN");
+  const [paChains, setPaChains] = useState<PaChain[]>([]);
+  const [activeChainId, setActiveChainId] = useState("");
+  const [paChainBusy, setPaChainBusy] = useState("");
+  const [paLines, setPaLines] = useState<PaLine[]>([{ ...emptyPaLine }, { ...emptyPaLine }]);
+  const offsetMode = (constructionMethod === "PA1" || constructionMethod === "PA2") && pa2Variant === "OFFSET_LINES";
+  const chainMode = (constructionMethod === "PA1" || constructionMethod === "PA2") && pa2Variant === "CHAIN";
   const [constructionDistance, setConstructionDistance] = useState("");
   const [pt8PointConfirmed, setPt8PointConfirmed] = useState(false);
   const [constructionSide, setConstructionSide] = useState<"LEFT" | "RIGHT" | "FORWARD" | "BACKWARD">("LEFT");
@@ -746,6 +887,7 @@ export function PecasTecnicasWorkspace({
     distance_a_b_m?: number;
     witnesses?: string[];
     sigma_e_m: number | null; sigma_n_m: number | null; sigma_h_m: number | null;
+    sigma_horizontal_m?: number | null; sigma_model?: string | null; operation?: string;
     warnings: string[]; ready_for_sigef: boolean;
   } | null>(null);
   const [pa2Busy, setPa2Busy] = useState(false);
@@ -985,13 +1127,15 @@ export function PecasTecnicasWorkspace({
             };
           }),
         };
-      });
+      }).map(parcel => ({...parcel,
+        vertices: geo125CanonicalSigefOrder(parcel.vertices).vertices,
+      }));
       if(!parcels.length)throw new Error("Selecione uma parcela antes de baixar a ODS de trabalho.");
-      const response=await fetch(getApiUrl()+"/technical-pieces/sigef/rascunho-ods",{
+      const response=await trackedFetch(getApiUrl()+"/technical-pieces/sigef/rascunho-ods",{
         method:"POST",credentials:"include",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({identification:makeSigefIdentity(),parcels,piece_id:pb1PieceId||loadedPieceId||undefined}),
-      });
+      }, "Gerando a planilha ODS");
       if(!response.ok){
         const info=await response.json().catch(()=>null);
         throw new Error(typeof info?.detail==="string"?info.detail:"Falha na ODS de trabalho (HTTP "+response.status+").");
@@ -1005,9 +1149,9 @@ export function PecasTecnicasWorkspace({
   const downloadBlankSigefOds = async () => {
     setBlankOdsBusy(true);setBlankOdsError("");
     try {
-      const response=await fetch(getApiUrl()+"/technical-pieces/sigef/modelo-ods",{
+      const response=await trackedFetch(getApiUrl()+"/technical-pieces/sigef/modelo-ods",{
         credentials:"include",cache:"no-store",
-      });
+      },"Baixando o modelo ODS do SIGEF");
       if(!response.ok)throw new Error("Modelo SIGEF indisponível (HTTP "+response.status+").");
       const blob=await response.blob();
       downloadBlob(blob,"MODELO_SIGEF_EM_BRANCO.ods");
@@ -1059,8 +1203,12 @@ export function PecasTecnicasWorkspace({
     setSigefValidatedSignature("");
     setPa2Mode(false);
     setConstructionMethod(d.construction?.method === "PT8" ? "PT8" :
+      d.construction?.method === "PA1" ? "PA1" : d.construction?.method === "PA2" ? "PA2" :
       d.construction?.method === "PB1" ? "PB1" : d.construction?.method === "PS1" ? "PS1" : "PS4");
-    setPa2Variant(d.construction?.pa2_variant ?? "SUPPORT_LINE");
+    setPa2Variant(d.construction?.pa2_variant ?? "CHAIN");
+    setPaChains(Array.isArray(d.construction?.pa_chains) ? d.construction.pa_chains : []);
+    setActiveChainId("");
+    setPaLines(d.construction?.pa_lines?.length === 2 ? d.construction.pa_lines : [{ ...emptyPaLine }, { ...emptyPaLine }]);
     setPa2Witnesses(d.construction?.witnesses ?? []);
     setConstructionDistance(d.construction?.distance ?? "");
     setConstructionSide(d.construction?.side ?? "LEFT");
@@ -1089,7 +1237,7 @@ export function PecasTecnicasWorkspace({
     cns: sigefCns, registration: sigefRegistration,
     area_nature:areaNature, sncr, stage, premium_step:premiumStep,
     construction: {
-      method: constructionMethod, pa2_variant: pa2Variant,
+      method: constructionMethod, pa2_variant: pa2Variant, pa_lines: paLines, pa_chains: paChains,
       witnesses: pa2Witnesses, distance: constructionDistance,
       side: constructionSide, crs_confirmed: pa2ConfirmedCrs,
       insert_after: pa2InsertAfter, hint: mapHint,
@@ -1103,7 +1251,7 @@ export function PecasTecnicasWorkspace({
       const id=ps1Id||await onSavePiece(editableMemorial.trim(),draftForSave());
       setPs1Id(id);
       const form=new FormData();form.append("file",file);
-      const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/ps1/files/"+kind,{method:"POST",credentials:"include",body:form});
+      const res=await trackedFetch(getApiUrl()+"/technical-pieces/"+id+"/ps1/files/"+kind,{method:"POST",credentials:"include",body:form},"Enviando arquivo PS1");
       const body=await res.json();
       if(!res.ok)throw new Error(typeof body.detail==="string"?body.detail:"Falha no arquivo PS1.");
       setPs1Assets(old=>({...old,[kind]:body.asset}));
@@ -1208,7 +1356,9 @@ export function PecasTecnicasWorkspace({
           confrontant_registration:String(d.confrontant_registration??original?.confrontant_registration??""),
           derived_calculation:original?.derived_calculation??null};
       })};
-    });
+    }).map(parcel => ({...parcel,
+      vertices: geo125CanonicalSigefOrder(parcel.vertices).vertices,
+    }));
   };
   const sigefSignature = () => {
     try {
@@ -1227,6 +1377,7 @@ export function PecasTecnicasWorkspace({
     // and a second confirmation click are optional; mandatory SIGEF columns are not.
     let current:ReturnType<typeof parcelsForOds>;
     try{current=parcelsForOds();}catch(e){setReviewedOdsError(e instanceof Error?e.message:"Parcela inválida.");return;}
+    // GEO125_PIECE_ID_FOR_REVIEWED_SIGEF_ODS: a GEO124 já salva a peça e envia piece_id (exportPieceId).
     const pb1Parcels=current.filter(p=>p.vertices.some(v=>v.sigef_method==="PB1"));
     if(pb1Parcels.length){
       if(pb1Parcels.length!==1||!pb1Review.rt_reviewed||!pb1Review.category||pb1Review.position_reference.trim().length<12){
@@ -1275,7 +1426,7 @@ export function PecasTecnicasWorkspace({
         const body=await approval.json().catch(()=>null);
         if(!approval.ok)throw new Error(typeof body?.detail==="string"?body.detail:"Revisão técnica PB1 não concluída.");
       }
-      const response = await fetch(`${getApiUrl()}/technical-pieces/sigef/reviewed-ods`, {
+      const response = await trackedFetch(`${getApiUrl()}/technical-pieces/sigef/reviewed-ods`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1284,7 +1435,7 @@ export function PecasTecnicasWorkspace({
           piece_id: exportPieceId,
           neighbors: [],
         }),
-      });
+      }, "Gerando a ODS revisada");
       if (!response.ok) {
         const error = await response.json().catch(() => null);
         throw new Error(typeof error?.detail === "string"
@@ -1315,7 +1466,11 @@ export function PecasTecnicasWorkspace({
           identification: makeSigefIdentity(),
           parcels: parcelsForOds().map(({number,name,vertices})=>{
             const ring=vertices.map(v=>[v.longitude,v.latitude]);
-            return {number,name,geometry:{type:"Polygon",coordinates:[[...ring,ring[0]]]},parcelling_type:"SEM_PARCELAMENTO"};
+            return {number,name,geometry:{type:"Polygon",coordinates:[[...ring,ring[0]]]},parcelling_type:"SEM_PARCELAMENTO",
+              // Verificação normativa por vértice (NTGIR 3.3, 4.2–4.4; MTGIR Tabelas 6 e 7).
+              vertices:vertices.map(v=>({sigef_vertex_code:v.sigef_vertex_code,sigef_method:v.sigef_method,boundary_type:v.boundary_type,
+                longitude:v.longitude,latitude:v.latitude,ellipsoidal_height_m:v.ellipsoidal_height_m,
+                sigma_lat_m:v.sigma_lat_m,sigma_lon_m:v.sigma_lon_m,sigma_h_m:v.sigma_h_m}))};
           }),
           neighbors: [],
         }),
@@ -1447,6 +1602,242 @@ export function PecasTecnicasWorkspace({
       setPa2Busy(false);
     }
   };
+  const nonNeg = (v?: string) => (v ?? "").trim() !== "" && Number.isFinite(Number(v!.replace(",", "."))) && Number(v!.replace(",", ".")) >= 0;
+  const paLineReady = (line: PaLine) => Boolean(line.a && line.b && line.a !== line.b && nonNeg(line.offset) &&
+    (!line.perPoint || nonNeg(line.offsetB)) &&
+    (!line.perPoint || line.direction !== "AZIMUTH" || ((line.azA ?? "").trim() !== "" && (line.azB ?? "").trim() !== "")));
+  const calculatePaOffsetLines = async () => {
+    if (!topconPreview) return;
+    setPa2Busy(true); setPa2Error(""); setPa2Result(null);
+    try {
+      if (!paLines.every(paLineReady)) throw new Error("Preencha as duas retas: dois pontos distintos e o afastamento (0 para usar o próprio alinhamento).");
+      const point = (name: string) => {
+        const p = topconPreview.points.find((item) => item.name === name);
+        if (!p) throw new Error("Ponto " + name + " não encontrado no relatório importado.");
+        const boundary = topconBoundary.find((b) => b.name === name);
+        return { name: p.name, easting_m: p.easting_m, northing_m: p.northing_m,
+          latitude: p.latitude, longitude: p.longitude,
+          sigma_e_m: p.sigma_e_m, sigma_n_m: p.sigma_n_m,
+          ellipsoidal_height_m: boundary?.ellipsoidal_height_m ?? p.ellipsoidal_height_reported_m ?? null,
+          sigma_h_m: boundary?.sigma_h_m ?? p.sigma_u_m ?? null };
+      };
+      const num = (v: string) => v.trim() === "" ? null : Number(v.replace(",", "."));
+      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/offset-lines-intersection`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: constructionMethod,
+          lines: paLines.map((line) => line.perPoint ? ({
+            points: [point(line.a), point(line.b)],
+            side: line.side,
+            direction: line.direction ?? "PERPENDICULAR",
+            point_offsets: [
+              { offset_m: num(line.offset), offset_sigma_m: num(line.offsetSigma),
+                azimuth_deg: num(line.azA ?? ""), azimuth_sigma_deg: num(line.azSigma ?? "") },
+              { offset_m: num(line.offsetB ?? ""), offset_sigma_m: num(line.offsetSigmaB ?? ""),
+                azimuth_deg: num(line.azB ?? ""), azimuth_sigma_deg: num(line.azSigma ?? "") },
+            ],
+          }) : ({
+            points: [point(line.a), point(line.b)],
+            offset_m: num(line.offset) ?? 0,
+            side: line.side,
+            offset_sigma_m: num(line.offsetSigma),
+          })),
+          utm_zone: topconPreview.project.utm_zone,
+          hemisphere: topconPreview.project.hemisphere,
+          sirgas2000_confirmed: pa2ConfirmedCrs,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(typeof payload?.detail === "string"
+        ? payload.detail : "Não foi possível calcular a interseção das retas.");
+      setPa2Result(payload);
+    } catch (error) {
+      setPa2Error(error instanceof Error ? error.message : "Falha no cálculo.");
+    } finally {
+      setPa2Busy(false);
+    }
+  };
+  const updatePaChain = (id: string, patch: Partial<PaChain>, keepResult = false) =>
+    setPaChains((old) => old.map((c) => c.id === id ? { ...c, ...(keepResult ? {} : { result: null, error: "" }), ...patch } : c));
+  const addPaChain = () => {
+    const chain = newPaChain(paChains.length + 1);
+    setPaChains((old) => [...old, chain]);
+    setActiveChainId(chain.id);
+    return chain.id;
+  };
+  // Marco de canto (tipo M): fica fixo no perímetro e a paralela liga-se a ele por segmento reto.
+  const isCornerMark = (name: string) => {
+    const code = topconBoundary.find((p) => p.name === name)?.sigef_vertex_code ?? "";
+    return /-M-/i.test(code) || /^M[-_ ]?\d/i.test(name);
+  };
+  const undoPaChain = (chain: PaChain, boundaryIn?: TopconBoundaryPoint[]) => {
+    const boundary = boundaryIn ?? topconBoundary;
+    if (!chain.insertedNames.length) return boundary;
+    const at = boundary.findIndex((p) => chain.insertedNames.includes(p.name));
+    const kept = boundary.filter((p) => !chain.insertedNames.includes(p.name));
+    const pos = at < 0 ? kept.length : at;
+    return [...kept.slice(0, pos), ...(chain.removed ?? []), ...kept.slice(pos)];
+  };
+  const resetInvalidations = () => { setTopconReview(null); setSigefParcelReview(null); setSigefValidatedSignature(""); };
+  const undoPaChainInsertion = (chain: PaChain) => {
+    setTopconBoundary(undoPaChain(chain)); resetInvalidations();
+    updatePaChain(chain.id, { insertedNames: [], removed: [] }, true);
+    setSavedPieceNotice("Inserção desfeita: os pontos originais voltaram ao perímetro e os V dessa paralela foram removidos.");
+  };
+  const deletePaChain = (chain: PaChain) => {
+    if (chain.insertedNames.length) { setTopconBoundary(undoPaChain(chain)); resetInvalidations(); }
+    setPaChains((old) => old.filter((c) => c.id !== chain.id));
+    if (chain.id === activeChainId) setActiveChainId("");
+  };
+  const resetAllPaChains = () => {
+    let boundary = topconBoundary;
+    for (const chain of [...paChains].reverse()) boundary = undoPaChain(chain, boundary);
+    setTopconBoundary(boundary); resetInvalidations();
+    setPaChains([]); setActiveChainId(""); setPa2Error("");
+    setSavedPieceNotice("Todas as paralelas e seus cálculos foram excluídos. O perímetro voltou aos pontos originais.");
+  };
+  const pickChainPoint = (name: string) => {
+    const point = topconPreview?.points.find((p) => p.name === name);
+    if (!point || point.point_role === "CONTROL") {
+      setPa2Error("Use apenas pontos medidos do limite (P ou M). As bases de controle não entram no perímetro.");
+      return;
+    }
+    setPa2Error("");
+    const id = paChains.some((c) => c.id === activeChainId) ? activeChainId : addPaChain();
+    setPaChains((old) => old.map((c) => {
+      if (c.id !== id) return c;
+      if (c.points[c.points.length - 1] === name) return { ...c, points: c.points.slice(0, -1), result: null, error: "" };
+      if (c.points.includes(name)) return { ...c, error: name + " já está nesta cadeia. Clique no último ponto para desfazê-lo." };
+      return { ...c, points: [...c.points, name], result: null, error: "" };
+    }));
+  };
+  const calculatePaChain = async (chain: PaChain) => {
+    if (!topconPreview) return;
+    setPaChainBusy(chain.id);
+    updatePaChain(chain.id, { result: null, error: "" });
+    try {
+      const num = (v: string) => v.trim() === "" ? null : Number(v.replace(",", "."));
+      const offset = num(chain.offset);
+      if (chain.points.length < 2) throw new Error("Clique em pelo menos dois pontos P em sequência no mapa.");
+      const fromMark = chain.offsetFrom || "";
+      if (!fromMark && (offset == null || !Number.isFinite(offset) || offset <= 0)) throw new Error("Informe o afastamento da paralela em metros.");
+      const points = chain.points.map((name) => {
+        const p = topconPreview.points.find((item) => item.name === name);
+        if (!p) throw new Error("Ponto " + name + " não encontrado no relatório importado.");
+        const boundary = topconBoundary.find((b) => b.name === name);
+        return { name: p.name, easting_m: p.easting_m, northing_m: p.northing_m,
+          latitude: p.latitude, longitude: p.longitude,
+          sigma_e_m: p.sigma_e_m, sigma_n_m: p.sigma_n_m,
+          ellipsoidal_height_m: boundary?.ellipsoidal_height_m ?? p.ellipsoidal_height_reported_m ?? null,
+          sigma_h_m: boundary?.sigma_h_m ?? p.sigma_u_m ?? null };
+      });
+      const corners = chain.points.map(isCornerMark);
+      if (corners.slice(1, -1).some(Boolean))
+        throw new Error("Um marco M só pode ficar na ponta da cadeia: ele é canto fixo do perímetro e não recebe paralela.");
+      const response = await fetch(`${getApiUrl()}/technical-pieces/topcon/offset-polyline`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          method: constructionMethod, points,
+          ...(fromMark ? { offset_from: fromMark } : { offset_m: offset, side: chain.side, offset_sigma_m: num(chain.offsetSigma) }),
+          end_mode: chain.endMode,
+          anchor_start: corners[0], anchor_end: corners[corners.length - 1],
+          utm_zone: topconPreview.project.utm_zone, hemisphere: topconPreview.project.hemisphere,
+          sirgas2000_confirmed: pa2ConfirmedCrs,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(typeof payload?.detail === "string"
+        ? payload.detail : "Não foi possível calcular a paralela.");
+      updatePaChain(chain.id, { result: payload as PaChainResult }, true);
+    } catch (error) {
+      updatePaChain(chain.id, { error: error instanceof Error ? error.message : "Falha no cálculo da paralela." }, true);
+    } finally {
+      setPaChainBusy("");
+    }
+  };
+  const insertPaChain = (chain: PaChain) => {
+    const result = chain.result;
+    if (!topconPreview || !result) return;
+    if (!pa2ConfirmedCrs || result.vertices.some((v) => !Number.isFinite(v.latitude) || !Number.isFinite(v.longitude))) {
+      updatePaChain(chain.id, { error: "Confirme SIRGAS2000 e recalcule antes de inserir os vértices." }, true);
+      return;
+    }
+    const boundary = topconBoundary;
+    const len = boundary.length;
+    const idx = chain.points.map((n) => boundary.findIndex((p) => p.name === n));
+    const inBoundary = len > 0 && idx.every((i) => i >= 0);
+    const forward = inBoundary && idx.every((v, i) => i === 0 || (v - idx[i - 1] + len) % len === 1);
+    const backward = inBoundary && idx.every((v, i) => i === 0 || (idx[i - 1] - v + len) % len === 1);
+    const replace = chain.replace && (forward || backward);
+    const anchorStart = Boolean(result.anchor_start), anchorEnd = Boolean(result.anchor_end);
+    const innerIdx = idx.slice(anchorStart ? 1 : 0, anchorEnd ? idx.length - 1 : idx.length);
+    const anchorAt = boundary.findIndex((p) => p.name === pa2InsertAfter);
+    if (!replace && anchorAt < 0) {
+      updatePaChain(chain.id, { error: chain.replace
+        ? "Os pontos da cadeia não estão em sequência no perímetro. Escolha abaixo após qual vértice inserir os V."
+        : "Escolha após qual vértice do perímetro inserir os V." }, true);
+      return;
+    }
+    const prefix = (rtProfile?.incra_code ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const used = new Set([...topconPreview.points.map((p) => p.name), ...boundary.map((p) => p.name),
+      ...boundary.map((p) => p.sigef_vertex_code)]);
+    let counter = 1;
+    const nextName = () => {
+      for (;;) {
+        const candidate = prefix ? `${prefix}-V-${String(counter).padStart(4, "0")}` : `V${String(counter).padStart(3, "0")}`;
+        counter++;
+        if (!used.has(candidate)) { used.add(candidate); return candidate; }
+      }
+    };
+    const generatedAt = new Date().toISOString();
+    const template = (support: string) => boundary.find((p) => p.name === support) ?? boundary[Math.max(anchorAt, 0)];
+    const vertices: TopconBoundaryPoint[] = result.vertices.map((v) => {
+      const base = template(v.support_point);
+      const name = nextName();
+      return {
+        ...base, name,
+        northing_m: v.northing_m, easting_m: v.easting_m,
+        latitude: v.latitude, longitude: v.longitude,
+        elevation_reported_m: null, ellipsoidal_height_reported_m: null,
+        ellipsoidal_height_m: v.height_m,
+        derived_physical_altitude_m: null, derived_physical_model: null,
+        sigma_suggestion_e_m: v.sigma_e_m, sigma_suggestion_n_m: v.sigma_n_m, sigma_suggestion_h_m: v.sigma_h_m,
+        derived_calculation: { ...result, vertices: undefined, vertex: v, chain_points: chain.points, generated_at: generatedAt },
+        sigma_n_m: v.sigma_n_m, sigma_e_m: v.sigma_e_m, sigma_hz_m: v.sigma_horizontal_m, sigma_u_m: v.sigma_h_m,
+        sigma_lon_m: v.sigma_e_m, sigma_lat_m: v.sigma_n_m, sigma_h_m: v.sigma_h_m,
+        sigma_reference_confirmed: false, height_reference_confirmed: false,
+        sigef_vertex_code: prefix ? name : "", sigef_method: constructionMethod,
+        boundary_type: base?.boundary_type ?? "", confrontant: base?.confrontant ?? "",
+        confrontant_cns: base?.confrontant_cns ?? "", confrontant_registration: base?.confrontant_registration ?? "",
+        point_role: "BOUNDARY",
+      } as TopconBoundaryPoint;
+    });
+    let next: TopconBoundaryPoint[];
+    if (replace) {
+      const ordered = forward ? vertices : [...vertices].reverse();
+      const start = forward ? innerIdx[0] : innerIdx[innerIdx.length - 1];
+      const n = innerIdx.length;
+      if (start + n <= len) next = [...boundary.slice(0, start), ...ordered, ...boundary.slice(start + n)];
+      else {
+        const rotated = [...boundary.slice(start), ...boundary.slice(0, start)];
+        next = [...ordered, ...rotated.slice(n)];
+      }
+    } else {
+      next = [...boundary.slice(0, anchorAt + 1), ...vertices, ...boundary.slice(anchorAt + 1)];
+    }
+    const removedPoints = replace ? boundary.filter((_, i) => innerIdx.includes(i)) : [];
+    setTopconBoundary(next);
+    resetInvalidations();
+    updatePaChain(chain.id, { insertedNames: vertices.map((v) => v.name), removed: removedPoints, error: "" }, true);
+    setPa2Error("");
+    setSavedPieceNotice(vertices.length + " vértice(s) V inseridos " + (replace
+      ? "no lugar dos pontos " + removedPoints.map((p) => p.name).join(", ")
+        + (anchorStart || anchorEnd ? "; " + [result.anchor_start, result.anchor_end].filter(Boolean).join(" e ") + " seguem como cantos fixos" : "")
+      : "após " + pa2InsertAfter)
+      + ". Confira identificação, h e sigmas na tabela antes de exportar.");
+  };
   const addProvisionalPa2 = () => {
     if (!topconPreview || !pa2Result || !Number.isFinite(pa2Result.latitude)
         || !Number.isFinite(pa2Result.longitude)) {
@@ -1477,9 +1868,16 @@ export function PecasTecnicasWorkspace({
       sigma_suggestion_n_m: pa2Result.sigma_n_m,
       sigma_suggestion_h_m: pa2Result.sigma_h_m,
       derived_calculation: { ...pa2Result, generated_at: new Date().toISOString() },
-      ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
-      sigma_hz_m: null, sigma_u_m: null,
-      sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+      ...(pa2Result.operation === "OFFSET_LINES_INTERSECTION" ? {
+        // SGL + h média dos vértices de referência (MTGIR 3.8 b e 3.3.2).
+        ellipsoidal_height_m: pa2Result.height_m, sigma_n_m: pa2Result.sigma_n_m, sigma_e_m: pa2Result.sigma_e_m,
+        sigma_hz_m: pa2Result.sigma_horizontal_m ?? null, sigma_u_m: pa2Result.sigma_h_m,
+        sigma_lon_m: pa2Result.sigma_e_m, sigma_lat_m: pa2Result.sigma_n_m, sigma_h_m: pa2Result.sigma_h_m,
+      } : {
+        ellipsoidal_height_m: null, sigma_n_m: null, sigma_e_m: null,
+        sigma_hz_m: null, sigma_u_m: null,
+        sigma_lon_m: null, sigma_lat_m: null, sigma_h_m: null,
+      }),
       sigma_reference_confirmed: false,
       height_reference_confirmed: false,
       sigef_vertex_code: "", sigef_method: constructionMethod, boundary_type: previous.boundary_type,
@@ -1651,9 +2049,9 @@ export function PecasTecnicasWorkspace({
     try {
       const payload = new FormData();
       payload.append("file", file);
-      const response = await fetch(`${getApiUrl()}/technical-pieces/import-topcon`, {
+      const response = await trackedFetch(`${getApiUrl()}/technical-pieces/import-topcon`, {
         method: "POST", credentials: "include", body: payload,
-      });
+      }, "Enviando o relatório Topcon");
       const result = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(typeof result?.detail === "string"
@@ -1685,6 +2083,15 @@ export function PecasTecnicasWorkspace({
     setSigefValidatedSignature("");
       setPs1Points([]);
       setPs1Notice("");
+      // Novo levantamento: nada do relatório anterior é preservado
+      // (pontos, parcela M–V, V construídos, PB1/PS4/PA e revisões).
+      setPb1Partial(null); setPb1OdsAudit(null); setPb1Start("");
+      setPb1Source({sheet:"",product:"",accuracy_reference:"",vertical_datum:""});
+      setPb1Review({category:"",position_reference:"",inaccessible_reason:"",rt_reviewed:false});
+      setPs4ApprovalConfirmed(false); setPt8PointConfirmed(false);
+      setPaLines([{...emptyPaLine},{...emptyPaLine}]);
+      setPaChains([]); setActiveChainId("");
+      onResetTopconWork?.();
       setTopconPreview(preview);
       const candidates=preview.points.filter(p=>p.point_role!=="CONTROL");
       const complete=candidates.filter(p=>[p.sigma_n_m,p.sigma_e_m,p.sigma_u_m].every(v=>typeof v==="number"&&Number.isFinite(v)&&v>0)).length;
@@ -1699,7 +2106,7 @@ export function PecasTecnicasWorkspace({
     setActionBusy(true);setActionError("");
     try{
       const id=await onSavePiece(editableMemorial.trim(),draftForSave());
-      const res=await fetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/report.pdf",{credentials:"include",cache:"no-store"});
+      const res=await trackedFetch(getApiUrl()+"/technical-pieces/"+id+"/pb1/report.pdf",{credentials:"include",cache:"no-store"},"Baixando o relatório PB1");
       if(!res.ok){const body=await res.json();throw new Error(typeof body.detail==="string"?body.detail:"Relatório PB1 indisponível.");}
       const blob=await res.blob();const url=URL.createObjectURL(blob);
       const link=document.createElement("a");link.href=url;link.download="RELATORIO_TECNICO_PB1.pdf";link.click();
@@ -2093,6 +2500,8 @@ export function PecasTecnicasWorkspace({
   }, [memorialText, memorialDirty, memorialSaved]);
 
   const [floatingFeedback,setFloatingFeedback]=useState<{message:string;error:boolean}|null>(null);
+  const anyBusy=Boolean(actionBusy||pdfBusy||pb1Busy||verticalLoading||sigefParcelBusy||topconReviewBusy||pa2Busy||reviewedOdsBusy||workingOdsBusy||blankOdsBusy);
+  const busyLabel=pdfBusy?"Gerando o PDF…":verticalLoading?"Convertendo altitudes…":topconReviewBusy?"Revisando o perímetro…":pa2Busy?"Calculando o vértice V…":(reviewedOdsBusy||workingOdsBusy||blankOdsBusy)?"Gerando a planilha ODS…":pb1Busy?"Processando PB1…":sigefParcelBusy?"Consultando parcelas SIGEF…":"Aguarde a conclusão da operação.";
   useEffect(()=>{const message=actionError||pdfError||topconError||verticalError||pa2Error||reviewedOdsError||workingOdsError||blankOdsError||actionFeedback||pb1Notice||sigmaImportFeedback||savedPieceNotice; if(message)setFloatingFeedback({message,error:Boolean(actionError||pdfError||topconError||verticalError||pa2Error||reviewedOdsError||workingOdsError||blankOdsError)});},[actionError,pdfError,topconError,verticalError,pa2Error,reviewedOdsError,workingOdsError,blankOdsError,actionFeedback,pb1Notice,sigmaImportFeedback,savedPieceNotice]);
   if (!open) return null;
 
@@ -3299,6 +3708,20 @@ export function PecasTecnicasWorkspace({
                 <label className="pecas-field"><span>Fonte efetivamente utilizada para posicionar os V (produto, órgão, folha ou documento)</span><textarea value={pb1Review.position_reference} onChange={e=>setPb1Review(o=>({...o,position_reference:e.target.value,rt_reviewed:false}))}/></label>
                 <label className="pecas-check"><input type="checkbox" checked={pb1Review.rt_reviewed} onChange={e=>setPb1Review(o=>({...o,rt_reviewed:e.target.checked}))}/>Confirmo, como responsável técnico, a identificação dos limites, os extremos determinados diretamente, o referencial SIRGAS2000, a documentação de exatidão da fonte realmente utilizada, as alturas e os sigmas calculados. Conferi os códigos dos V e a ausência de duplicidades. A aprovação não equivale à certificação SIGEF.</label>
               </div>}
+              <div className="pecas-note" role="status" aria-label="Ordem dos vértices para o SIGEF">
+                <strong>Ordem SIGEF automática (antes da pré-validação):</strong>{" "}
+                {(() => { try {
+                  return parcelsForOds().map(p =>
+                    p.name + ": início " + (p.vertices[0]?.sigef_vertex_code ?? "—") +
+                    "; perímetro em sentido horário").join(" · ");
+                } catch (error) {
+                  return error instanceof Error ? error.message : "Nenhuma parcela selecionada.";
+                } })()}
+                <p>Corrige o início pelo vértice mais ao norte e a orientação para o sentido horário
+                  na sequência da ODS e da pré-validação. Se houver inversão, os atributos
+                  de confrontação são transferidos para o segmento correspondente.
+                  A geometria e a sequência originais da planta não são modificadas.</p>
+              </div>
               <button type="button" className="pecas-secondary" disabled={sigefParcelBusy} onClick={()=>void validateSigefParcel()}>{sigefParcelBusy?"Validando…":"Pré-validar identificação e geometria"}</button>
               <details className="pecas-advanced"><summary>Pendências técnicas por vértice</summary>
                 {polygons.filter(p=>selectedIds.includes(p.id)).map(p=><div key={p.id} className="pecas-table-wrap"><table className="pecas-table"><thead><tr><th>Vértice</th><th>h</th><th>σE</th><th>σN</th><th>σh</th><th>Pendências</th></tr></thead><tbody>{p.vertices.map((code,i)=>{
@@ -3398,10 +3821,12 @@ export function PecasTecnicasWorkspace({
           {actionError || externalError}
         </p>
       )}
-      {(floatingFeedback||actionBusy||pdfBusy||pb1Busy||verticalLoading||sigefParcelBusy||topconReviewBusy||pa2Busy||reviewedOdsBusy||workingOdsBusy||blankOdsBusy)&&<div role={floatingFeedback?.error?"alert":"status"} aria-live="polite" style={{position:"fixed",top:24,right:24,zIndex:200001,width:"min(420px,calc(100vw - 48px))",padding:20,background:"#fff",color:"#173e33",border:"1px solid #b4cec3",borderRadius:14,boxShadow:"0 12px 45px #102f2940"}}>
-        <strong>{actionBusy||pdfBusy||pb1Busy||verticalLoading||sigefParcelBusy||topconReviewBusy||pa2Busy||reviewedOdsBusy||workingOdsBusy||blankOdsBusy?"Processando…":floatingFeedback?.error?"Ação não concluída":"Resultado da operação"}</strong>
-        <p>{actionBusy||pdfBusy||pb1Busy||verticalLoading||sigefParcelBusy||topconReviewBusy||pa2Busy||reviewedOdsBusy||workingOdsBusy||blankOdsBusy?"Aguarde a conclusão da operação.":floatingFeedback?.message}</p>
-        <button type="button" className="pecas-secondary" onClick={()=>setFloatingFeedback(null)}>Fechar</button>
+      {(floatingFeedback||anyBusy)&&<div className="app-modal-backdrop" role="presentation" onClick={()=>{if(!anyBusy)setFloatingFeedback(null);}}>
+        <div className={"app-modal app-notice "+(anyBusy?"":floatingFeedback?.error?"app-notice-error":"app-notice-success")} role={!anyBusy&&floatingFeedback?.error?"alertdialog":"status"} aria-live="polite" onClick={e=>e.stopPropagation()}>
+          <p className="app-modal-eyebrow">{anyBusy?"Processando":floatingFeedback?.error?"Ação não concluída":"Resultado da operação"}</p>
+          <p>{anyBusy?<><span className="app-spinner"/>{busyLabel}</>:floatingFeedback?.message}</p>
+          {!anyBusy&&<div className="app-modal-actions"><button type="button" className="app-modal-primary" autoFocus onClick={()=>setFloatingFeedback(null)}>Fechar</button></div>}
+        </div>
       </div>}
       <footer className="pecas-footer">
         <span>{ps4Ready ? "Prévia PS4 fechada · " : ""}{selectedIds.length} parcela(s) oficial(is) selecionada(s) ·
@@ -3428,7 +3853,7 @@ export function PecasTecnicasWorkspace({
           </button>}
         </div>
       </footer>
-      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1") && (
+      {topconPreview && pa2Mode && (Boolean(verticalCalculated) || offsetMode || chainMode || constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1") && (
         <div role="dialog" aria-modal="true" aria-label="Espaço de trabalho cartográfico" className={constructionMethod === "PS4" || constructionMethod === "PB1" || constructionMethod === "PS1" ? "ps4-redesigned-dialog" : undefined}
           style={{ position: "fixed", inset: 10, zIndex: 100000, background: "#f7faf8",
             border: "1px solid #99b9ae", borderRadius: 14, display: "flex",
@@ -3580,16 +4005,16 @@ export function PecasTecnicasWorkspace({
               marginBottom: 12 }}>
             {(["PA1", "PA2", "PT8", "PS4", "PB1", "PS1"] as const).map(method => <button
               key={method} type="button"
-              disabled={method === "PA1" || method === "PA2"}
               title={method === "PA1" || method === "PA2"
-                ? "Vértices V nesta versão utilizam somente PS4 com relatório" : undefined}
+                ? "Vértice V por interseção de paralelas a pontos medidos (sem clique)" : undefined}
               className={constructionMethod === method ? "pecas-primary" : "pecas-secondary"}
               onClick={() => {
                 setConstructionMethod(method);
                 setPs4Status({kind:"info",message: method === "PS4"
                   ? "Método PS4 ativado. Etapa 1: clique sobre a feição na imagem CBERS-4A."
                   : `Método ${method} selecionado. Confira o procedimento e as entradas exigidas.`});
-                setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
+                setPa2Witnesses([]); setPa2Result(null); setMapHint(null); setPa2Error("");
+                if (method === "PA1" || method === "PA2") setPa2Variant("OFFSET_LINES");
                 setConstructionSide(method === "PT8" ? "FORWARD" : "LEFT");
               }}>
               {method} — {method === "PA1" ? "Paralela"
@@ -3660,11 +4085,12 @@ export function PecasTecnicasWorkspace({
                           <span>Método de posicionamento</span>
                           <select value={constructionMethod} onChange={e => {
                             setConstructionMethod(e.target.value as "PA1" | "PA2" | "PT8" | "PS4" | "PB1" | "PS1");
+                            if (e.target.value === "PA1" || e.target.value === "PA2") setPa2Variant("OFFSET_LINES");
                             setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
                             setConstructionSide(e.target.value === "PT8" ? "FORWARD" : "LEFT");
                           }}>
-                            <option value="PA1" disabled>PA1 — Não disponível nesta versão</option>
-                            <option value="PA2" disabled>PA2 — Não disponível nesta versão</option>
+                            <option value="PA1">PA1 — Paralela (tipo V)</option>
+                            <option value="PA2">PA2 — Interseção (tipo V)</option>
                             <option value="PT8">PT8 — Alinhamento (tipo M/P)</option>
                             <option value="PS1">PS1 — Aerofotogrametria</option>
                             <option value="PS4">PS4 — Sensores orbitais (tipo V, pré-restituição)</option>
@@ -4383,16 +4809,217 @@ export function PecasTecnicasWorkspace({
                           </details>
                         </section>}
                         {pa2Mode && constructionMethod !== "PS4" && constructionMethod !== "PB1" && constructionMethod !== "PS1" && <>
-                          {constructionMethod === "PA2" && <label className="pecas-field">
-                            <span>Procedimento de construção PA2</span>
+                          {(constructionMethod === "PA1" || constructionMethod === "PA2") && <label className="pecas-field">
+                            <span>Procedimento de construção {constructionMethod}</span>
                             <select value={pa2Variant} onChange={(event) => {
                               setPa2Variant(event.target.value as typeof pa2Variant);
-                              setPa2Witnesses([]); setPa2Result(null); setMapHint(null);
+                              setPa2Witnesses([]); setPa2Result(null); setMapHint(null); setPa2Error("");
                             }}>
-                              <option value="SUPPORT_LINE">Linha de apoio entre dois marcos + clique projetado</option>
-                              <option value="INTERSECTION">Interseção geométrica de duas retas (quatro marcos)</option>
+                              <option value="CHAIN">Paralela a uma cadeia de pontos P (vários segmentos)</option>
+                              <option value="OFFSET_LINES">Interseção de duas paralelas a pontos medidos (sem clique)</option>
+                              {constructionMethod === "PA2" && <option value="SUPPORT_LINE">Linha de apoio entre dois marcos + clique projetado</option>}
+                              {constructionMethod === "PA2" && <option value="INTERSECTION">Interseção geométrica de duas retas (quatro marcos)</option>}
+                              {constructionMethod === "PA1" && <option value="SUPPORT_LINE">Paralela a dois marcos + clique (legado)</option>}
                             </select>
                           </label>}
+                          {offsetMode && <section aria-label="Interseção de paralelas" style={{display:"grid",gap:10}}>
+                            <p>Cada reta passa por dois pontos medidos por GNSS (por exemplo, pontos P na margem)
+                              e pode ser deslocada por um afastamento perpendicular. Com afastamento 0, a reta é
+                              o próprio alinhamento. O V é a interseção das duas retas, calculada só por geometria,
+                              sem clique no mapa.</p>
+                            {paLines.map((line, index) => <fieldset key={index} className="pecas-card" style={{display:"grid",gap:8}}>
+                              <legend><strong>Reta {index + 1}</strong></legend>
+                              {(["a", "b"] as const).map((key) => <label key={key} className="pecas-field">
+                                <span>{key === "a" ? "Ponto A" : "Ponto B"}</span>
+                                <select value={line[key]} onChange={(e) => {
+                                  const value = e.target.value;
+                                  setPaLines((old) => old.map((l, i) => i === index ? { ...l, [key]: value } : l));
+                                  setPa2Result(null);
+                                }}>
+                                  <option value="">Selecione</option>
+                                  {topconPreview.points.filter((p) => p.point_role !== "CONTROL").map((p) => <option key={p.name} value={p.name}>
+                                    {p.name}
+                                  </option>)}
+                                </select>
+                              </label>)}
+                              {(() => {
+                                const set = (patch: Partial<PaLine>) => { setPaLines((old) => old.map((l, k) => k === index ? { ...l, ...patch } : l)); setPa2Result(null); };
+                                const field = (label: string, key: keyof PaLine, placeholder = "") => <label className="pecas-field"><span>{label}</span>
+                                  <input type="number" step="any" value={String(line[key] ?? "")} placeholder={placeholder}
+                                    onChange={(e) => set({ [key]: e.target.value } as Partial<PaLine>)} /></label>;
+                                return <>
+                                  <label className="pecas-check">
+                                    <input type="checkbox" checked={Boolean(line.perPoint)} onChange={(e) => set({ perPoint: e.target.checked })} />
+                                    Afastamento diferente em cada ponto (ex.: barco ancorado a distâncias diferentes da margem)
+                                  </label>
+                                  {line.perPoint && <label className="pecas-field"><span>Como o afastamento foi medido</span>
+                                    <select value={line.direction ?? "PERPENDICULAR"} onChange={(e) => set({ direction: e.target.value as PaLine["direction"] })}>
+                                      <option value="PERPENDICULAR">Menor distância até a margem (perpendicular a ela)</option>
+                                      <option value="AZIMUTH">Distância e azimute geodésico medidos</option>
+                                    </select></label>}
+                                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:8}}>
+                                    {field(line.perPoint ? "Afastamento em " + (line.a || "A") + " (m)" : "Afastamento perpendicular (m)", "offset")}
+                                    {field(line.perPoint ? "σ do afastamento em " + (line.a || "A") + " (m)" : "Desvio-padrão do afastamento (m)", "offsetSigma", "0 se definido por documento")}
+                                    {line.perPoint && field("Afastamento em " + (line.b || "B") + " (m)", "offsetB")}
+                                    {line.perPoint && field("σ do afastamento em " + (line.b || "B") + " (m)", "offsetSigmaB", "precisão da trena/distanciômetro")}
+                                    {line.perPoint && line.direction === "AZIMUTH" && <>
+                                      {field("Azimute em " + (line.a || "A") + " (°)", "azA")}
+                                      {field("Azimute em " + (line.b || "B") + " (°)", "azB")}
+                                      {field("σ dos azimutes (°)", "azSigma")}
+                                    </>}
+                                    {(!line.perPoint || line.direction !== "AZIMUTH") && <label className="pecas-field"><span>Lado do afastamento</span>
+                                      <select value={line.side} onChange={(e) => set({ side: e.target.value as PaLine["side"] })}>
+                                        <option value="LEFT">Esquerda de A → B</option>
+                                        <option value="RIGHT">Direita de A → B</option>
+                                      </select></label>}
+                                  </div>
+                                </>;
+                              })()}
+                            </fieldset>)}
+                            <label className="pecas-check">
+                              <input type="checkbox" checked={pa2ConfirmedCrs}
+                                onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPa2Result(null); }} />
+                              Confirmo que os pontos estão no mesmo referencial SIRGAS2000,
+                              na zona e hemisfério indicados pelo processamento.
+                            </label>
+                            <button type="button" className="pecas-primary"
+                              disabled={pa2Busy || !paLines.every(paLineReady)}
+                              onClick={() => void calculatePaOffsetLines()}>
+                              {pa2Busy ? "Calculando..." : "Calcular V (" + constructionMethod + ")"}
+                            </button>
+                            {pa2Result?.operation === "OFFSET_LINES_INTERSECTION" && <p>
+                              <strong>Precisão horizontal propagada:</strong>{" "}
+                              {pa2Result.sigma_horizontal_m != null
+                                ? pa2Result.sigma_horizontal_m.toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m"
+                                : "não calculada (falta desvio-padrão de algum ponto ou afastamento)"}
+                              {pa2Result.height_m != null && <><br/><strong>h atribuída (média dos 4 pontos, Manual 3.3.2):</strong>{" "}
+                                {pa2Result.height_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} m
+                                {pa2Result.sigma_h_m != null ? " · σh " + pa2Result.sigma_h_m.toLocaleString("pt-BR", { maximumFractionDigits: 4 }) + " m" : ""}</>}
+                            </p>}
+                          </section>}
+                          {chainMode && <section aria-label="Paralelas a cadeias de pontos P" style={{display:"grid",gap:10}}>
+                            <p>Clique no mapa nos pontos P na ordem do caminhamento. Os segmentos são ligados
+                              automaticamente. Depois informe o afastamento e o lado: os V são as interseções das
+                              paralelas de segmentos consecutivos. O cálculo é feito no plano local SGL (Manual, item 3.8 b),
+                              com σE e σN propagados. A h de cada V é a média das h dos pontos de referência (Manual, item 3.3).
+                              Clique de novo no último ponto para desfazê-lo. Crie quantas paralelas precisar.</p>
+                            <label className="pecas-check">
+                              <input type="checkbox" checked={pa2ConfirmedCrs}
+                                onChange={(e) => { setPa2ConfirmedCrs(e.target.checked); setPaChains((old) => old.map((c) => ({ ...c, result: null }))); }} />
+                              Confirmo que os pontos estão no mesmo referencial SIRGAS2000,
+                              na zona e hemisfério indicados pelo processamento.
+                            </label>
+                            {paChains.map((chain, index) => {
+                              const active = chain.id === activeChainId;
+                              const r = chain.result;
+                              return <fieldset key={chain.id} className="pecas-card"
+                                style={{display:"grid",gap:8,borderColor:active?"#0e7490":undefined,borderWidth:active?2:undefined}}>
+                                <legend><strong>Paralela {index + 1}</strong>{active ? " · recebendo cliques" : ""}</legend>
+                                <p style={{margin:0}}><strong>Pontos:</strong> {chain.points.length ? chain.points.join(" → ") : "nenhum ainda"}
+                                  {chain.points.length > 1 ? " (" + (chain.points.length - 1) + " segmento(s))" : ""}</p>
+                                {chain.points.length > 1 && [chain.points[0], chain.points[chain.points.length - 1]].some(isCornerMark) &&
+                                  <p className="pecas-note" style={{margin:0}}>
+                                    {[chain.points[0], chain.points[chain.points.length - 1]].filter(isCornerMark).join(" e ")} {[chain.points[0], chain.points[chain.points.length - 1]].filter(isCornerMark).length > 1 ? "são cantos fixos" : "é canto fixo"}:
+                                    não recebem paralela e ligam-se aos V por segmento reto.</p>}
+                                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                                  {!active && <button type="button" className="pecas-secondary" onClick={() => setActiveChainId(chain.id)}>Selecionar no mapa</button>}
+                                  <button type="button" className="pecas-secondary" disabled={!chain.points.length}
+                                    onClick={() => updatePaChain(chain.id, { points: chain.points.slice(0, -1) })}>Desfazer último ponto</button>
+                                  <button type="button" className="pecas-secondary" disabled={chain.points.length < 2}
+                                    onClick={() => updatePaChain(chain.id, { points: [...chain.points].reverse() })}>Inverter sentido</button>
+                                  <button type="button" className="pecas-secondary" onClick={() => deletePaChain(chain)}>
+                                    {chain.insertedNames.length ? "Excluir paralela e desfazer inserção" : "Excluir paralela"}</button>
+                                </div>
+                                {(() => {
+                                  const first = chain.points[0], last = chain.points[chain.points.length - 1];
+                                  const canStart = chain.points.length >= 3 && isCornerMark(first);
+                                  const canEnd = chain.points.length >= 3 && isCornerMark(last);
+                                  if (!canStart && !canEnd) return null;
+                                  return <label className="pecas-field"><span>Origem do afastamento</span>
+                                    <select value={chain.offsetFrom || ""} onChange={(e) => updatePaChain(chain.id, { offsetFrom: e.target.value as PaChain["offsetFrom"] })}>
+                                      <option value="">Informado (documento ou medição em campo)</option>
+                                      {canStart && <option value="START">Calculado do marco {first} (distância e σ automáticos)</option>}
+                                      {canEnd && <option value="END">Calculado do marco {last} (distância e σ automáticos)</option>}
+                                    </select></label>;
+                                })()}
+                                {r?.offset_from_mark && <p style={{margin:0}}><strong>Afastamento do marco {r.offset_from_mark.mark}:</strong>{" "}
+                                  {r.offset_from_mark.offset_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} m à {r.offset_from_mark.side === "LEFT" ? "esquerda" : "direita"}
+                                  {r.offset_from_mark.offset_sigma_m != null ? " · σ " + r.offset_from_mark.offset_sigma_m.toLocaleString("pt-BR", { maximumFractionDigits: 3 }) + " m" : ""}
+                                  {" "}(distância perpendicular ao alinhamento {r.offset_from_mark.line.join("–")})</p>}
+                                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
+                                  {!chain.offsetFrom && <>
+                                  <label className="pecas-field"><span>Afastamento (m)</span>
+                                    <input type="number" min="0" step="any" value={chain.offset}
+                                      onChange={(e) => updatePaChain(chain.id, { offset: e.target.value })} /></label>
+                                  <label className="pecas-field"><span>Lado (no sentido dos cliques)</span>
+                                    <select value={chain.side} onChange={(e) => updatePaChain(chain.id, { side: e.target.value as PaChain["side"] })}>
+                                      <option value="LEFT">Esquerda</option><option value="RIGHT">Direita</option>
+                                    </select></label>
+                                  <label className="pecas-field"><span>Desvio-padrão do afastamento (m)</span>
+                                    <input type="number" min="0" step="any" value={chain.offsetSigma}
+                                      placeholder="0 se definido por documento"
+                                      onChange={(e) => updatePaChain(chain.id, { offsetSigma: e.target.value })} /></label>
+                                  </>}
+                                  <label className="pecas-field"><span>Pontas da paralela</span>
+                                    <select value={chain.endMode} onChange={(e) => updatePaChain(chain.id, { endMode: e.target.value as PaChain["endMode"] })}>
+                                      <option value="PERPENDICULAR">V perpendicular ao primeiro e ao último ponto</option>
+                                      <option value="NONE">Sem V nas pontas (ligar a outra reta)</option>
+                                    </select></label>
+                                </div>
+                                <button type="button" className="pecas-primary"
+                                  disabled={paChainBusy === chain.id || chain.points.length < 2 || (!chain.offsetFrom && !chain.offset.trim())}
+                                  onClick={() => void calculatePaChain(chain)}>
+                                  {paChainBusy === chain.id ? "Calculando..." : "Calcular V da paralela (" + constructionMethod + ")"}
+                                </button>
+                                {chain.error && <p role="alert" className="pecas-warning">{chain.error}</p>}
+                                {r && <div role="status" style={{display:"grid",gap:6}}>
+                                  <div style={{overflowX:"auto"}}><table className="pecas-table">
+                                    <thead><tr><th>#</th><th>Apoio</th><th>E (m)</th><th>N (m)</th><th>σE</th><th>σN</th><th>σHz</th><th>h (m)</th><th>σh</th><th>Deflexão</th></tr></thead>
+                                    <tbody>{r.vertices.map((v) => {
+                                      const f = (x: number | null, d = 3) => x == null ? "—" : x.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+                                      return <tr key={v.sequence}><td>{v.sequence}</td><td>{v.support_point}</td>
+                                        <td>{f(v.easting_m)}</td><td>{f(v.northing_m)}</td><td>{f(v.sigma_e_m)}</td><td>{f(v.sigma_n_m)}</td>
+                                        <td style={{color:v.sigma_horizontal_m!=null&&v.sigma_horizontal_m>0.5?"#b42318":undefined}}>{f(v.sigma_horizontal_m)}</td>
+                                        <td title={"Média de " + (v.reference_points ?? []).join(", ")}>{f(v.height_m)}</td><td>{f(v.sigma_h_m)}</td><td>{f(v.turn_angle_deg, 1)}°</td></tr>;
+                                    })}</tbody>
+                                  </table></div>
+                                  {r.warnings.map((w, i) => <p key={i} className="pecas-note" style={{margin:0}}>{w}</p>)}
+                                  <label className="pecas-check">
+                                    <input type="checkbox" checked={chain.replace} onChange={(e) => updatePaChain(chain.id, { replace: e.target.checked }, true)} />
+                                    Substituir no perímetro os pontos {chain.points.filter((n) => n !== r.anchor_start && n !== r.anchor_end).join(", ")} pelos V calculados
+                                  </label>
+                                  {!chain.replace && <label className="pecas-field">
+                                    <span>Inserir os V após qual vértice de limite?</span>
+                                    <select value={pa2InsertAfter} onChange={(event) => setPa2InsertAfter(event.target.value)}>
+                                      <option value="">Selecione o segmento do perímetro</option>
+                                      {topconBoundary.map((point) => <option key={point.name} value={point.name}>
+                                        Após {point.sigef_vertex_code || point.name} — parcela {point.parcel_number}
+                                      </option>)}
+                                    </select>
+                                  </label>}
+                                  {chain.insertedNames.length > 0 ? <>
+                                    <p style={{margin:0}}><strong>Inseridos:</strong> {chain.insertedNames.join(", ")}</p>
+                                    <button type="button" className="pecas-secondary" onClick={() => undoPaChainInsertion(chain)}>
+                                      Desfazer inserção (volta os pontos originais)</button>
+                                  </> : <button type="button" className="pecas-secondary" disabled={!pa2ConfirmedCrs}
+                                    onClick={() => insertPaChain(chain)}>
+                                    {"Inserir " + r.vertices.length + " V no perímetro"}
+                                  </button>}
+                                </div>}
+                              </fieldset>;
+                            })}
+                            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                              <button type="button" className="pecas-secondary" onClick={() => addPaChain()}>
+                                + Nova paralela
+                              </button>
+                              {paChains.length > 0 && <button type="button" className="pecas-secondary"
+                                style={{borderColor:"#b42318",color:"#b42318"}}
+                                onClick={() => { if (window.confirm("Excluir todas as paralelas e desfazer todas as inserções no perímetro?")) resetAllPaChains(); }}>
+                                Excluir todas as paralelas e recomeçar
+                              </button>}
+                            </div>
+                          </section>}
+                          {!offsetMode && !chainMode && <>
                           <p>No mapa à direita, selecione os marcos diretamente posicionados.
                             O clique no terreno é um indicador visual de posição e nunca
                             substitui a distância ou o afastamento medido em campo.</p>
@@ -4450,6 +5077,7 @@ export function PecasTecnicasWorkspace({
                             Confirmo em campo a caracterização do ponto como vértice do tipo P
                             (PT8 não pode gerar um vértice do tipo V).
                           </label>}
+                          </>}
                           {pa2Result && <div role="status">
                             {pa2Result.physical_altitude_m != null && <p>
                               <strong>Altitude física interpolada:</strong>{" "}
@@ -4507,7 +5135,7 @@ export function PecasTecnicasWorkspace({
                   <Pa2WitnessMap
                     polygonGeometry={displaySituationGeometry}
                     polygonKey={displaySituationKey}
-                    points={[...topconPreview.points.map(point => ({
+                    points={[...topconPreview.points.filter(point => point.point_role !== "CONTROL").map(point => ({
                       ...point,
                       label: topconBoundary.find(p => p.name === point.name)?.sigef_vertex_code || point.name,
                     })),
@@ -4519,7 +5147,7 @@ export function PecasTecnicasWorkspace({
                           longitude: point.longitude, latitude: point.latitude,
                           virtual: true,
                         }))]}
-                    selected={pa2Witnesses}
+                    selected={chainMode ? (paChains.find((c) => c.id === activeChainId)?.points ?? []) : pa2Witnesses}
                     method={constructionMethod}
                     pb1Raster={constructionMethod==="PB1" && pb1Raster && pb1PieceId
                       ?{pieceId:pb1PieceId,sha256:pb1Raster.sha256,
@@ -4567,6 +5195,24 @@ export function PecasTecnicasWorkspace({
                       setPs4Status({ kind: "info", message: "Ponto localizado na imagem. Confirme a feição e o nome antes de adicionar V." });
                     }}
                     supportLineMode={constructionMethod === "PA2" && pa2Variant === "SUPPORT_LINE"}
+                    chainMode={chainMode}
+                    overlayLines={chainMode ? paChains.flatMap((c) => {
+                      const lines: Array<{ label: string; coords: Array<[number, number]>; computed?: boolean }> = [];
+                      if (c.id !== activeChainId) {
+                        const coords = c.points.map((n) => topconPreview.points.find((p) => p.name === n))
+                          .filter((p): p is TopconPoint => Boolean(p && Number.isFinite(p.longitude) && Number.isFinite(p.latitude)))
+                          .map((p) => [p.longitude as number, p.latitude as number] as [number, number]);
+                        lines.push({ label: "", coords });
+                      }
+                      if (c.result) lines.push({ label: "", computed: true, coords: c.result.vertices
+                        .filter((v) => v.longitude != null && v.latitude != null)
+                        .map((v) => [v.longitude as number, v.latitude as number] as [number, number]) });
+                      return lines;
+                    }) : []}
+                    overlayPoints={chainMode ? paChains.flatMap((c, ci) => (c.result?.vertices ?? []).map((v) => ({
+                      name: (c.insertedNames[v.sequence - 1] || "V" + (ci + 1) + "." + v.sequence),
+                      longitude: v.longitude, latitude: v.latitude,
+                    }))) : []}
                     intersection={pa2Result}
                     hint={mapHint} onPositionHint={point => {
                       setMapHint(point); setPa2Result(null);
@@ -4590,6 +5236,7 @@ export function PecasTecnicasWorkspace({
                         setPa2Error("Selecione como testemunhos os marcos diretamente posicionados no TOPCON.");
                         return;
                       }
+                      if (chainMode) { pickChainPoint(name); return; }
                       pickPa2Witness(name);
                     }} />
                   {constructionMethod !== "PS4" && constructionMethod !== "PB1" && constructionMethod !== "PS1" ? <>

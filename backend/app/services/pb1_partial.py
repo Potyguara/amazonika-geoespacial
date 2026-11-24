@@ -5,7 +5,7 @@ def partial_parameters(source, inputs):
         return isinstance(x,(int,float)) and not isinstance(x,bool) and isfinite(x) and x>0
     e,n,z=(inputs.get(k) for k in ("sigma_e_m","sigma_n_m","source_sigma_m"))
     e,n,z=(v if positive(v) else None for v in (e,n,z))
-    origin="DECLARED" if e is not None or n is not None else "MISSING"
+    origin="DECLARED" if e is not None and n is not None else "INCOMPLETE_DECLARATION" if e is not None or n is not None else "MISSING"
     if e is None and n is None:
         mm={"PEC A":.3,"PEC B":.5,"PEC C":.6}.get(source.get("pec"))
         try: scale=float(source.get("scale") or 0)
@@ -32,6 +32,14 @@ def partial_vertex(point,z,params,factor,source):
         elif kind=="NORMAL" and model=="HGEOHNOR2020" and factor_ok and "santana" in datum:
             h=z+factor[0];status="DECLARED_REFERENCE"
             if params["source_sigma_m"] is not None: sigma=hypot(params["source_sigma_m"],factor[1])
+        elif kind=="ORTHOMETRIC" and model=="MAPGEO2015" and factor_ok and factor[1] > 0:
+            # MAPGEO2015 informa a ondulacao geoidal N: h = H + N.
+            # O cadastro deve declarar o referencial vertical real da fonte.
+            # A existencia de texto de referencia NAO constitui comprovacao documental.
+            # N individual, sigma do fator e sigma do MDT devem vir de fonte verificavel.
+            h=z+factor[0];status="DECLARED_REFERENCE"
+            if params["source_sigma_m"] is not None:
+                sigma=hypot(params["source_sigma_m"],factor[1])
     pending=[]
     if h is None:
         if z is None: pending.append("Cota MDT indisponível.")

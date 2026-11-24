@@ -36,6 +36,11 @@ type Props = {
   onPs4Click?: (point: { longitude: number; latitude: number }) => void;
   ps4CheckCapture?: boolean;
   supportLineMode?: boolean;
+  /** Paralela em série: liga todos os pontos selecionados na ordem do clique. */
+  chainMode?: boolean;
+  /** Linhas e vértices auxiliares (outras cadeias e V calculados). */
+  overlayLines?: Array<{ label: string; coords: Array<[number, number]>; computed?: boolean }>;
+  overlayPoints?: Array<{ name: string; longitude: number | null; latitude: number | null }>;
   onPositionHint?: (point: { longitude: number; latitude: number }) => void;
   hint?: { longitude: number; latitude: number } | null;
   polygonGeometry?: Record<string, unknown> | null;
@@ -58,7 +63,7 @@ type Props = {
 
 /** Mapa de apoio PA2: clique nos dois testemunhos de cada alinhamento. */
 export function Pa2WitnessMap({ points, selected, intersection, onPick,
-  method = "PA2", supportLineMode = false, onPositionHint, hint,
+  method = "PA2", supportLineMode = false, chainMode = false, overlayLines = [], overlayPoints = [], onPositionHint, hint,
   polygonGeometry, polygonKey = "", ps4Points = [], ps4Candidate,
   ps4ClosureGeometry, onPs4Click, ps4CheckCapture = false, ps4Raster = null, ps4ReportAttached = false,
   ps4SceneId = "CBERS4A_WPM_PCA_RGB321_20261016_214_113", pb1Raster = null, pb1Dtm = null }: Props) {
@@ -106,7 +111,7 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
   hintRef.current = onPositionHint;
   const pickRef = useRef(onPick);
   pickRef.current = onPick;
-  const stateKey = JSON.stringify([points, selected, intersection, method, hint, supportLineMode]);
+  const stateKey = JSON.stringify([points, selected, intersection, method, hint, supportLineMode, chainMode, overlayLines, overlayPoints]);
   const lastPolygonFitRef = useRef("");
 
   useEffect(() => {
@@ -186,8 +191,12 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
             const isLine = feature.getGeometry() instanceof LineString;
             const isV = Boolean(feature.get("virtual"));
             const chosen = Boolean(feature.get("chosen"));
+            const overlay = feature.get("overlay");
             return new Style({
-              stroke: new Stroke({ color: isLine ? "#f97316" : "#0e7490", width: 3 }),
+              stroke: new Stroke({
+                color: overlay === "computed" ? "#be123c" : overlay === "chain" ? "#94a3b8" : isLine ? "#f97316" : "#0e7490",
+                width: 3, lineDash: overlay === "computed" ? [8, 5] : undefined,
+              }),
               image: new CircleStyle({
                 radius: isV ? 9 : chosen ? 8 : 6,
                 fill: new Fill({ color: isV ? "#f97316" : chosen ? "#0e7490" : "#ffffff" }),
@@ -316,13 +325,33 @@ export function Pa2WitnessMap({ points, selected, intersection, onPick,
       const coordinate = fromLonLat([point.longitude as number, point.latitude as number]);
       positions.set(point.name, coordinate);
       const feature = new Feature({ geometry: new Point(coordinate) });
-      feature.set("label", point.label || point.name);
+      const order = chainMode ? selected.indexOf(point.name) : -1;
+      feature.set("label", (order >= 0 ? (order + 1) + " · " : "") + (point.label || point.name));
       feature.set("pointName", point.name);
       feature.set("chosen", selected.includes(point.name));
       feature.set("virtual", Boolean(point.virtual));
       source.addFeature(feature);
     }
-    for (let i = 0; i + 1 < selected.length &&
+    if (chainMode) {
+      const coords = selected.map(name => positions.get(name)).filter((c): c is number[] => Boolean(c));
+      if (coords.length > 1) source.addFeature(new Feature({ geometry: new LineString(coords), label: "" }));
+    }
+    for (const line of overlayLines) {
+      const coords = line.coords.filter(c => c.every(Number.isFinite)).map(c => fromLonLat(c));
+      if (coords.length > 1) {
+        const f = new Feature({ geometry: new LineString(coords), label: line.label });
+        f.set("overlay", line.computed ? "computed" : "chain");
+        source.addFeature(f);
+      }
+    }
+    for (const point of overlayPoints) {
+      if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) continue;
+      const f = new Feature({ geometry: new Point(fromLonLat([point.longitude as number, point.latitude as number])) });
+      f.set("label", point.name);
+      f.set("virtual", true);
+      source.addFeature(f);
+    }
+    for (let i = 0; !chainMode && i + 1 < selected.length &&
       i < (method === "PA2" && !supportLineMode ? 4 : 2); i += 2) {
       const a = positions.get(selected[i]);
       const b = positions.get(selected[i + 1]);

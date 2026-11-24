@@ -33,6 +33,7 @@ from app.services.vertical_datum import convert_altitudes
 from app.services.pa2_intersection import intersect_pa2
 from app.services.constructed_vertices import calculate_constructed_vertex
 from app.services.pa2_support_line import pa2_support_line
+from app.services.pa_offset_intersection import intersect_offset_lines, offset_polyline
 
 router = APIRouter(
     prefix="/technical-pieces", tags=["Peças técnicas"],
@@ -210,6 +211,76 @@ def calculate_constructed_vertex_route(
         raise HTTPException(422, str(exc)) from exc
 
 
+class OffsetLinesIntersectionInput(BaseModel):
+    method: str
+    lines: list[dict] = Field(min_length=2, max_length=2)
+    utm_zone: int | None = None
+    hemisphere: str | None = None
+    sirgas2000_confirmed: bool = False
+
+
+@router.post("/topcon/offset-lines-intersection")
+def calculate_offset_lines_intersection(
+    payload: OffsetLinesIntersectionInput,
+    user: User = Depends(get_current_user),
+):
+    """Vértice V por interseção de duas paralelas (PA1/PA2), sem clique.
+
+    Propaga sigma horizontal quando todos os desvios-padrão são informados;
+    nunca calcula h nem marca o vértice como pronto para o SIGEF.
+    """
+    try:
+        return intersect_offset_lines(
+            payload.lines,
+            method=payload.method,
+            utm_zone=payload.utm_zone,
+            hemisphere=payload.hemisphere,
+            sirgas2000_confirmed=payload.sirgas2000_confirmed,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class OffsetPolylineInput(BaseModel):
+    method: str
+    points: list[dict] = Field(min_length=2, max_length=200)
+    offset_m: float | None = None
+    side: str | None = None
+    offset_sigma_m: float | None = None
+    end_mode: str = "PERPENDICULAR"
+    offset_from: str | None = None
+    anchor_start: bool = False
+    anchor_end: bool = False
+    utm_zone: int | None = None
+    hemisphere: str | None = None
+    sirgas2000_confirmed: bool = False
+
+
+@router.post("/topcon/offset-polyline")
+def calculate_offset_polyline(
+    payload: OffsetPolylineInput,
+    user: User = Depends(get_current_user),
+):
+    """Vértices V de uma paralela a uma cadeia de pontos P (PA1/PA2)."""
+    try:
+        return offset_polyline(
+            payload.points,
+            method=payload.method,
+            offset_m=payload.offset_m,
+            side=payload.side,
+            offset_sigma_m=payload.offset_sigma_m,
+            end_mode=payload.end_mode,
+            offset_from=payload.offset_from,
+            anchor_start=payload.anchor_start,
+            anchor_end=payload.anchor_end,
+            utm_zone=payload.utm_zone,
+            hemisphere=payload.hemisphere,
+            sirgas2000_confirmed=payload.sirgas2000_confirmed,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 class SigefParcelReviewInput(BaseModel):
     identification: dict = Field(default_factory=dict)
     parcels: list[dict] = Field(default_factory=list, max_length=50)
@@ -357,7 +428,8 @@ def export_reviewed_sigef_ods(
                 and hashes == {k:v["sha256"] for k,v in attached.items() if k in ("pb1_dtm","pb1_color")}
                 and all(exists_matching(user.id,piece.id,attached[k]) for k in hashes)):
             parcels_pb1 = [p for p in payload.parcels if any(v.get("sigef_method")=="PB1" for v in p.get("vertices",[]))]
-            if len(parcels_pb1)==1 and same_perimeter(decision.get("vertices"),parcels_pb1[0]["vertices"]):
+            from app.services.ps1_persistence import same_perimeter_cyclic
+            if len(parcels_pb1)==1 and same_perimeter_cyclic(decision.get("vertices"),parcels_pb1[0]["vertices"]):
                 approved_pb1 = decision.get("generated") or []
     try:
         data = build_reviewed_sigef_ods(payload.model_dump(), approved_ps1_vertices=approved, approved_pb1_vertices=approved_pb1)
@@ -943,9 +1015,13 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
     color, dtm = assets.get("pb1_color"), assets.get("pb1_dtm")
     if not dtm or not points or len(points)>500 or not exists_matching(user.id, piece.id, dtm):
         raise HTTPException(422, "É necessário MDT numérico válido e de 1 a 500 vértices salvos.")
-    source = top.get("pb1_source") or {}
-    params = partial_parameters(source, payload.model_dump())
-    factors = {}
+    from app.services.pb1_bridge import bridge_inputs
+    source, merged_inputs, derived_factors = bridge_inputs(
+        top.get("pb1_source") or {}, payload.model_dump(),
+        pb.get("technical_preview") or {}, points, color, dtm
+    )
+    params = partial_parameters(source, merged_inputs)
+    factors = dict(derived_factors)
     record = pb.get("ibge_factors") or {}
     if record.get("raw"):
         try:
@@ -955,6 +1031,8 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
                 factors = {}
         except ValueError:
             factors = {}
+    if not factors and derived_factors:
+        factors = derived_factors
     path = stored_file_path(user.id,piece.id,"pb1_dtm",dtm["sha256"]) if dtm else None
     bands = ((dtm or {}).get("metadata") or {}).get("bands") or [{}]
     local_model=None
@@ -991,6 +1069,10 @@ def pb1_process_partial(piece_id: UUID, payload: PB1PartialInput,
     pb.pop("approval", None)
     pb["review_status"] = "PRELIMINARY"
     pb["partial_preview"]=result
+    if source != (top.get("pb1_source") or {}):
+        top = dict(top)
+        top["pb1_source"] = source
+        snapshot["topcon"] = top
     snapshot["pb1"]=pb
     piece.snapshot=snapshot
     db.commit()
