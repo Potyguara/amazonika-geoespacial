@@ -63,3 +63,4 @@ clear
 # Scripts/artefatos que podem conter configuração local
 deploy/inicializar-vps.sh
 *.bad-*
+*.tsbuildinfo
