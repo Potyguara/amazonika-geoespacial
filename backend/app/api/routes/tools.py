@@ -17,6 +17,7 @@ from shapely.geometry import shape
 
 from app.core.config import get_settings
 from app.services.geospatial_export import export_polygon
+from app.services.parcel_selection_export import export_parcels
 from app.services.plant_memorial_v2 import prepare_parcels, build_joint_memorial
 from app.services.plant_memorial_v3 import make_joint_pdf
 from app.services.preliminary_pdf_stamp import stamp_preliminary_pdf
@@ -270,6 +271,40 @@ def download_polygon(payload: ExportPolygonRequest):
             names=payload.vertex_names,
             utm_zone=payload.utm_zone,
             hemisphere=payload.hemisphere,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+class SelectedParcel(BaseModel):
+    name: str = Field(default="", max_length=255)
+    layer: str = Field(default="", max_length=255)
+    geometry: dict[str, Any]
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExportParcelsRequest(BaseModel):
+    filename: str = Field(default="parcelas-selecionadas", min_length=1, max_length=180)
+    format: str = Field(pattern="^(kml|shp)$")
+    parcels: list[SelectedParcel] = Field(min_length=1, max_length=500)
+
+
+@router.post("/export-parcels")
+def download_selected_parcels(payload: ExportParcelsRequest):
+    """Baixa, num único arquivo, as parcelas selecionadas de qualquer base."""
+    try:
+        data, filename, media_type = export_parcels(
+            parcels=[item.model_dump() for item in payload.parcels],
+            filename=payload.filename,
+            format=payload.format,
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

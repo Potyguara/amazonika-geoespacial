@@ -44,6 +44,7 @@ import {
   Magnet,
   Layers3,
   Download,
+  ListPlus,
   Trash2,
   Pencil,
   Pentagon,
@@ -90,6 +91,20 @@ const subjectStyle = new Style({
     stroke: new Stroke({ color: "#ffffff", width: 2 }),
   }),
 });
+
+// Parcelas escolhidas para download (qualquer base).
+const downloadParcelStyle = new Style({
+  fill: new Fill({ color: "rgba(255, 128, 0, 0.22)" }),
+  stroke: new Stroke({ color: "#ff8000", width: 3, lineDash: [8, 4] }),
+});
+
+type DownloadParcel = {
+  id: string;
+  name: string;
+  layer: string;
+  properties: Record<string, string>;
+  visible: boolean;
+};
 
 const officialStyleCache = new globalThis.Map<string, Style>();
 const selectedOfficialStyle = new Style({
@@ -287,6 +302,14 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const [polygons, setPolygons] = useState<Array<{ id: string; name: string; vertices: string[]; confrontants: string[]; altitudes: string[]; areaHa: number; perimeterM: number }>>([]);
   const [selectedPolygonIds, setSelectedPolygonIds] = useState<string[]>([]);
   const polygonSequenceRef = useRef(0);
+  // Polígonos de trabalho desmarcados pelo usuário ficam ocultos no mapa.
+  const hiddenPolygonIdsRef = useRef(new Set<string>());
+  const downloadSourceRef = useRef(new VectorSource());
+  const downloadSequenceRef = useRef(0);
+  const [downloadParcels, setDownloadParcels] = useState<DownloadParcel[]>([]);
+  const [downloadPanelOpen, setDownloadPanelOpen] = useState(true);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [croquiNote, setCroquiNote] = useState(true);
   const [documentError, setDocumentError] = useState<string | null>(null);
@@ -330,6 +353,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     ++metricsRevision.current;
     setPolygons([]);
     setSelectedPolygonIds([]);
+    hiddenPolygonIdsRef.current.clear();
     setImportedMetadata(null);
     setLegalMetadata({});
     setMemorialTitle("Novo projeto");
@@ -422,6 +446,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     ++metricsRevision.current;
     setPolygons([]);
     setSelectedPolygonIds([]);
+    hiddenPolygonIdsRef.current.clear();
     vertexLabelSourceRef.current.clear();
     identifySelectionSourceRef.current.clear();
     setDrawKind(null);
@@ -949,6 +974,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const refreshVertexLabels = () => {
     vertexLabelSourceRef.current.clear();
     for (const feature of polygonFeatures()) {
+      if (hiddenPolygonIdsRef.current.has(String(feature.get("workPolygonId") ?? ""))) continue;
       const geometry = feature.getGeometry() as Polygon;
       const ring = geometry.getCoordinates()[0] ?? [];
       const names = (feature.get("vertexNames") as string[] | undefined) ?? [];
@@ -1042,6 +1068,25 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     refreshVertexLabels();
   };
 
+  // Polígono marcado é sempre visível; desmarcado pelo usuário fica oculto.
+  const setPolygonVisible = (id: string, visible: boolean) => {
+    if (visible) hiddenPolygonIdsRef.current.delete(id);
+    else hiddenPolygonIdsRef.current.add(id);
+    sourceRef.current.changed();
+    refreshVertexLabels();
+  };
+
+  useEffect(() => {
+    let changed = false;
+    for (const id of selectedPolygonIds) {
+      if (hiddenPolygonIdsRef.current.delete(id)) changed = true;
+    }
+    if (changed) {
+      sourceRef.current.changed();
+      refreshVertexLabels();
+    }
+  }, [selectedPolygonIds]);
+
   useEffect(() => {
     const features = sourceRef.current.getFeatures();
     if (!features.length) return;
@@ -1056,6 +1101,137 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
       decimals: 8,
     }) as Record<string, unknown>);
   }, [selectedPolygonIds]);
+
+  // ---- Seleção de parcelas (qualquer base) para download em SHP/KML ----
+  // Usa o perímetro destacado pelo Identificar (geometria integral do WFS
+  // quando disponível) ou a própria geometria poligonal da feição.
+  const identifiedPolygonGeometry = () => {
+    const highlighted = identifySelectionSourceRef.current.getFeatures()
+      .map((item) => item.getGeometry())
+      .find((geometry) => geometry && ["Polygon", "MultiPolygon"].includes(geometry.getType()));
+    if (highlighted) return highlighted;
+    const own = selectedFeatureRef.current?.getGeometry();
+    return own && ["Polygon", "MultiPolygon"].includes(own.getType()) ? own : null;
+  };
+
+  const addIdentifiedToDownload = () => {
+    if (!identifiedFeature) return;
+    const geometry = identifiedPolygonGeometry();
+    if (!geometry) {
+      setDownloadError("Esta feição não tem perímetro poligonal disponível para download.");
+      setDownloadPanelOpen(true);
+      return;
+    }
+    const key = (geometry: NonNullable<ReturnType<typeof identifiedPolygonGeometry>>) =>
+      JSON.stringify(new GeoJSON().writeGeometryObject(geometry, {
+        featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 7,
+      }));
+    const newKey = key(geometry);
+    const duplicate = downloadSourceRef.current.getFeatures().some((item) => {
+      const existing = item.getGeometry();
+      return existing && ["Polygon", "MultiPolygon"].includes(existing.getType())
+        && key(existing as typeof geometry) === newKey;
+    });
+    setDownloadError(null);
+    setDownloadPanelOpen(true);
+    if (duplicate) {
+      setDownloadError("Esta parcela já está na seleção.");
+      return;
+    }
+    downloadSequenceRef.current += 1;
+    const id = `DL-${downloadSequenceRef.current}`;
+    const properties: Record<string, string> = {};
+    for (const [field, value] of identifiedFeature.attributes) {
+      if (value === null || value === undefined || typeof value === "object") continue;
+      const text = String(value).trim();
+      if (text && !/^(Consultando|Localizando)/.test(text)) properties[field] = text;
+    }
+    const feature = new Feature({ geometry: geometry.clone() });
+    feature.setId(id);
+    feature.set("hidden", false);
+    downloadSourceRef.current.addFeature(feature);
+    setDownloadParcels((current) => [...current, {
+      id,
+      name: identifiedFeature.title || `Parcela ${downloadSequenceRef.current}`,
+      layer: identifiedFeature.layer,
+      properties,
+      visible: true,
+    }]);
+  };
+
+  const toggleDownloadParcel = (id: string, visible: boolean) => {
+    const feature = downloadSourceRef.current.getFeatureById(id);
+    feature?.set("hidden", !visible);
+    setDownloadParcels((current) => current.map((item) => item.id === id ? { ...item, visible } : item));
+  };
+
+  const removeDownloadParcel = (id: string) => {
+    const feature = downloadSourceRef.current.getFeatureById(id);
+    if (feature) downloadSourceRef.current.removeFeature(feature);
+    setDownloadParcels((current) => current.filter((item) => item.id !== id));
+  };
+
+  const clearDownloadParcels = () => {
+    downloadSourceRef.current.clear();
+    setDownloadParcels([]);
+    setDownloadError(null);
+  };
+
+  const zoomToDownloadParcel = (id: string) => {
+    const geometry = downloadSourceRef.current.getFeatureById(id)?.getGeometry();
+    if (geometry) mapRef.current?.getView().fit(geometry.getExtent(), {
+      padding: [70, 70, 70, 70], maxZoom: 17, duration: 300,
+    });
+  };
+
+  const downloadSelectedParcels = async (format: "kml" | "shp") => {
+    const chosen = downloadParcels.filter((item) => item.visible);
+    if (!chosen.length) {
+      setDownloadError("Marque ao menos uma parcela para baixar.");
+      return;
+    }
+    setDownloadBusy(true);
+    setDownloadError(null);
+    try {
+      const writer = new GeoJSON();
+      const parcels = chosen.flatMap((item) => {
+        const geometry = downloadSourceRef.current.getFeatureById(item.id)?.getGeometry();
+        return geometry ? [{
+          name: item.name,
+          layer: item.layer,
+          properties: item.properties,
+          geometry: writer.writeGeometryObject(geometry, {
+            featureProjection: "EPSG:3857", dataProjection: "EPSG:4326", decimals: 9,
+          }),
+        }] : [];
+      });
+      const response = await trackedFetch(`${getApiUrl()}/tools/export-parcels`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: "parcelas-selecionadas", format, parcels }),
+      }, "Preparando o download das parcelas");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(typeof body?.detail === "string" ? body.detail : "Falha no download das parcelas.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = disposition.match(/filename="([^"]+)"/)?.[1]
+        ?? `parcelas-selecionadas.${format === "shp" ? "zip" : "kml"}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Falha no download das parcelas.");
+    } finally {
+      setDownloadBusy(false);
+    }
+  };
 
   const clearIdentifiedFeature = () => {
     identifyAbortRef.current?.abort();
@@ -1419,7 +1595,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         new VectorLayer({
           source: sourceRef.current,
           zIndex: 3,
-          style: subjectStyle,
+          style: (feature) =>
+            hiddenPolygonIdsRef.current.has(String(feature.get("workPolygonId") ?? ""))
+              ? undefined
+              : subjectStyle,
+        }),
+        new VectorLayer({
+          source: downloadSourceRef.current,
+          zIndex: 6,
+          style: (feature) => (feature.get("hidden") ? undefined : downloadParcelStyle),
         }),
         new VectorLayer({
           source: measureSourceRef.current, zIndex: 5,
@@ -2383,6 +2567,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
     ++metricsRevision.current;
     setPolygons([]);
     setSelectedPolygonIds([]);
+    hiddenPolygonIdsRef.current.clear();
     vertexLabelSourceRef.current.clear();
     setGeometryMetrics({ areaHectares: null, perimeterMeters: null, vertices: 0 });
     setDrawKind(null);
@@ -2851,6 +3036,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         type: "FeatureCollection", features: [],
       }, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
       sourceRef.current.clear();
+      hiddenPolygonIdsRef.current.clear();
       sourceRef.current.addFeatures(features as Feature[]);
       polygonSequenceRef.current = Math.max(
         polygonSequenceRef.current,
@@ -3151,11 +3337,16 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                   aria-label={`Selecionar ${polygon.name}`}
                   type="checkbox"
                   checked={selectedPolygonIds.includes(polygon.id)}
-                  onChange={(event) => setSelectedPolygonIds((current) =>
-                    event.target.checked
-                      ? [...new Set([...current, polygon.id])]
-                      : current.filter((id) => id !== polygon.id)
-                  )}
+                  title="Marcar mostra o polígono no mapa; desmarcar oculta"
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setPolygonVisible(polygon.id, checked);
+                    setSelectedPolygonIds((current) =>
+                      checked
+                        ? [...new Set([...current, polygon.id])]
+                        : current.filter((id) => id !== polygon.id)
+                    );
+                  }}
                 />
                 <input
                   aria-label="Nome do polígono"
@@ -3464,6 +3655,63 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
                 </div>
               ))}
             </dl>
+          )}
+          <div className="feature-info-actions">
+            <button type="button" onClick={addIdentifiedToDownload}
+              title="Adiciona esta parcela à lista para baixar em SHP (.zip) ou KML">
+              <ListPlus size={15} /> Adicionar à seleção para download
+            </button>
+          </div>
+        </aside>
+      )}
+      {(downloadParcels.length > 0 || downloadError) && (
+        <aside className={`download-parcels-panel ${downloadPanelOpen ? "" : "collapsed"}`}
+          aria-label="Parcelas selecionadas para download">
+          <header>
+            <button type="button" className="download-parcels-toggle"
+              onClick={() => setDownloadPanelOpen((open) => !open)}
+              aria-expanded={downloadPanelOpen}>
+              <Download size={15} />
+              <strong>Parcelas para download ({downloadParcels.filter((item) => item.visible).length}/{downloadParcels.length})</strong>
+            </button>
+            <button type="button" onClick={clearDownloadParcels} aria-label="Limpar seleção" title="Limpar seleção">
+              <X size={16} />
+            </button>
+          </header>
+          {downloadPanelOpen && (
+            <>
+              <small>Use Identificar, clique numa parcela de qualquer base e escolha “Adicionar à seleção para download”. Somente as parcelas marcadas aparecem no mapa e entram no arquivo.</small>
+              <ul>
+                {downloadParcels.map((item) => (
+                  <li key={item.id}>
+                    <input type="checkbox" checked={item.visible}
+                      aria-label={`Mostrar e incluir ${item.name}`}
+                      title="Marcar mostra no mapa e inclui no download; desmarcar oculta"
+                      onChange={(event) => toggleDownloadParcel(item.id, event.target.checked)} />
+                    <button type="button" className="download-parcel-name"
+                      onClick={() => zoomToDownloadParcel(item.id)} title="Aproximar no mapa">
+                      <strong>{item.name}</strong>
+                      <span>{item.layer}</span>
+                    </button>
+                    <button type="button" onClick={() => removeDownloadParcel(item.id)}
+                      aria-label={`Remover ${item.name}`} title="Remover da seleção">
+                      <Trash2 size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {downloadError && <p className="geo-tool-error" role="alert">{downloadError}</p>}
+              <div className="download-parcels-actions">
+                <button type="button" disabled={downloadBusy || !downloadParcels.some((item) => item.visible)}
+                  onClick={() => void downloadSelectedParcels("shp")}>
+                  <Download size={13} /> ZIP (SHP)
+                </button>
+                <button type="button" disabled={downloadBusy || !downloadParcels.some((item) => item.visible)}
+                  onClick={() => void downloadSelectedParcels("kml")}>
+                  <Download size={13} /> KML
+                </button>
+              </div>
+            </>
           )}
         </aside>
       )}
