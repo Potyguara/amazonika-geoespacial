@@ -15,21 +15,36 @@ CMP=/opt/amazonika-geo-relatorio-comparacao
 OVR_DIR=$CMP/geo-parcelas
 OLD_WEB=amazonika-web-candidato:geo44-20261111
 OLD_API=amazonika-api-sigef-geonode:geo71-20261111
-COMPOSE=(docker compose -p amazonika-geoespacial --project-directory "$PROD"
+ENV_FILE=${ENV_FILE:-$PROD/.env.production}
+COMPOSE=(docker compose -p amazonika-geoespacial --project-directory "$PROD" --env-file "$ENV_FILE"
   -f "$PROD/docker-compose.production.yml"
   -f "$CMP/geo73/docker-compose.geo73.yml"
   -f "$CMP/geo47-web-candidato.yml")
 
+# A produção sobe com --env-file .env.production (senha do banco, CORS, URLs).
+# Sem ele os containers sobem com variáveis vazias e caem.
+checar_env() {
+  [ -s "$ENV_FILE" ] || { echo "ERRO: $ENV_FILE não existe; nada foi trocado."; exit 1; }
+  for v in POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB CORS_ORIGINS PUBLIC_BASE_URL; do
+    grep -qE "^$v=." "$ENV_FILE" || { echo "ERRO: $v ausente em $ENV_FILE; nada foi trocado."; exit 1; }
+  done
+  if "${COMPOSE[@]}" config 2>&1 | grep -q "variable is not set"; then
+    "${COMPOSE[@]}" config 2>&1 | grep "variable is not set" | sort -u
+    echo "ERRO: variáveis faltando no compose; nada foi trocado."; exit 1
+  fi
+}
+
 saude() {
-  for i in $(seq 1 30); do
+  for i in $(seq 1 45); do
     if curl -fsS http://127.0.0.1:18000/ready >/dev/null && curl -fsS http://127.0.0.1:13000/ >/dev/null; then
       echo "OK: API e web respondendo."; return 0; fi
     sleep 4
   done
-  echo "ATENÇÃO: API ou web não respondeu em 2 minutos."; return 1
+  echo "ATENÇÃO: API ou web não respondeu em 3 minutos."; return 1
 }
 
 if [ "${VOLTAR:-0}" = 1 ]; then
+  checar_env
   echo ">> Voltando para $OLD_API e $OLD_WEB"
   "${COMPOSE[@]}" up -d --no-deps --no-build api web
   saude; exit $?
@@ -38,6 +53,7 @@ fi
 if [ "${PUBLICAR:-0}" = 1 ]; then
   : "${TAG:?informe TAG=<tag mostrada na etapa 1>}"
   docker image inspect "amazonika-web-candidato:$TAG" "amazonika-api-sigef-geonode:$TAG" >/dev/null
+  checar_env
   mkdir -p /opt/amazonika-backups "$OVR_DIR"
   BK=/opt/amazonika-backups/geo-antes-$TAG.sql.gz
   echo ">> Backup do banco em $BK"
