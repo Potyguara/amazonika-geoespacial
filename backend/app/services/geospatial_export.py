@@ -9,6 +9,7 @@ from xml.sax.saxutils import escape
 
 import geopandas as gpd
 from pyproj import CRS, Transformer
+from shapely import force_2d
 from shapely.geometry import MultiPolygon, Point, Polygon, shape
 
 
@@ -17,7 +18,11 @@ def _slug(value: str) -> str:
 
 
 def _geometry(value: dict) -> Polygon:
-    geometry = shape(value)
+    # Polígonos importados (KML/SIGEF) ou com altitude informada chegam com
+    # coordenadas XYZ; a exportação planimétrica usa somente X/Y.
+    geometry = force_2d(shape(value))
+    if isinstance(geometry, MultiPolygon) and len(geometry.geoms) == 1:
+        geometry = geometry.geoms[0]
     if not isinstance(geometry, Polygon) or geometry.is_empty or not geometry.is_valid:
         raise ValueError("A exportação individual exige um polígono válido. Selecione uma área por vez.")
     if len(geometry.exterior.coords) < 4:
