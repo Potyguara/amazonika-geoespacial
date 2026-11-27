@@ -34,7 +34,7 @@ const GRS80_F = 1 / 298.257222101;
 
 type MeasureKind = "LineString" | "Polygon";
 type MeasureSegment = { index: number; length: number; azimuth: number | null };
-type MeasureStats = { segments: MeasureSegment[]; total: number; area: number | null };
+type MeasureStats = { segments: MeasureSegment[]; total: number; area: number | null; path: number[][] };
 type MeasureRecord = MeasureStats & { id: string; kind: MeasureKind; name: string; visible: boolean };
 
 // Problema inverso de Vincenty: distância (m) e azimute direto (graus, 0–360).
@@ -115,6 +115,17 @@ const formatAzimuth = (degrees: number | null) => {
   return `${d}°${String(m).padStart(2, "0")}'${String(s).padStart(2, "0")}"`;
 };
 
+// Coordenada geográfica em graus, minutos e segundos (SIRGAS 2000).
+const formatDms = (value: number, positive: string, negative: string) => {
+  const hemisphere = value < 0 ? negative : positive;
+  let milli = Math.round(Math.abs(value) * 3600 * 1000);
+  const d = Math.floor(milli / 3600000);
+  milli -= d * 3600000;
+  const m = Math.floor(milli / 60000);
+  const seconds = (milli - m * 60000) / 1000;
+  return `${d}°${String(m).padStart(2, "0")}'${seconds.toFixed(3).padStart(6, "0").replace(".", ",")}" ${hemisphere}`;
+};
+
 const formatArea = (m2: number) =>
   `${(m2 / 10000).toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha · ${m2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²`;
 
@@ -150,7 +161,7 @@ function measureStatsFromCoordinates(kind: MeasureKind, coords: number[][]): Mea
   const area = kind === "Polygon" && lonLat.length >= 3
     ? ellipsoidalArea([...lonLat, lonLat[0]])
     : closedLine ? ellipsoidalArea(lonLat) : null;
-  return { segments, total, area };
+  return { segments, total, area, path };
 }
 
 const measureLineStyle = new Style({
@@ -422,18 +433,34 @@ EFFECT_NEW = r'''  useEffect(() => {
   };
 
   const copyMeasurements = () => {
-    const rows = ["Medição\tSegmento\tDistância (m)\tAzimute\tTotal/Perímetro (m)\tÁrea (ha)"];
+    // Uma linha por segmento, com as coordenadas geográficas dos dois vértices.
+    const decimal = (value: number) => value.toFixed(8).replace(".", ",");
+    const rows = [[
+      "Medição", "Segmento", "Vértice inicial", "Latitude", "Longitude", "Latitude (GMS)", "Longitude (GMS)",
+      "Vértice final", "Latitude", "Longitude", "Latitude (GMS)", "Longitude (GMS)",
+      "Distância (m)", "Azimute", "Total/Perímetro (m)", "Área (ha)",
+    ].join("\t")];
     for (const item of measurements) {
-      for (const segment of item.segments) {
+      const vertexCount = item.area !== null && item.kind === "LineString"
+        ? item.path.length - 1 : item.kind === "Polygon" ? item.path.length - 1 : item.path.length;
+      const vertexName = (index: number) => `V${(index % Math.max(vertexCount, 1)) + 1}`;
+      item.segments.forEach((segment, i) => {
+        const from = item.path[i];
+        const to = item.path[i + 1];
+        if (!from || !to) return;
         rows.push([
           item.name, segment.index,
+          vertexName(i), decimal(from[1]), decimal(from[0]), formatDms(from[1], "N", "S"), formatDms(from[0], "E", "W"),
+          vertexName(i + 1), decimal(to[1]), decimal(to[0]), formatDms(to[1], "N", "S"), formatDms(to[0], "E", "W"),
           segment.length.toFixed(3).replace(".", ","),
           formatAzimuth(segment.azimuth),
           item.total.toFixed(3).replace(".", ","),
           item.area === null ? "" : (item.area / 10000).toFixed(4).replace(".", ","),
         ].join("\t"));
-      }
+      });
     }
+    rows.push("");
+    rows.push("Coordenadas geográficas SIRGAS 2000; distâncias e azimutes geodésicos no elipsoide GRS80.");
     void navigator.clipboard?.writeText(rows.join("\n")).then(() => {
       setMeasureCopied(true);
       window.setTimeout(() => setMeasureCopied(false), 2000);
