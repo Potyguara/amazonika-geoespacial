@@ -128,6 +128,14 @@ function openMeasureCoordinates(geometry: unknown): { kind: MeasureKind; coords:
   return null;
 }
 
+// Linha que termina exatamente no ponto inicial (fechada pelo snap).
+function isClosedPath(coords: number[][]) {
+  if (coords.length < 4) return false;
+  const first = coords[0];
+  const last = coords[coords.length - 1];
+  return Math.abs(first[0] - last[0]) < 1e-6 && Math.abs(first[1] - last[1]) < 1e-6;
+}
+
 function measureStatsFromCoordinates(kind: MeasureKind, coords: number[][]): MeasureStats {
   const lonLat = coords.map((coordinate) => toLonLat(coordinate));
   const path = kind === "Polygon" && lonLat.length >= 3 ? [...lonLat, lonLat[0]] : lonLat;
@@ -138,7 +146,10 @@ function measureStatsFromCoordinates(kind: MeasureKind, coords: number[][]): Mea
     total += result.distance;
     segments.push({ index: i + 1, length: result.distance, azimuth: result.azimuth });
   }
-  const area = kind === "Polygon" && lonLat.length >= 3 ? ellipsoidalArea([...lonLat, lonLat[0]]) : null;
+  const closedLine = kind === "LineString" && isClosedPath(coords);
+  const area = kind === "Polygon" && lonLat.length >= 3
+    ? ellipsoidalArea([...lonLat, lonLat[0]])
+    : closedLine ? ellipsoidalArea(lonLat) : null;
   return { segments, total, area };
 }
 
@@ -183,7 +194,10 @@ function measureLayerStyle(feature: FeatureLike) {
     if (!a || !b) return;
     styles.push(measureLabel(formatLength(segment.length), [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]));
   });
-  if (open.kind === "Polygon" && stats.area !== null && geometry instanceof Polygon) {
+  if (open.kind === "LineString" && stats.area !== null) {
+    const hectares = `${(stats.area / 10000).toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha`;
+    styles.push(measureLabel(hectares, new Polygon([open.coords]).getInteriorPoint().getCoordinates(), true));
+  } else if (open.kind === "Polygon" && stats.area !== null && geometry instanceof Polygon) {
     const hectares = `${(stats.area / 10000).toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha`;
     styles.push(measureLabel(hectares, geometry.getInteriorPoint().getCoordinates(), true));
   } else if (open.kind === "LineString" && stats.segments.length > 1) {
@@ -255,10 +269,17 @@ EFFECT_NEW = r'''  useEffect(() => {
     }
     const overlay = measureOverlayRef.current;
     const tooltip = overlay.getElement() as HTMLElement;
+    // Snap nos vértices já clicados da própria medição, sobretudo o ponto
+    // inicial, para fechar a figura exatamente no começo.
+    const sketchSnapSource = new VectorSource();
+    const sketchSnap = new Snap({ source: sketchSnapSource, vertex: true, edge: false, pixelTolerance: 16 });
+    let snappedCount = -1;
     let changeKey: EventsKey | null = null;
     const stopLive = () => {
       if (changeKey) unByKey(changeKey);
       changeKey = null;
+      sketchSnapSource.clear();
+      snappedCount = -1;
       overlay.setPosition(undefined);
       setLiveMeasure(null);
     };
@@ -268,6 +289,18 @@ EFFECT_NEW = r'''  useEffect(() => {
       changeKey = geometry.on("change", () => {
         const open = openMeasureCoordinates(geometry);
         if (!open || open.coords.length < 2) return;
+        const fixed = open.coords.slice(0, -1);
+        if (fixed.length !== snappedCount) {
+          snappedCount = fixed.length;
+          sketchSnapSource.clear();
+          // O último vértice fixado fica de fora para não criar segmento nulo.
+          sketchSnapSource.addFeatures(fixed.slice(0, -1).map((coordinate) => new Feature(new Point(coordinate))));
+        }
+        // Clique no ponto inicial fecha e conclui a distância automaticamente.
+        if (kind === "LineString" && isClosedPath(fixed)) {
+          window.setTimeout(() => draw.finishDrawing(), 0);
+          return;
+        }
         const lonLat = open.coords.map((coordinate) => toLonLat(coordinate));
         const last = lonLat.length - 1;
         const segment = geodesicInverse(lonLat[last - 1][0], lonLat[last - 1][1], lonLat[last][0], lonLat[last][1]);
@@ -275,12 +308,16 @@ EFFECT_NEW = r'''  useEffect(() => {
         for (let i = 0; i < last; i += 1) {
           total += geodesicInverse(lonLat[i][0], lonLat[i][1], lonLat[i + 1][0], lonLat[i + 1][1]).distance;
         }
-        const area = kind === "Polygon" && lonLat.length >= 3 ? ellipsoidalArea([...lonLat, lonLat[0]]) : null;
+        const closing = kind === "LineString" && isClosedPath(open.coords);
+        const area = kind === "Polygon" && lonLat.length >= 3
+          ? ellipsoidalArea([...lonLat, lonLat[0]])
+          : closing ? ellipsoidalArea(lonLat) : null;
         setLiveMeasure({ segment: segment.distance, azimuth: segment.azimuth, total, area, count: last });
         const lines = [
           `<strong>${formatLength(segment.distance)}</strong> · Az ${formatAzimuth(segment.azimuth)}`,
           `${kind === "Polygon" ? "Perímetro aberto" : "Total"}: ${formatLength(total)}`,
         ];
+        if (closing) lines.push("Fechando no ponto inicial");
         if (area !== null) lines.push(`Área: ${formatArea(area)}`);
         tooltip.innerHTML = lines.join("<br>");
         // Perto da borda direita a etiqueta passa para o lado esquerdo do cursor.
@@ -303,7 +340,7 @@ EFFECT_NEW = r'''  useEffect(() => {
       feature.setId(id);
       feature.set("measureStats", stats);
       setMeasurements((current) => [...current, { id, kind, name, ...stats, visible: true }]);
-      setMeasureValue(kind === "Polygon" && stats.area !== null
+      setMeasureValue(stats.area !== null
         ? `${name}: ${formatArea(stats.area)} · perímetro ${formatLength(stats.total)}`
         : `${name}: ${formatLength(stats.total)}`);
       setMeasurePanelOpen(true);
@@ -322,9 +359,11 @@ EFFECT_NEW = r'''  useEffect(() => {
     };
     window.addEventListener("keydown", onKey);
     map.addInteraction(draw);
+    map.addInteraction(sketchSnap);
     return () => {
       window.removeEventListener("keydown", onKey);
       stopLive();
+      map.removeInteraction(sketchSnap);
       map.removeInteraction(draw);
     };
   }, [measureMode]);
@@ -372,8 +411,13 @@ EFFECT_NEW = r'''  useEffect(() => {
 
   const measurementToPolygon = (id: string) => {
     const geometry = measurementFeature(id)?.getGeometry();
-    if (!(geometry instanceof Polygon)) return;
-    sourceRef.current.addFeature(new Feature({ geometry: geometry.clone() }));
+    let polygon: Polygon | null = null;
+    if (geometry instanceof Polygon) polygon = geometry.clone();
+    else if (geometry instanceof LineString && isClosedPath(geometry.getCoordinates())) {
+      polygon = new Polygon([geometry.getCoordinates()]);
+    }
+    if (!polygon) return;
+    sourceRef.current.addFeature(new Feature({ geometry: polygon }));
     window.setTimeout(emitGeometry, 0);
   };
 
@@ -441,7 +485,7 @@ PANEL_NEW = '''      {(measureMode || measurements.length > 0) && (
                       ? "Clique no ponto inicial e vá clicando: cada clique fecha um segmento. Dois cliques ou Enter concluem."
                       : "Clique nos vértices da área. Dois cliques ou Enter fecham o polígono."}</span>
                   )}
-                  <small>Backspace desfaz o último ponto · Esc cancela · o snap prende nos vértices e linhas já medidos</small>
+                  <small>Volte ao ponto inicial para fechar (o snap prende nele) · Backspace desfaz o último ponto · Esc cancela</small>
                 </div>
               )}
               {measurements.length > 0 && (
@@ -455,11 +499,11 @@ PANEL_NEW = '''      {(measureMode || measurements.length > 0) && (
                           onChange={(event) => toggleMeasurementVisible(item.id, event.target.checked)} />
                         <button type="button" className="measure-name" onClick={() => zoomToMeasurement(item.id)} title="Aproximar no mapa">
                           <strong>{item.name}</strong>
-                          <span>{item.kind === "Polygon" && item.area !== null
+                          <span>{item.area !== null
                             ? `${formatArea(item.area)} · perímetro ${formatLength(item.total)}`
                             : `${formatLength(item.total)} · ${item.segments.length} segmento(s)`}</span>
                         </button>
-                        {item.kind === "Polygon" && (
+                        {item.area !== null && (
                           <button type="button" onClick={() => measurementToPolygon(item.id)}
                             title="Criar um polígono de trabalho com esta área" aria-label="Criar polígono">
                             <Pentagon size={14} />
