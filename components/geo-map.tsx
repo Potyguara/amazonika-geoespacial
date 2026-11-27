@@ -26,6 +26,11 @@ import VectorSource from "ol/source/Vector";
 import VectorTileSource from "ol/source/VectorTile";
 import { Fill, Stroke, Style, Circle as CircleStyle, Text as TextStyle } from "ol/style";
 import View from "ol/View";
+import Overlay from "ol/Overlay";
+import { unByKey } from "ol/Observable";
+import type { EventsKey } from "ol/events";
+import type { FeatureLike } from "ol/Feature";
+import MultiPoint from "ol/geom/MultiPoint";
 import { getArea, getLength } from "ol/sphere";
 import { getApiUrl } from "@/lib/api";
 import { trackedFetch } from "@/components/app-feedback";
@@ -80,6 +85,199 @@ interface GeoMapProps {
     wmsFixedLayer?: string;
     wmsAvailableUfs?: string[];
   }>;
+}
+
+// ---- Medição profissional: geodésia no elipsoide GRS80 (SIRGAS 2000) ----
+const GRS80_A = 6378137;
+const GRS80_F = 1 / 298.257222101;
+
+type MeasureKind = "LineString" | "Polygon";
+type MeasureSegment = { index: number; length: number; azimuth: number | null };
+type MeasureStats = { segments: MeasureSegment[]; total: number; area: number | null };
+type MeasureRecord = MeasureStats & { id: string; kind: MeasureKind; name: string; visible: boolean };
+
+// Problema inverso de Vincenty: distância (m) e azimute direto (graus, 0–360).
+function geodesicInverse(lon1: number, lat1: number, lon2: number, lat2: number) {
+  const a = GRS80_A;
+  const f = GRS80_F;
+  const b = a * (1 - f);
+  const rad = Math.PI / 180;
+  const L = (lon2 - lon1) * rad;
+  const U1 = Math.atan((1 - f) * Math.tan(lat1 * rad));
+  const U2 = Math.atan((1 - f) * Math.tan(lat2 * rad));
+  const sinU1 = Math.sin(U1), cosU1 = Math.cos(U1);
+  const sinU2 = Math.sin(U2), cosU2 = Math.cos(U2);
+  let lambda = L;
+  let sinSigma = 0, cosSigma = 0, sigma = 0, cosSqAlpha = 0, cos2SigmaM = 0;
+  let sinLambda = 0, cosLambda = 0;
+  for (let iteration = 0; iteration < 200; iteration += 1) {
+    sinLambda = Math.sin(lambda);
+    cosLambda = Math.cos(lambda);
+    sinSigma = Math.sqrt((cosU2 * sinLambda) ** 2
+      + (cosU1 * sinU2 - sinU1 * cosU2 * cosLambda) ** 2);
+    if (sinSigma === 0) return { distance: 0, azimuth: null as number | null };
+    cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda;
+    sigma = Math.atan2(sinSigma, cosSigma);
+    const sinAlpha = (cosU1 * cosU2 * sinLambda) / sinSigma;
+    cosSqAlpha = 1 - sinAlpha * sinAlpha;
+    cos2SigmaM = cosSqAlpha !== 0 ? cosSigma - (2 * sinU1 * sinU2) / cosSqAlpha : 0;
+    const C = (f / 16) * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha));
+    const previous = lambda;
+    lambda = L + (1 - C) * f * sinAlpha
+      * (sigma + C * sinSigma * (cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)));
+    if (Math.abs(lambda - previous) < 1e-12) break;
+  }
+  const uSq = (cosSqAlpha * (a * a - b * b)) / (b * b);
+  const A = 1 + (uSq / 16384) * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)));
+  const B = (uSq / 1024) * (256 + uSq * (-128 + uSq * (74 - 47 * uSq)));
+  const deltaSigma = B * sinSigma * (cos2SigmaM + (B / 4) * (cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)
+    - (B / 6) * cos2SigmaM * (-3 + 4 * sinSigma * sinSigma) * (-3 + 4 * cos2SigmaM * cos2SigmaM)));
+  const distance = b * A * (sigma - deltaSigma);
+  const alpha = Math.atan2(cosU2 * sinLambda, cosU1 * sinU2 - sinU1 * cosU2 * cosLambda);
+  return { distance, azimuth: ((alpha / rad) + 360) % 360 };
+}
+
+// Área no elipsoide: projeção cilíndrica equivalente (latitude autálica).
+function ellipsoidalArea(ring: number[][]): number {
+  const e2 = GRS80_F * (2 - GRS80_F);
+  const e = Math.sqrt(e2);
+  const rad = Math.PI / 180;
+  const q = (lat: number) => {
+    const s = Math.sin(lat * rad);
+    return (1 - e2) * (s / (1 - e2 * s * s) - (1 / (2 * e)) * Math.log((1 - e * s) / (1 + e * s)));
+  };
+  const lon0 = ring[0]?.[0] ?? 0;
+  const points = ring.map(([lon, lat]) => {
+    let dLon = lon - lon0;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    return [GRS80_A * dLon * rad, (GRS80_A * q(lat)) / 2];
+  });
+  let sum = 0;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    sum += points[i][0] * points[i + 1][1] - points[i + 1][0] * points[i][1];
+  }
+  return Math.abs(sum) / 2;
+}
+
+const formatLength = (meters: number) => meters >= 1000
+  ? `${(meters / 1000).toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} km`
+  : `${meters.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m`;
+
+const formatAzimuth = (degrees: number | null) => {
+  if (degrees === null) return "—";
+  let totalSeconds = Math.round(degrees * 3600);
+  totalSeconds = ((totalSeconds % 1296000) + 1296000) % 1296000;
+  const d = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return `${d}°${String(m).padStart(2, "0")}'${String(s).padStart(2, "0")}"`;
+};
+
+const formatArea = (m2: number) =>
+  `${(m2 / 10000).toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha · ${m2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²`;
+
+// Coordenadas abertas (sem repetir o primeiro vértice) em EPSG:3857.
+function openMeasureCoordinates(geometry: unknown): { kind: MeasureKind; coords: number[][] } | null {
+  if (geometry instanceof LineString) return { kind: "LineString", coords: geometry.getCoordinates() };
+  if (geometry instanceof Polygon) {
+    const ring = geometry.getCoordinates()[0] ?? [];
+    return { kind: "Polygon", coords: ring.slice(0, -1) };
+  }
+  return null;
+}
+
+function measureStatsFromCoordinates(kind: MeasureKind, coords: number[][]): MeasureStats {
+  const lonLat = coords.map((coordinate) => toLonLat(coordinate));
+  const path = kind === "Polygon" && lonLat.length >= 3 ? [...lonLat, lonLat[0]] : lonLat;
+  const segments: MeasureSegment[] = [];
+  let total = 0;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const result = geodesicInverse(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1]);
+    total += result.distance;
+    segments.push({ index: i + 1, length: result.distance, azimuth: result.azimuth });
+  }
+  const area = kind === "Polygon" && lonLat.length >= 3 ? ellipsoidalArea([...lonLat, lonLat[0]]) : null;
+  return { segments, total, area };
+}
+
+const measureLineStyle = new Style({
+  stroke: new Stroke({ color: "#f59e0b", width: 3 }),
+  fill: new Fill({ color: "rgba(245,158,11,0.14)" }),
+});
+const measureVertexStyle = new Style({
+  image: new CircleStyle({ radius: 4.5, fill: new Fill({ color: "#ffffff" }),
+    stroke: new Stroke({ color: "#b45309", width: 2 }) }),
+});
+
+function measureLabel(text: string, coordinate: number[], bold = false) {
+  return new Style({
+    geometry: new Point(coordinate),
+    text: new TextStyle({
+      text,
+      font: `${bold ? 800 : 700} ${bold ? 13 : 11}px Inter, sans-serif`,
+      fill: new Fill({ color: "#5c2d00" }),
+      backgroundFill: new Fill({ color: "rgba(255,251,235,0.95)" }),
+      backgroundStroke: new Stroke({ color: "#f59e0b", width: 1 }),
+      padding: [2, 4, 2, 4],
+      overflow: true,
+    }),
+  });
+}
+
+// Estilo das medições concluídas: linha, vértices e rótulo de cada segmento.
+function measureLayerStyle(feature: FeatureLike) {
+  const geometry = feature.getGeometry();
+  const open = openMeasureCoordinates(geometry);
+  if (!open) return measureLineStyle;
+  const stats = (feature.get("measureStats") as MeasureStats | undefined)
+    ?? measureStatsFromCoordinates(open.kind, open.coords);
+  const path = open.kind === "Polygon" && open.coords.length >= 3
+    ? [...open.coords, open.coords[0]] : open.coords;
+  const styles: Style[] = [measureLineStyle,
+    new Style({ geometry: new MultiPoint(open.coords), image: measureVertexStyle.getImage() ?? undefined })];
+  stats.segments.forEach((segment, i) => {
+    const a = path[i];
+    const b = path[i + 1];
+    if (!a || !b) return;
+    styles.push(measureLabel(formatLength(segment.length), [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]));
+  });
+  if (open.kind === "Polygon" && stats.area !== null && geometry instanceof Polygon) {
+    const hectares = `${(stats.area / 10000).toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha`;
+    styles.push(measureLabel(hectares, geometry.getInteriorPoint().getCoordinates(), true));
+  } else if (open.kind === "LineString" && stats.segments.length > 1) {
+    const last = open.coords[open.coords.length - 1];
+    styles.push(measureLabel(`Total ${formatLength(stats.total)}`, last, true));
+  }
+  return styles;
+}
+
+// Estilo do traço em desenho: segmentos já fixados com a distância rotulada.
+const measureSketchLine = new Style({
+  stroke: new Stroke({ color: "#d97706", width: 2.5, lineDash: [8, 5] }),
+  fill: new Fill({ color: "rgba(245,158,11,0.10)" }),
+});
+const measureSketchCursor = new Style({
+  image: new CircleStyle({ radius: 5, fill: new Fill({ color: "#d97706" }),
+    stroke: new Stroke({ color: "#ffffff", width: 2 }) }),
+});
+function measureSketchStyle(feature: FeatureLike) {
+  const geometry = feature.getGeometry();
+  if (geometry instanceof Point) return measureSketchCursor;
+  const open = openMeasureCoordinates(geometry);
+  if (!open || open.coords.length < 2) return measureSketchLine;
+  const styles: Style[] = [measureSketchLine,
+    new Style({ geometry: new MultiPoint(open.coords.slice(0, -1)), image: measureVertexStyle.getImage() ?? undefined })];
+  // O último segmento acompanha o cursor e é mostrado na etiqueta flutuante.
+  const fixed = open.coords.slice(0, -1);
+  for (let i = 0; i < fixed.length - 1; i += 1) {
+    const a = toLonLat(fixed[i]);
+    const b = toLonLat(fixed[i + 1]);
+    const length = geodesicInverse(a[0], a[1], b[0], b[1]).distance;
+    styles.push(measureLabel(formatLength(length),
+      [(fixed[i][0] + fixed[i + 1][0]) / 2, (fixed[i][1] + fixed[i + 1][1]) / 2]));
+  }
+  return styles;
 }
 
 const subjectStyle = new Style({
@@ -251,6 +449,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   const attributeSearchSourceRef = useRef(new VectorSource());
   const [measureMode, setMeasureMode] = useState<"LineString" | "Polygon" | null>(null);
   const [measureValue, setMeasureValue] = useState("");
+  const [measurements, setMeasurements] = useState<MeasureRecord[]>([]);
+  const [liveMeasure, setLiveMeasure] = useState<{
+    segment: number; azimuth: number | null; total: number; area: number | null; count: number;
+  } | null>(null);
+  const [measurePanelOpen, setMeasurePanelOpen] = useState(true);
+  const [measureCopied, setMeasureCopied] = useState(false);
+  const measureSequenceRef = useRef(0);
+  const measureOverlayRef = useRef<Overlay | null>(null);
+  const hiddenMeasureFeaturesRef = useRef(new globalThis.Map<string, Feature>());
   const officialSourceRef = useRef(new VectorSource());
   const snapLayerSourceRef = useRef(new VectorSource());
   const vertexLabelSourceRef = useRef(new VectorSource());
@@ -1607,12 +1814,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         }),
         new VectorLayer({
           source: measureSourceRef.current, zIndex: 5,
-          style: new Style({
-            stroke: new Stroke({ color: "#eab308", width: 3, lineDash: [7, 5] }),
-            fill: new Fill({ color: "rgba(234,179,8,0.16)" }),
-            image: new CircleStyle({ radius: 5, fill: new Fill({ color: "#eab308" }),
-              stroke: new Stroke({ color: "#fff", width: 2 }) }),
-          }),
+          style: measureLayerStyle,
         }),
         new VectorLayer({
           source: vertexLabelSourceRef.current,
@@ -2244,22 +2446,160 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !measureMode) return;
-    const draw = new Draw({ source: measureSourceRef.current, type: measureMode });
-    draw.on("drawend", ({ feature }) => {
-      const geom = feature.getGeometry();
-      if (geom instanceof LineString) {
-        const meters = getLength(geom, { projection: map.getView().getProjection() });
-        setMeasureValue(meters >= 1000
-          ? `Distância: ${(meters / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} km`
-          : `Distância: ${meters.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m`);
-      } else if (geom instanceof Polygon) {
-        const m2 = getArea(geom, { projection: map.getView().getProjection() });
-        setMeasureValue(`Área: ${(m2 / 10000).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ha | ${m2.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m²`);
-      }
+    const kind = measureMode;
+    const draw = new Draw({ source: measureSourceRef.current, type: kind, style: measureSketchStyle });
+    // Etiqueta que acompanha o cursor com as medidas em tempo real.
+    if (!measureOverlayRef.current) {
+      const element = document.createElement("div");
+      element.className = "measure-live-tooltip";
+      measureOverlayRef.current = new Overlay({
+        element, offset: [16, -12], positioning: "bottom-left", stopEvent: false,
+      });
+      map.addOverlay(measureOverlayRef.current);
+    }
+    const overlay = measureOverlayRef.current;
+    const tooltip = overlay.getElement() as HTMLElement;
+    let changeKey: EventsKey | null = null;
+    const stopLive = () => {
+      if (changeKey) unByKey(changeKey);
+      changeKey = null;
+      overlay.setPosition(undefined);
+      setLiveMeasure(null);
+    };
+    draw.on("drawstart", (event) => {
+      const geometry = event.feature.getGeometry();
+      if (!geometry) return;
+      changeKey = geometry.on("change", () => {
+        const open = openMeasureCoordinates(geometry);
+        if (!open || open.coords.length < 2) return;
+        const lonLat = open.coords.map((coordinate) => toLonLat(coordinate));
+        const last = lonLat.length - 1;
+        const segment = geodesicInverse(lonLat[last - 1][0], lonLat[last - 1][1], lonLat[last][0], lonLat[last][1]);
+        let total = 0;
+        for (let i = 0; i < last; i += 1) {
+          total += geodesicInverse(lonLat[i][0], lonLat[i][1], lonLat[i + 1][0], lonLat[i + 1][1]).distance;
+        }
+        const area = kind === "Polygon" && lonLat.length >= 3 ? ellipsoidalArea([...lonLat, lonLat[0]]) : null;
+        setLiveMeasure({ segment: segment.distance, azimuth: segment.azimuth, total, area, count: last });
+        const lines = [
+          `<strong>${formatLength(segment.distance)}</strong> · Az ${formatAzimuth(segment.azimuth)}`,
+          `${kind === "Polygon" ? "Perímetro aberto" : "Total"}: ${formatLength(total)}`,
+        ];
+        if (area !== null) lines.push(`Área: ${formatArea(area)}`);
+        tooltip.innerHTML = lines.join("<br>");
+        // Perto da borda direita a etiqueta passa para o lado esquerdo do cursor.
+        const pixel = map.getPixelFromCoordinate(open.coords[last]);
+        const nearRight = pixel ? pixel[0] > (map.getSize()?.[0] ?? 0) - 280 : false;
+        overlay.setPositioning(nearRight ? "bottom-right" : "bottom-left");
+        overlay.setOffset(nearRight ? [-16, -12] : [16, -12]);
+        overlay.setPosition(open.coords[last]);
+      });
     });
+    draw.on("drawabort", stopLive);
+    draw.on("drawend", ({ feature }) => {
+      stopLive();
+      const open = openMeasureCoordinates(feature.getGeometry());
+      if (!open) return;
+      const stats = measureStatsFromCoordinates(open.kind, open.coords);
+      measureSequenceRef.current += 1;
+      const id = `MED-${measureSequenceRef.current}`;
+      const name = `${kind === "Polygon" ? "Área" : "Distância"} ${measureSequenceRef.current}`;
+      feature.setId(id);
+      feature.set("measureStats", stats);
+      setMeasurements((current) => [...current, { id, kind, name, ...stats, visible: true }]);
+      setMeasureValue(kind === "Polygon" && stats.area !== null
+        ? `${name}: ${formatArea(stats.area)} · perímetro ${formatLength(stats.total)}`
+        : `${name}: ${formatLength(stats.total)}`);
+      setMeasurePanelOpen(true);
+    });
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if (event.key === "Backspace" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z")) {
+        event.preventDefault();
+        draw.removeLastPoint();
+      } else if (event.key === "Escape") {
+        draw.abortDrawing();
+      } else if (event.key === "Enter") {
+        draw.finishDrawing();
+      }
+    };
+    window.addEventListener("keydown", onKey);
     map.addInteraction(draw);
-    return () => { map.removeInteraction(draw); };
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      stopLive();
+      map.removeInteraction(draw);
+    };
   }, [measureMode]);
+
+  const toggleMeasurementVisible = (id: string, visible: boolean) => {
+    // Medição oculta sai da fonte: some do mapa e deixa de servir de snap.
+    if (visible) {
+      const feature = hiddenMeasureFeaturesRef.current.get(id);
+      if (feature) measureSourceRef.current.addFeature(feature);
+      hiddenMeasureFeaturesRef.current.delete(id);
+    } else {
+      const feature = measureSourceRef.current.getFeatureById(id);
+      if (feature) {
+        hiddenMeasureFeaturesRef.current.set(id, feature as Feature);
+        measureSourceRef.current.removeFeature(feature as Feature);
+      }
+    }
+    setMeasurements((current) => current.map((item) => item.id === id ? { ...item, visible } : item));
+  };
+
+  const removeMeasurement = (id: string) => {
+    const feature = measureSourceRef.current.getFeatureById(id);
+    if (feature) measureSourceRef.current.removeFeature(feature as Feature);
+    hiddenMeasureFeaturesRef.current.delete(id);
+    setMeasurements((current) => current.filter((item) => item.id !== id));
+  };
+
+  const clearMeasurements = () => {
+    measureSourceRef.current.clear();
+    hiddenMeasureFeaturesRef.current.clear();
+    setMeasurements([]);
+    setMeasureValue("");
+  };
+
+  const measurementFeature = (id: string) =>
+    (measureSourceRef.current.getFeatureById(id) as Feature | null)
+      ?? hiddenMeasureFeaturesRef.current.get(id) ?? null;
+
+  const zoomToMeasurement = (id: string) => {
+    const geometry = measurementFeature(id)?.getGeometry();
+    if (geometry) mapRef.current?.getView().fit(geometry.getExtent(), {
+      padding: [90, 420, 90, 90], maxZoom: 18, duration: 300,
+    });
+  };
+
+  const measurementToPolygon = (id: string) => {
+    const geometry = measurementFeature(id)?.getGeometry();
+    if (!(geometry instanceof Polygon)) return;
+    sourceRef.current.addFeature(new Feature({ geometry: geometry.clone() }));
+    window.setTimeout(emitGeometry, 0);
+  };
+
+  const copyMeasurements = () => {
+    const rows = ["Medição\tSegmento\tDistância (m)\tAzimute\tTotal/Perímetro (m)\tÁrea (ha)"];
+    for (const item of measurements) {
+      for (const segment of item.segments) {
+        rows.push([
+          item.name, segment.index,
+          segment.length.toFixed(3).replace(".", ","),
+          formatAzimuth(segment.azimuth),
+          item.total.toFixed(3).replace(".", ","),
+          item.area === null ? "" : (item.area / 10000).toFixed(4).replace(".", ","),
+        ].join("\t"));
+      }
+    }
+    void navigator.clipboard?.writeText(rows.join("\n")).then(() => {
+      setMeasureCopied(true);
+      window.setTimeout(() => setMeasureCopied(false), 2000);
+    });
+  };
+
 
   useEffect(() => {
     const map = mapRef.current;
@@ -2480,6 +2820,15 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
         })
       : null;
 
+    const measureSnap = new Snap({
+      source: measureSourceRef.current,
+      vertex: true,
+      edge: true,
+      intersection: true,
+      pixelTolerance: 14,
+    });
+    map.addInteraction(measureSnap);
+
     const layerSnap = snapLayersEnabled
       ? new Snap({
           source: snapLayerSourceRef.current,
@@ -2528,6 +2877,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
       if (subjectSnap) map.removeInteraction(subjectSnap);
       if (layerSnap) map.removeInteraction(layerSnap);
+      map.removeInteraction(measureSnap);
 
       if (snapSubjectRef.current === subjectSnap) {
         snapSubjectRef.current = null;
@@ -2539,7 +2889,7 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
 
       snapLayerSourceRef.current.clear();
     };
-  }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive, layers, incraUf]);
+  }, [snapSubjectEnabled, snapLayersEnabled, drawKind, modifyActive, measureMode, layers, incraUf]);
 
   const returnToIdentifyCandidates = () => {
     identifyAbortRef.current?.abort();
@@ -3257,14 +3607,97 @@ export function GeoMap({ onGeometryChange, layers, incraUf, resetNonce = 0, hide
           <span>Limpar</span>
         </button>
       </div>
-      {(measureMode || measureValue) && (
-        <div className="geo-measure-panel" role="status">
-          <strong>{measureValue || (measureMode === "LineString"
-            ? "Clique nos pontos e dê dois cliques para concluir a distância"
-            : "Clique nos vértices e dê dois cliques para concluir a área")}</strong>
-          <button type="button" onClick={() => { measureSourceRef.current.clear(); setMeasureValue(""); }}>Limpar medição</button>
-          <button type="button" onClick={() => setMeasureMode(null)}>Concluir</button>
-        </div>
+      {(measureMode || measurements.length > 0) && (
+        <aside className="geo-measure-panel geo-measure-pro" aria-label="Medições">
+          <header>
+            <button type="button" className="measure-panel-toggle" aria-expanded={measurePanelOpen}
+              onClick={() => setMeasurePanelOpen((open) => !open)}>
+              <Ruler size={15} />
+              <strong>Medições ({measurements.length})</strong>
+            </button>
+            <div>
+              {measureMode && <button type="button" onClick={() => setMeasureMode(null)}>Concluir</button>}
+              {measurements.length > 0 && (
+                <button type="button" onClick={clearMeasurements} title="Apagar todas as medições">Limpar</button>
+              )}
+            </div>
+          </header>
+          {measurePanelOpen && (
+            <>
+              {measureMode && (
+                <div className="measure-live" role="status" aria-live="polite">
+                  {liveMeasure ? (
+                    <>
+                      <span>Segmento {liveMeasure.count}: <strong>{formatLength(liveMeasure.segment)}</strong> · Az {formatAzimuth(liveMeasure.azimuth)}</span>
+                      <span>{measureMode === "Polygon" ? "Perímetro aberto" : "Total"}: <strong>{formatLength(liveMeasure.total)}</strong></span>
+                      {liveMeasure.area !== null && <span>Área: <strong>{formatArea(liveMeasure.area)}</strong></span>}
+                    </>
+                  ) : (
+                    <span>{measureMode === "LineString"
+                      ? "Clique no ponto inicial e vá clicando: cada clique fecha um segmento. Dois cliques ou Enter concluem."
+                      : "Clique nos vértices da área. Dois cliques ou Enter fecham o polígono."}</span>
+                  )}
+                  <small>Backspace desfaz o último ponto · Esc cancela · o snap prende nos vértices e linhas já medidos</small>
+                </div>
+              )}
+              {measurements.length > 0 && (
+                <ul className="measure-list">
+                  {measurements.map((item, itemIndex) => (
+                    <li key={item.id} className={item.visible ? "" : "is-hidden"}>
+                      <div className="measure-item-head">
+                        <input type="checkbox" checked={item.visible}
+                          aria-label={`Mostrar ${item.name}`}
+                          title="Marcar mostra no mapa; desmarcar oculta"
+                          onChange={(event) => toggleMeasurementVisible(item.id, event.target.checked)} />
+                        <button type="button" className="measure-name" onClick={() => zoomToMeasurement(item.id)} title="Aproximar no mapa">
+                          <strong>{item.name}</strong>
+                          <span>{item.kind === "Polygon" && item.area !== null
+                            ? `${formatArea(item.area)} · perímetro ${formatLength(item.total)}`
+                            : `${formatLength(item.total)} · ${item.segments.length} segmento(s)`}</span>
+                        </button>
+                        {item.kind === "Polygon" && (
+                          <button type="button" onClick={() => measurementToPolygon(item.id)}
+                            title="Criar um polígono de trabalho com esta área" aria-label="Criar polígono">
+                            <Pentagon size={14} />
+                          </button>
+                        )}
+                        <button type="button" className="measure-remove" onClick={() => removeMeasurement(item.id)}
+                          title="Excluir medição" aria-label={`Excluir ${item.name}`}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <details className="measure-segments-wrap" open={itemIndex === measurements.length - 1}>
+                      <summary>Segmentos e azimutes</summary>
+                      <table className="measure-segments">
+                        <thead><tr><th>Seg.</th><th>Distância</th><th>Azimute</th></tr></thead>
+                        <tbody>
+                          {item.segments.map((segment) => (
+                            <tr key={segment.index}>
+                              <td>{segment.index}</td>
+                              <td>{formatLength(segment.length)}</td>
+                              <td>{formatAzimuth(segment.azimuth)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {measurements.length > 0 && (
+                <div className="measure-actions">
+                  <button type="button" onClick={copyMeasurements}>{measureCopied ? "Copiado" : "Copiar tabela"}</button>
+                  <button type="button" className="primary" onClick={() => activateDraw("Polygon")}
+                    title="Desenhar um polígono de trabalho com snap nas medições">
+                    <Pentagon size={13} /> Desenhar polígono sobre as medições
+                  </button>
+                </div>
+              )}
+              <small className="measure-note">Distâncias e azimutes geodésicos (Vincenty) e área elipsoidal no GRS80 / SIRGAS 2000.</small>
+            </>
+          )}
+        </aside>
       )}
       {!hideAdvancedTools && <div className="geo-advanced-tools" aria-label="Ferramentas avançadas">
         <button className={advancedPanel === "coordinates" ? "active" : ""} onClick={() => setAdvancedPanel((current) => current === "coordinates" ? null : "coordinates")} title="Inserir coordenadas manualmente"><MapPin size={18} /></button>

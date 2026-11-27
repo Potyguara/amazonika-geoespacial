@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publica na produção do Geoespacial SÓ o download de parcelas + correções da PR #23,
+# Publica na produção do Geoespacial SÓ o download de parcelas, as correções e a medição profissional da PR #23,
 # sobre o código da web geo44 (/opt/amazonika-geo-detalhamento-stage) e a API geo71.
 #
 #   ETAPA 1 (padrão): monta e testa as imagens novas. NÃO mexe na produção.
@@ -82,6 +82,7 @@ TAG=geo44p-$(date +%Y%m%d%H%M)
 WORK=/opt/amazonika-builds/$TAG
 mkdir -p "$WORK/web" "$WORK/api/app/services" "$WORK/api/app/api/routes"
 curl -fsSL "$SRC_RAW/aplicar_parcelas_geo44.py" -o "$WORK/aplicar_parcelas_geo44.py"
+curl -fsSL "$SRC_RAW/aplicar_medicao.py" -o "$WORK/aplicar_medicao.py"
 echo ">> Pasta de trabalho: $WORK"
 
 echo ">> Conferindo se $STAGE corresponde à geo44 (textos da tela presentes no build publicado)"
@@ -98,10 +99,11 @@ if [ "$TOTAL" -lt 10 ] || [ $((FALTA*10)) -gt "$TOTAL" ]; then
 echo ">> Web: copiando o stage e aplicando as mudanças"
 tar -C "$STAGE" --exclude=./node_modules --exclude=./dist --exclude=./.next --exclude=./.git -cf - . | tar -C "$WORK/web" -xf -
 python3 "$WORK/aplicar_parcelas_geo44.py" web "$WORK/web"
+python3 "$WORK/aplicar_medicao.py" "$WORK/web"
 DF="$WORK/web/Dockerfile.web.production"; [ -f "$DF" ] || cp "$PROD/Dockerfile.web.production" "$DF"
 echo ">> Web: build da imagem (alguns minutos)"
 nice -n 15 docker build -q -f "$DF" -t "amazonika-web-candidato:$TAG" \
-  --label org.opencontainers.image.revision="geo44+pr23" "$WORK/web"
+  --label org.opencontainers.image.revision="geo44+pr23+medicao" "$WORK/web"
 
 echo ">> API: copiando arquivos da geo71 e aplicando as mudanças"
 CID=$(docker create "$OLD_API")

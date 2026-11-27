@@ -6829,3 +6829,51 @@ button[data-busy="true"]::after {
 @media (max-width: 760px) {
   .download-parcels-panel { left: 10px; right: 10px; width: auto; bottom: 70px; }
 }
+
+/* Medição profissional de distância e área */
+.geo-measure-panel.geo-measure-pro {
+  top: 92px; left: auto; right: 70px;
+  width: min(370px, calc(100% - 90px));
+  max-height: calc(100% - 120px);
+  display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 8px;
+  padding: 10px 12px 12px; border-color: #f3cf8f; border-radius: 12px; overflow: hidden;
+}
+.geo-measure-pro header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.geo-measure-pro header > div { display: flex; gap: 6px; }
+.geo-measure-pro .measure-panel-toggle {
+  display: flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 2px; color: #7c3d00;
+}
+.geo-measure-pro .measure-panel-toggle strong { font-size: 13px; color: #5c2d00; }
+.measure-live {
+  display: grid; gap: 3px; padding: 8px 10px; border-radius: 8px;
+  background: #fffbeb; border: 1px solid #fde3a7; color: #5c2d00; font-size: 12px;
+}
+.measure-live small, .measure-note { color: #7a6a55; font-size: 10px; line-height: 1.35; }
+.measure-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; flex: 1 1 auto; display: grid; gap: 8px; }
+.measure-list li { border: 1px solid #f2dcc5; border-radius: 9px; background: #fffdf9; padding: 7px 8px; }
+.measure-list li.is-hidden { opacity: .55; }
+.measure-item-head { display: flex; align-items: center; gap: 7px; }
+.measure-item-head > input { width: 16px; height: 16px; flex-shrink: 0; }
+.geo-measure-pro .measure-item-head > button:not(.measure-name) {
+  border: 1px solid #f0c48a; background: #fff7ed; color: #8a4300; border-radius: 6px; padding: 5px; cursor: pointer;
+}
+.geo-measure-pro .measure-item-head > button.measure-remove { border-color: #f3c4c4; background: #fff0ee; color: #9b3333; }
+.geo-measure-pro .measure-name { flex: 1; min-width: 0; display: grid; text-align: left; border: 0; background: transparent; padding: 0; cursor: pointer; }
+.measure-name strong { font-size: 12px; color: #173f33; }
+.measure-name span { font-size: 10px; color: #6b7c74; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.measure-segments-wrap summary { cursor: pointer; margin-top: 5px; font-size: 10.5px; font-weight: 800; color: #8a4300; }
+.measure-segments { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.measure-segments th { text-align: left; color: #8a6a45; font-weight: 800; border-bottom: 1px solid #f2dcc5; padding: 3px 4px; }
+.measure-segments td { padding: 3px 4px; border-bottom: 1px dashed #f5e6d3; color: #2b3a33; }
+.measure-actions { display: grid; grid-template-columns: auto 1fr; gap: 6px; }
+.measure-actions button { display: flex; justify-content: center; align-items: center; gap: 5px; font-weight: 800; font-size: 11px; }
+.geo-measure-pro .measure-actions button.primary { background: #f59e0b; border-color: #d97706; color: #fff; }
+.measure-live-tooltip {
+  pointer-events: none; white-space: nowrap; padding: 6px 9px; border-radius: 8px;
+  background: rgba(23, 63, 51, .94); color: #fff; font: 600 11.5px/1.45 Inter, sans-serif;
+  box-shadow: 0 6px 18px rgba(0,0,0,.25); font-variant-numeric: tabular-nums;
+}
+.measure-live-tooltip strong { color: #fcd34d; font-size: 13px; }
+@media (max-width: 760px) {
+  .geo-measure-panel.geo-measure-pro { left: 10px; right: 10px; width: auto; top: 140px; max-height: 50vh; }
+}
